@@ -2,10 +2,17 @@
 
 ## Current Status (as of October 25, 2026)
 LaserBurn is a high-performance, modern laser CAM/CNC software written in Rust (`eframe`/`egui`).
-It is fully functional, all 50 unit tests pass, and it is deployed as a native signed macOS app bundle (`/Applications/LaserBurn.app`), as well as multi-platform distribution packages in `dist/` (macOS Universal 2 DMG/ZIP, Windows x64 ZIP, and Linux x86_64 tar.gz).
+It is fully functional, all 51 unit tests pass, and it is deployed as a native signed macOS app bundle (`/Applications/LaserBurn.app`), as well as multi-platform distribution packages in `dist/` (macOS Universal 2 DMG/ZIP, Windows x64 ZIP, and Linux x86_64 tar.gz).
 
 ### Key Milestones & Features Implemented:
-1. **8-Handle Non-Uniform Resizing & Aspect Ratio Control:**
+1. **True Analog Grayscale Power Modulation (Keramiikkalaatat & Monikerroskaiverrus):**
+   - Implemented real analog variable laser power engraving (`DitherMode::GrayscalePower`).
+   - Linearly modulates dynamic PWM laser power (`M4 S...`) between `CutSetting.power_min` and `CutSetting.power_max` based on pixel density.
+   - **Overscan margin (lead-in & lead-out):** Allows the laser head to accelerate/decelerate outside the active burn zone at 0% power, completely eliminating burned tile edges.
+   - **Negative / Invert toggle:** Invert grayscale mapping for dark-coated ceramic tiles where the laser reveals underlying white/colored base layers.
+   - **Run-Length & tolerance compression:** Automatically groups adjacent pixels with similar power to prevent USB serial planner buffer underrun/stuttering on GRBL.
+
+2. **8-Handle Non-Uniform Resizing & Aspect Ratio Control:**
    - Interactive 8 resize handles on canvas (TopLeft, Top, TopRight, Right, BottomRight, Bottom, BottomLeft, Left) with high-visibility 10x10 px squares and generous 16px screen hit tolerance.
    - Fixed handle drag hit detection by tracking mouse press origin (`press_origin`) and avoiding accidental deselection.
    - When **"Lock Aspect Ratio"** is unchecked:

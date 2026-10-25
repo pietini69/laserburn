@@ -63,6 +63,10 @@ impl Default for GalvoTiming {
     }
 }
 
+fn default_overscan() -> f64 {
+    2.5
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CutSetting {
     pub name: String,
@@ -81,6 +85,10 @@ pub struct CutSetting {
     pub cross_hatch: bool,      // enable perpendicular second pass for Fill
     pub dither_mode: DitherMode,// dithering algorithm for Image mode
     pub galvo: GalvoTiming,     // galvo / fiber timing parameters
+    #[serde(default)]
+    pub invert_image: bool,     // invert light/dark in image engraving (negative)
+    #[serde(default = "default_overscan")]
+    pub overscan: f64,          // overscan acceleration/deceleration margin in mm (e.g. 2.5mm)
 }
 
 impl Default for CutSetting {
@@ -102,6 +110,8 @@ impl Default for CutSetting {
             cross_hatch: false,
             dither_mode: DitherMode::Atkinson,
             galvo: GalvoTiming::default(),
+            invert_image: false,
+            overscan: 2.5,
         }
     }
 }
@@ -587,6 +597,187 @@ impl Shape {
                 shapes.iter().flat_map(|s| s.to_raster_polylines(dither_mode, line_interval_mm)).collect()
             }
             _ => self.to_polylines(),
+        }
+    }
+
+    /// Generates raster toolpaths, returning a list of polylines and optional per-segment laser powers.
+    /// In binary dither modes (Atkinson, Floyd-Steinberg, etc.), laser power is constant (`None`).
+    /// In GrayscalePower mode, laser power is dynamically modulated for each segment (`Some(Vec<f64>)`)
+    /// between `cut_setting.power_min` and `cut_setting.power_max`, with support for negative inversion
+    /// and overscan acceleration/deceleration margins.
+    pub fn to_raster_paths(&self, cut_setting: &CutSetting) -> Vec<(Polyline, Option<Vec<f64>>)> {
+        match self {
+            Shape::Image {
+                x,
+                y,
+                width,
+                height,
+                raw_pixels,
+                raw_width,
+                raw_height,
+                image_path,
+                ..
+            } => {
+                if *width <= 0.0 || *height <= 0.0 {
+                    return vec![];
+                }
+
+                // Retrieve or load RGBA pixels
+                let (pixels, w_orig, h_orig) = if let (Some(px), w, h) = (raw_pixels, *raw_width, *raw_height) {
+                    if w > 0 && h > 0 {
+                        (px.clone(), w as usize, h as usize)
+                    } else {
+                        return vec![];
+                    }
+                } else if let Some(path) = image_path {
+                    if let Ok(dyn_img) = image::open(path) {
+                        let rgba = dyn_img.to_rgba8();
+                        let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+                        (rgba.into_raw(), w, h)
+                    } else {
+                        return vec![];
+                    }
+                } else {
+                    return vec![];
+                };
+
+                let interval = if cut_setting.line_interval > 0.005 {
+                    cut_setting.line_interval
+                } else {
+                    0.08
+                };
+
+                if cut_setting.dither_mode == DitherMode::GrayscalePower {
+                    let gray = crate::dither::to_grayscale(&pixels, w_orig, h_orig, 4);
+                    let target_h = ((*height / interval).round() as usize).clamp(1, 4000);
+                    let target_w = ((*width / interval).round() as usize).clamp(1, 4000);
+                    let resampled = crate::dither::resample_grayscale(&gray, w_orig, h_orig, target_w, target_h);
+
+                    let dx = *width / target_w as f64;
+                    let dy = *height / target_h as f64;
+                    let overscan = cut_setting.overscan.max(0.0);
+
+                    let mut result_paths = Vec::new();
+                    let p_min = cut_setting.power_min.clamp(0.0, 100.0);
+                    let p_max = cut_setting.power_max.clamp(0.0, 100.0);
+
+                    for py in 0..target_h {
+                        let cur_y = *y + (py as f64 + 0.5) * dy;
+                        let reverse = (py % 2) == 1;
+                        let row_start = py * target_w;
+
+                        // 1. Calculate per-pixel power percentage
+                        let mut row_powers = Vec::with_capacity(target_w);
+                        for px in 0..target_w {
+                            let mut val = resampled[row_start + px];
+                            if cut_setting.invert_image {
+                                val = 255.0 - val;
+                            }
+                            // Values >= 254.0 are pure white / background -> laser off (0.0% power)
+                            let p = if val >= 254.0 {
+                                0.0
+                            } else {
+                                let darkness = ((254.0 - val) / 254.0).clamp(0.0, 1.0) as f64;
+                                p_min + (p_max - p_min) * darkness
+                            };
+                            row_powers.push(p);
+                        }
+
+                        // Check if row has any burning pixels
+                        let first_active = row_powers.iter().position(|&p| p > 0.0);
+                        let last_active = row_powers.iter().rposition(|&p| p > 0.0);
+                        let (first_px, last_px) = match (first_active, last_active) {
+                            (Some(f), Some(l)) => (f, l),
+                            _ => continue, // completely white row, skip
+                        };
+
+                        // 2. Break row into strokes if there are large whitespace gaps (> 5.0 mm)
+                        let max_gap_px = (5.0 / dx).max(1.0).round() as usize;
+                        let mut strokes: Vec<(usize, usize)> = Vec::new();
+                        let mut stroke_start = first_px;
+                        let mut blank_count = 0;
+
+                        for px in first_px..=last_px {
+                            if row_powers[px] <= 0.0 {
+                                blank_count += 1;
+                            } else {
+                                if blank_count > max_gap_px {
+                                    let prev_stroke_end = px - blank_count - 1;
+                                    strokes.push((stroke_start, prev_stroke_end));
+                                    stroke_start = px;
+                                }
+                                blank_count = 0;
+                            }
+                        }
+                        strokes.push((stroke_start, last_px));
+
+                        // 3. For each stroke, compress adjacent pixels with similar power into segments
+                        let mut row_paths = Vec::new();
+                        for (s_start, s_end) in strokes {
+                            let stroke_x0 = *x + s_start as f64 * dx;
+                            let stroke_x1 = *x + (s_end + 1) as f64 * dx;
+
+                            let mut pts = Vec::new();
+                            let mut powers = Vec::new();
+
+                            pts.push(Point2D::new(stroke_x0, cur_y));
+
+                            let mut seg_power = row_powers[s_start];
+
+                            for px in s_start..=s_end {
+                                let p_curr = row_powers[px];
+                                let px_end_x = *x + (px + 1) as f64 * dx;
+
+                                // If power changed significantly (> 0.25% power diff)
+                                if (p_curr - seg_power).abs() > 0.25 {
+                                    pts.push(Point2D::new(px_end_x - dx, cur_y));
+                                    powers.push(seg_power);
+                                    seg_power = p_curr;
+                                }
+                            }
+                            pts.push(Point2D::new(stroke_x1, cur_y));
+                            powers.push(seg_power);
+
+                            // Apply overscan margin for smooth acceleration/deceleration without tile edge burns
+                            if overscan > 0.0 {
+                                let lead_in_x = (stroke_x0 - overscan).max(0.0);
+                                let lead_out_x = stroke_x1 + overscan;
+                                if (lead_in_x - stroke_x0).abs() > 1e-4 {
+                                    pts.insert(0, Point2D::new(lead_in_x, cur_y));
+                                    powers.insert(0, 0.0); // 0% power during acceleration
+                                }
+                                pts.push(Point2D::new(lead_out_x, cur_y));
+                                powers.push(0.0); // 0% power during deceleration
+                            }
+
+                            if reverse {
+                                pts.reverse();
+                                powers.reverse();
+                            }
+
+                            row_paths.push((Polyline::new(pts, false), Some(powers)));
+                        }
+
+                        if reverse {
+                            row_paths.reverse();
+                        }
+                        result_paths.extend(row_paths);
+                    }
+                    result_paths
+                } else {
+                    // Binary dither mode
+                    self.to_raster_polylines(cut_setting.dither_mode, interval)
+                        .into_iter()
+                        .map(|p| (p, None))
+                        .collect()
+                }
+            }
+            Shape::Group { shapes, .. } => {
+                shapes.iter().flat_map(|s| s.to_raster_paths(cut_setting)).collect()
+            }
+            _ => {
+                self.to_polylines().into_iter().map(|p| (p, None)).collect()
+            }
         }
     }
 

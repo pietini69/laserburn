@@ -2856,19 +2856,39 @@ impl eframe::App for LaserBurnApp {
                                     );
                                     ui.end_row();
 
-                                    // 2. Max Power (Numeric input + Slider)
-                                    ui.label("Power:");
+                                    // 2. Power (Max Power / Single Power)
+                                    let is_grayscale_power = layer.cut_setting.mode == CutMode::Image
+                                        && layer.cut_setting.dither_mode == DitherMode::GrayscalePower;
+
+                                    let power_label = if is_grayscale_power { "Max Power:" } else { "Power:" };
+                                    ui.label(power_label);
                                     ui.add(
                                         egui::DragValue::new(&mut layer.cut_setting.power_max)
                                             .speed(0.5)
                                             .range(0.0..=100.0)
                                             .suffix(" %"),
-                                    ).on_hover_text("Click to type power directly or drag");
+                                    ).on_hover_text("Max laser power (e.g. for pure black or deep layer burn)");
                                     ui.add(
                                         egui::Slider::new(&mut layer.cut_setting.power_max, 0.0..=100.0)
                                             .show_value(false),
                                     );
                                     ui.end_row();
+
+                                    // Min Power (Only shown for GrayscalePower)
+                                    if is_grayscale_power {
+                                        ui.label("Min Power:");
+                                        ui.add(
+                                            egui::DragValue::new(&mut layer.cut_setting.power_min)
+                                                .speed(0.5)
+                                                .range(0.0..=100.0)
+                                                .suffix(" %"),
+                                        ).on_hover_text("Min laser power for light tones / top paint layer");
+                                        ui.add(
+                                            egui::Slider::new(&mut layer.cut_setting.power_min, 0.0..=100.0)
+                                                .show_value(false),
+                                        );
+                                        ui.end_row();
+                                    }
 
                                     // 3. Passes (Numeric input + Slider)
                                     ui.label("Passes:");
@@ -2914,7 +2934,7 @@ impl eframe::App for LaserBurnApp {
                                                 DitherMode::Halftone => "Halftone (Dots)",
                                                 DitherMode::OrderedBayer => "Ordered (Bayer 8x8)",
                                                 DitherMode::Threshold => "Threshold (B&W)",
-                                                DitherMode::GrayscalePower => "Grayscale Power (Analog)",
+                                                DitherMode::GrayscalePower => "Grayscale Power (Analog / Ceramics)",
                                             })
                                             .show_ui(ui, |ui| {
                                                 ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::Atkinson, "Atkinson (Best Detail for Wood/Slate)");
@@ -2924,10 +2944,28 @@ impl eframe::App for LaserBurnApp {
                                                 ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::Halftone, "Halftone (Engraving Screen Dots)");
                                                 ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::OrderedBayer, "Ordered (Bayer 8x8 Matrix)");
                                                 ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::Threshold, "Threshold (Pure Black & White)");
-                                                ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::GrayscalePower, "Grayscale Power (Variable Laser Power)");
+                                                ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::GrayscalePower, "Grayscale Power (Variable Laser Power / Ceramics)");
                                             });
                                         ui.label(egui::RichText::new("Photo engraving algorithm").small().weak());
                                         ui.end_row();
+
+                                        if layer.cut_setting.dither_mode == DitherMode::GrayscalePower {
+                                            ui.label("Invert:");
+                                            ui.checkbox(&mut layer.cut_setting.invert_image, "Negative / Invert")
+                                                .on_hover_text("Invert light/dark mapping (e.g. for ceramics where laser removes dark coat to reveal light coat)");
+                                            ui.label(egui::RichText::new("For layered tiles / glass").small().weak());
+                                            ui.end_row();
+
+                                            ui.label("Overscan:");
+                                            ui.add(
+                                                egui::DragValue::new(&mut layer.cut_setting.overscan)
+                                                    .speed(0.1)
+                                                    .range(0.0..=20.0)
+                                                    .suffix(" mm"),
+                                            ).on_hover_text("Acceleration & deceleration margin outside image to eliminate edge-burning on tiles");
+                                            ui.label(egui::RichText::new("Prevents burnt tile edges").small().weak());
+                                            ui.end_row();
+                                        }
                                     }
 
                                     // 6. Line Interval / Resolution (Visible for Image & Fill modes)

@@ -109,23 +109,52 @@ impl GCodeGenerator {
                 let (x0, y0) = map_pt(&pts[0]);
                 out.push_str(&format!("G0 X{:.3} Y{:.3}\n", x0, y0));
 
-                // Start laser
-                out.push_str(&format!("{} S{:.1}\n", laser_mode_cmd, s_val));
+                if let Some(ref powers) = path.powers {
+                    // Variable laser power mode (Grayscale Power / Ceramic tile engraving)
+                    let mode_cmd = if self.config.dynamic_power_mode { "M4" } else { "M3" };
+                    let mut current_s = -1.0;
 
-                // Cut along polyline
-                for pt in &pts[1..] {
-                    let (xi, yi) = map_pt(pt);
-                    out.push_str(&format!("G1 X{:.3} Y{:.3} F{:.1}\n", xi, yi, speed_mm_min));
+                    for (i, pt) in pts[1..].iter().enumerate() {
+                        let seg_power = powers.get(i).copied().unwrap_or(0.0);
+                        let s_val = if seg_power <= 0.001 {
+                            0.0
+                        } else {
+                            (seg_power / 100.0 * self.config.max_s_value).clamp(0.0, self.config.max_s_value)
+                        };
+                        let (xi, yi) = map_pt(pt);
+
+                        if i == 0 {
+                            // Turn on laser mode and initiate cut move
+                            out.push_str(&format!("{} S{:.1}\n", mode_cmd, s_val));
+                            out.push_str(&format!("G1 X{:.3} Y{:.3} S{:.1} F{:.1}\n", xi, yi, s_val, speed_mm_min));
+                            current_s = s_val;
+                        } else if (s_val - current_s).abs() > 0.05 {
+                            out.push_str(&format!("G1 X{:.3} Y{:.3} S{:.1}\n", xi, yi, s_val));
+                            current_s = s_val;
+                        } else {
+                            out.push_str(&format!("G1 X{:.3} Y{:.3}\n", xi, yi));
+                        }
+                    }
+                    out.push_str("M5 ; Laser off\n");
+                } else {
+                    // Start laser
+                    out.push_str(&format!("{} S{:.1}\n", laser_mode_cmd, s_val));
+
+                    // Cut along polyline
+                    for pt in &pts[1..] {
+                        let (xi, yi) = map_pt(pt);
+                        out.push_str(&format!("G1 X{:.3} Y{:.3} F{:.1}\n", xi, yi, speed_mm_min));
+                    }
+
+                    // Close loop if needed
+                    if path.polyline.is_closed && pts.len() > 2 {
+                        let (x0, y0) = map_pt(&pts[0]);
+                        out.push_str(&format!("G1 X{:.3} Y{:.3} F{:.1}\n", x0, y0, speed_mm_min));
+                    }
+
+                    // Laser off
+                    out.push_str("M5 ; Laser off\n");
                 }
-
-                // Close loop if needed
-                if path.polyline.is_closed && pts.len() > 2 {
-                    let (x0, y0) = map_pt(&pts[0]);
-                    out.push_str(&format!("G1 X{:.3} Y{:.3} F{:.1}\n", x0, y0, speed_mm_min));
-                }
-
-                // Laser off
-                out.push_str("M5 ; Laser off\n");
             }
         }
 

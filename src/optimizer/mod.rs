@@ -11,6 +11,7 @@ pub struct OptimizedPath {
     pub layer_index: usize,
     pub polyline: Polyline,
     pub is_inner_cut: bool,
+    pub powers: Option<Vec<f64>>,
 }
 
 pub struct CutOptimizer {
@@ -44,8 +45,8 @@ impl CutOptimizer {
 
     /// Optimizes all shapes in a document into an ordered sequence of laser toolpaths
     pub fn optimize(&self, doc: &Document) -> OptimizedJob {
-        // Step 1: Collect all polylines grouped by layer
-        let mut layer_groups: std::collections::BTreeMap<i32, Vec<(usize, Polyline)>> =
+        // Step 1: Collect all paths grouped by layer priority
+        let mut layer_groups: std::collections::BTreeMap<i32, Vec<OptimizedPath>> =
             std::collections::BTreeMap::new();
 
         for shape in &doc.shapes {
@@ -67,22 +68,44 @@ impl CutOptimizer {
                 .unwrap_or(layer_idx as i32);
 
             let layer_cut_setting = doc.layers.get(&layer_idx).map(|l| &l.cut_setting);
-            let polys = if let Some(cs) = layer_cut_setting {
+            let paths: Vec<OptimizedPath> = if let Some(cs) = layer_cut_setting {
                 if cs.mode == crate::document::CutMode::Image {
-                    let interval = if cs.line_interval > 0.005 {
-                        cs.line_interval
-                    } else {
-                        0.08
-                    };
-                    shape.to_raster_polylines(cs.dither_mode, interval)
+                    shape.to_raster_paths(cs).into_iter().map(|(poly, powers)| {
+                        OptimizedPath {
+                            layer_index: layer_idx,
+                            polyline: poly,
+                            is_inner_cut: false,
+                            powers,
+                        }
+                    }).collect()
+                } else if cs.mode == crate::document::CutMode::Fill {
+                    let interval = if cs.line_interval > 0.005 { cs.line_interval } else { 0.08 };
+                    let polys = shape.to_polylines();
+                    let hatch_polys = crate::hatch::generate_hatch(&polys, interval, cs.scan_angle, cs.cross_hatch);
+                    hatch_polys.into_iter().map(|p| OptimizedPath {
+                        layer_index: layer_idx,
+                        polyline: p,
+                        is_inner_cut: false,
+                        powers: None,
+                    }).collect()
                 } else {
-                    shape.to_polylines()
+                    shape.to_polylines().into_iter().map(|p| OptimizedPath {
+                        layer_index: layer_idx,
+                        polyline: p,
+                        is_inner_cut: false,
+                        powers: None,
+                    }).collect()
                 }
             } else {
-                shape.to_polylines()
+                shape.to_polylines().into_iter().map(|p| OptimizedPath {
+                    layer_index: layer_idx,
+                    polyline: p,
+                    is_inner_cut: false,
+                    powers: None,
+                }).collect()
             };
-            for p in polys {
-                layer_groups.entry(priority).or_default().push((layer_idx, p));
+            for p in paths {
+                layer_groups.entry(priority).or_default().push(p);
             }
         }
 
@@ -95,15 +118,29 @@ impl CutOptimizer {
                 continue;
             }
 
-            // Step 2a: Classify inner vs outer contours
+            // Image raster layers and Hatch Fill layers are already ordered scanlines
+            let is_raster_layer = items
+                .first()
+                .and_then(|item| doc.layers.get(&item.layer_index))
+                .map_or(false, |l| {
+                    l.cut_setting.mode == crate::document::CutMode::Image
+                        || l.cut_setting.mode == crate::document::CutMode::Fill
+                });
+
+            if is_raster_layer {
+                final_paths.extend(items);
+                continue;
+            }
+
+            // Step 2a: Classify inner vs outer contours for vector cuts
             let mut classified: Vec<OptimizedPath> = Vec::with_capacity(items.len());
             for i in 0..items.len() {
-                let is_inner = if self.inner_cuts_first && items[i].1.is_closed {
+                let is_inner = if self.inner_cuts_first && items[i].polyline.is_closed {
                     // Check if items[i] is contained inside any other closed polygon in the layer
                     let mut contained = false;
-                    if let Some(test_pt) = items[i].1.points.first() {
+                    if let Some(test_pt) = items[i].polyline.points.first() {
                         for (j, item) in items.iter().enumerate() {
-                            if i != j && item.1.is_closed && item.1.contains_point(test_pt) {
+                            if i != j && item.polyline.is_closed && item.polyline.contains_point(test_pt) {
                                 contained = true;
                                 break;
                             }
@@ -114,24 +151,25 @@ impl CutOptimizer {
                     false
                 };
 
-                let layer_opt = doc.layers.get(&items[i].0);
+                let layer_opt = doc.layers.get(&items[i].layer_index);
                 let is_vector_line = layer_opt.map_or(true, |l| l.cut_setting.mode == crate::document::CutMode::Line);
                 let layer_kerf = layer_opt.map(|l| l.cut_setting.kerf).unwrap_or(0.0);
                 let eff_kerf = if layer_kerf != 0.0 { layer_kerf } else { self.default_kerf };
 
-                let poly = if is_vector_line && eff_kerf.abs() > 1e-5 && items[i].1.is_closed {
+                let poly = if is_vector_line && eff_kerf.abs() > 1e-5 && items[i].polyline.is_closed {
                     // Outer cut: laser burns on cutline, so expand shape outward (+eff_kerf / 2.0)
                     // Inner cut (hole/slot): laser burns on cutline, so shrink hole inward (-eff_kerf / 2.0)
                     let offset_dist = if is_inner { -eff_kerf * 0.5 } else { eff_kerf * 0.5 };
-                    items[i].1.offset(offset_dist)
+                    items[i].polyline.offset(offset_dist)
                 } else {
-                    items[i].1.clone()
+                    items[i].polyline.clone()
                 };
 
                 classified.push(OptimizedPath {
-                    layer_index: items[i].0,
+                    layer_index: items[i].layer_index,
                     polyline: poly,
                     is_inner_cut: is_inner,
+                    powers: items[i].powers.clone(),
                 });
             }
 
@@ -146,15 +184,8 @@ impl CutOptimizer {
                 });
             }
 
-            // For Image (raster) layers, bypass TSP nearest-neighbor reordering to preserve
-            // the optimal serpentine scanline order and avoid O(N^2) processing delay
-            let is_image_layer = items
-                .first()
-                .and_then(|(l_idx, _)| doc.layers.get(l_idx))
-                .map_or(false, |l| l.cut_setting.mode == crate::document::CutMode::Image);
-
             // Step 2c: Nearest-Neighbor TSP optimization for rapid travel (vector layers only)
-            if !is_image_layer && self.minimize_travel && classified.len() > 1 {
+            if self.minimize_travel && classified.len() > 1 {
                 let mut remaining = classified;
                 let mut reordered: Vec<OptimizedPath> = Vec::with_capacity(remaining.len());
 
@@ -197,6 +228,9 @@ impl CutOptimizer {
                     let mut chosen = remaining.remove(best_idx);
                     if should_reverse {
                         chosen.polyline.reverse();
+                        if let Some(ref mut p) = chosen.powers {
+                            p.reverse();
+                        }
                     }
 
                     if let Some(last_pt) = chosen.polyline.points.last() {
@@ -218,6 +252,7 @@ impl CutOptimizer {
                                 layer_index: path.layer_index,
                                 polyline: seg,
                                 is_inner_cut: path.is_inner_cut,
+                                powers: None,
                             });
                         }
                     } else {
@@ -383,5 +418,69 @@ mod tests {
         // Only Layer 0 should be cut, Layer 30 (Tool) and Layer 1 (Output=false) must be omitted!
         assert_eq!(job.paths.len(), 1);
         assert_eq!(job.paths[0].layer_index, 0);
+    }
+
+    #[test]
+    fn test_grayscale_power_analog_raster_and_gcode() {
+        let mut doc = Document::new("grayscale_test", 100.0, 100.0);
+        let layer = doc.get_or_create_layer(1);
+        layer.cut_setting.mode = crate::document::CutMode::Image;
+        layer.cut_setting.dither_mode = crate::document::DitherMode::GrayscalePower;
+        layer.cut_setting.power_min = 10.0;
+        layer.cut_setting.power_max = 90.0;
+        layer.cut_setting.line_interval = 0.5; // 0.5 mm spacing
+        layer.cut_setting.overscan = 2.0;
+
+        // Create an image 10x4 pixels:
+        // Left: White (255) -> 0% power
+        // Mid: Gray (128) -> ~50% between min(10) and max(90) = ~50%
+        // Right: Black (0) -> max(90)% power
+        let w = 10usize;
+        let h = 4usize;
+        let mut pixels = Vec::with_capacity(w * h * 4);
+        for _y in 0..h {
+            for x in 0..w {
+                let v = if x < 2 {
+                    255u8 // White background
+                } else if x < 6 {
+                    128u8 // Mid gray
+                } else {
+                    0u8   // Full black
+                };
+                pixels.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+
+        doc.shapes.push(crate::document::Shape::Image {
+            layer_index: 1,
+            x: 10.0,
+            y: 10.0,
+            width: 10.0,
+            height: 2.0,
+            image_path: None,
+            raw_pixels: Some(pixels),
+            raw_width: w as u32,
+            raw_height: h as u32,
+        });
+
+        let opt = CutOptimizer::new();
+        let job = opt.optimize(&doc);
+
+        assert!(!job.paths.is_empty(), "Should generate toolpaths for image");
+        let first_path = &job.paths[0];
+        assert!(first_path.powers.is_some(), "Path should have variable powers");
+
+        let powers = first_path.powers.as_ref().unwrap();
+        // Check that powers contain modulated values
+        assert!(powers.iter().any(|&p| p > 10.0 && p < 60.0), "Should contain mid-gray power");
+        assert!(powers.iter().any(|&p| p >= 85.0), "Should contain high power for black");
+
+        // Verify G-code generation
+        let gen = crate::formats::GCodeGenerator::new(crate::formats::GCodeConfig::default());
+        let gcode = gen.generate(&doc, &job);
+
+        assert!(gcode.contains("G1 "), "G-code should have G1 feed moves");
+        assert!(gcode.contains("S"), "G-code should have modulated S power parameters");
+        assert!(gcode.contains("M4") || gcode.contains("M3"), "G-code should enable laser mode");
     }
 }
