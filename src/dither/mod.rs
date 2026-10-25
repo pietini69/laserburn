@@ -297,3 +297,160 @@ pub fn dither_halftone(
     }
     out
 }
+
+/// Applies non-destructive Brightness (-100..100), Contrast (-100..100), Gamma (0.1..5.0),
+/// and Unsharp-Mask Sharpening (0..100) to a grayscale buffer (0..255).
+pub fn preprocess_grayscale(
+    gray: &[f32],
+    width: usize,
+    height: usize,
+    brightness: f32,
+    contrast: f32,
+    gamma: f32,
+    sharpen: f32,
+) -> Vec<f32> {
+    if gray.is_empty() {
+        return Vec::new();
+    }
+    let is_neutral = brightness.abs() < 1e-3
+        && contrast.abs() < 1e-3
+        && (gamma - 1.0).abs() < 1e-3
+        && sharpen < 1e-3;
+    if is_neutral {
+        return gray.to_vec();
+    }
+
+    // 1. Optional 3x3 Unsharp Mask / Laplacian sharpening for crisp engraving edges
+    let mut buf = if sharpen > 1e-3 && width >= 3 && height >= 3 {
+        let amount = (sharpen / 100.0).clamp(0.0, 2.0) * 1.5;
+        let mut sharpened = gray.to_vec();
+        for y in 1..(height - 1) {
+            for x in 1..(width - 1) {
+                let idx = y * width + x;
+                let c = gray[idx];
+                let top = gray[(y - 1) * width + x];
+                let bot = gray[(y + 1) * width + x];
+                let left = gray[y * width + (x - 1)];
+                let right = gray[y * width + (x + 1)];
+                let lap = 4.0 * c - top - bot - left - right;
+                sharpened[idx] = (c + amount * lap).clamp(0.0, 255.0);
+            }
+        }
+        sharpened
+    } else {
+        gray.to_vec()
+    };
+
+    // 2. Brightness, Contrast, and Gamma
+    let c_scaled = (contrast.clamp(-100.0, 100.0) * 2.54).clamp(-254.0, 254.0);
+    let factor = (259.0 * (c_scaled + 255.0)) / (255.0 * (259.0 - c_scaled));
+    let b_offset = brightness.clamp(-100.0, 100.0) * 2.55;
+    let g_clamped = gamma.clamp(0.1, 5.0);
+    let apply_gamma = (g_clamped - 1.0).abs() > 1e-3;
+    let inv_gamma = 1.0 / g_clamped;
+
+    for v in &mut buf {
+        let mut p = factor * (*v + b_offset - 128.0) + 128.0;
+        p = p.clamp(0.0, 255.0);
+        if apply_gamma {
+            p = 255.0 * (p / 255.0).powf(inv_gamma);
+        }
+        *v = p.clamp(0.0, 255.0);
+    }
+
+    buf
+}
+
+fn parse_hex_rgb(hex: &str) -> (u8, u8, u8) {
+    let h = hex.trim_start_matches('#');
+    if h.len() >= 6 {
+        let r = u8::from_str_radix(&h[0..2], 16).unwrap_or(200);
+        let g = u8::from_str_radix(&h[2..4], 16).unwrap_or(200);
+        let b = u8::from_str_radix(&h[4..6], 16).unwrap_or(200);
+        (r, g, b)
+    } else {
+        (200, 200, 200)
+    }
+}
+
+/// Generates an RGBA preview image showing live Brightness/Contrast/Gamma/Sharpen/Invert adjustments,
+/// and optionally simulates multi-layer Ceramic Tile paint colors based on laser power thresholds.
+pub fn render_processed_preview_rgba(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    brightness: f32,
+    contrast: f32,
+    gamma: f32,
+    sharpen: f32,
+    invert_image: bool,
+    ceramic_preview: bool,
+    power_min: f64,
+    power_max: f64,
+    ceramic_bands: &[crate::document::CeramicColorBand],
+) -> Vec<u8> {
+    let is_neutral = brightness.abs() < 1e-3
+        && contrast.abs() < 1e-3
+        && (gamma - 1.0).abs() < 1e-3
+        && sharpen < 1e-3
+        && !invert_image
+        && !ceramic_preview;
+    if is_neutral {
+        return rgba.to_vec();
+    }
+
+    let gray = to_grayscale(rgba, width, height, 4);
+    let processed = preprocess_grayscale(&gray, width, height, brightness, contrast, gamma, sharpen);
+
+    let parsed_bands: Vec<(f64, (u8, u8, u8))> = ceramic_bands
+        .iter()
+        .map(|b| (b.max_power_pct, parse_hex_rgb(&b.color_hex)))
+        .collect();
+
+    let p_min = power_min.clamp(0.0, 100.0);
+    let p_max = power_max.clamp(0.0, 100.0);
+
+    let mut out = Vec::with_capacity(width * height * 4);
+    for (i, &val_raw) in processed.iter().enumerate() {
+        let a = rgba.get(i * 4 + 3).copied().unwrap_or(255);
+        let mut val = val_raw;
+        if invert_image {
+            val = 255.0 - val;
+        }
+
+        if ceramic_preview && !parsed_bands.is_empty() {
+            let power_pct = if val >= 254.0 {
+                0.0
+            } else {
+                let darkness = ((254.0 - val) / 254.0).clamp(0.0, 1.0) as f64;
+                p_min + (p_max - p_min) * darkness
+            };
+
+            // Find matching band and smoothly blend within 3% around transitions for realistic paint ablation
+            let mut chosen_rgb = parsed_bands.last().unwrap().1;
+            let mut prev_max = 0.0;
+            for (idx, &(band_max, rgb)) in parsed_bands.iter().enumerate() {
+                if power_pct <= band_max {
+                    // Check smooth transition from previous band
+                    if idx > 0 && (power_pct - prev_max) < 3.0 {
+                        let t = ((power_pct - prev_max) / 3.0).clamp(0.0, 1.0) as f32;
+                        let prev_rgb = parsed_bands[idx - 1].1;
+                        let r = (prev_rgb.0 as f32 * (1.0 - t) + rgb.0 as f32 * t).round() as u8;
+                        let g = (prev_rgb.1 as f32 * (1.0 - t) + rgb.1 as f32 * t).round() as u8;
+                        let b = (prev_rgb.2 as f32 * (1.0 - t) + rgb.2 as f32 * t).round() as u8;
+                        chosen_rgb = (r, g, b);
+                    } else {
+                        chosen_rgb = rgb;
+                    }
+                    break;
+                }
+                prev_max = band_max;
+            }
+            out.extend_from_slice(&[chosen_rgb.0, chosen_rgb.1, chosen_rgb.2, a]);
+        } else {
+            let g = val.round().clamp(0.0, 255.0) as u8;
+            out.extend_from_slice(&[g, g, g, a]);
+        }
+    }
+    out
+}

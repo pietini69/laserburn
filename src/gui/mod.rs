@@ -150,6 +150,28 @@ pub struct LaserBurnApp {
     pub doc_version: u64,
     pub cached_estimate: crate::simulator::SimulationStats,
     pub last_sim_version: u64,
+
+    // Undo / Redo History Stacks (up to 50 snapshots)
+    pub undo_stack: Vec<Vec<Shape>>,
+    pub redo_stack: Vec<Vec<Shape>>,
+
+    // Offset Shapes Tool State
+    pub show_offset_window: bool,
+    pub offset_distance: f64,
+    pub offset_inward: bool,
+    pub offset_both: bool,
+    pub offset_delete_orig: bool,
+
+    // Material Test Generator Window State
+    pub show_material_test_window: bool,
+    pub mat_test_rows: usize,
+    pub mat_test_cols: usize,
+    pub mat_test_min_speed: f64,
+    pub mat_test_max_speed: f64,
+    pub mat_test_min_power: f64,
+    pub mat_test_max_power: f64,
+    pub mat_test_box_size: f64,
+    pub mat_test_is_engrave: bool,
 }
 
 #[cfg(feature = "gui")]
@@ -219,6 +241,22 @@ impl Default for LaserBurnApp {
             doc_version: 0,
             cached_estimate: crate::simulator::SimulationStats::default(),
             last_sim_version: u64::MAX,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            show_offset_window: false,
+            offset_distance: 2.0,
+            offset_inward: false,
+            offset_both: false,
+            offset_delete_orig: false,
+            show_material_test_window: false,
+            mat_test_rows: 5,
+            mat_test_cols: 5,
+            mat_test_min_speed: 20.0,
+            mat_test_max_speed: 100.0,
+            mat_test_min_power: 15.0,
+            mat_test_max_power: 95.0,
+            mat_test_box_size: 10.0,
+            mat_test_is_engrave: true,
             file_dialog_tx,
             file_dialog_rx,
         };
@@ -262,7 +300,385 @@ impl LaserBurnApp {
         }
     }
 
+    /// Saves current document shapes onto the Undo stack (max 50 steps) and clears Redo
+    pub fn push_undo(&mut self) {
+        if self.undo_stack.len() >= 50 {
+            self.undo_stack.remove(0);
+        }
+        self.undo_stack.push(self.doc.shapes.clone());
+        self.redo_stack.clear();
+        self.doc_version = self.doc_version.wrapping_add(1);
+    }
+
+    /// Reverts the last document edit (Cmd+Z / Ctrl+Z)
+    pub fn undo(&mut self) {
+        if let Some(prev_shapes) = self.undo_stack.pop() {
+            self.redo_stack.push(self.doc.shapes.clone());
+            self.doc.shapes = prev_shapes;
+            self.selected_shape_indices.retain(|&i| i < self.doc.shapes.len());
+            self.image_textures.clear();
+            self.doc_version = self.doc_version.wrapping_add(1);
+            self.status_msg = format!("Undo ({} steps remaining)", self.undo_stack.len());
+        } else {
+            self.status_msg = "Nothing to undo".to_string();
+        }
+    }
+
+    /// Re-applies an undone document edit (Cmd+Shift+Z / Ctrl+Y)
+    pub fn redo(&mut self) {
+        if let Some(next_shapes) = self.redo_stack.pop() {
+            self.undo_stack.push(self.doc.shapes.clone());
+            self.doc.shapes = next_shapes;
+            self.selected_shape_indices.retain(|&i| i < self.doc.shapes.len());
+            self.image_textures.clear();
+            self.doc_version = self.doc_version.wrapping_add(1);
+            self.status_msg = format!("Redo ({} steps remaining)", self.redo_stack.len());
+        } else {
+            self.status_msg = "Nothing to redo".to_string();
+        }
+    }
+
+    /// Applies contour offset (Outward, Inward, or Both) to currently selected shapes
+    pub fn apply_offset_selected(&mut self) {
+        if self.selected_shape_indices.is_empty() {
+            self.status_msg = "Select at least one shape to offset".to_string();
+            return;
+        }
+        self.push_undo();
+
+        let dist = self.offset_distance.abs().max(0.05);
+        let mut new_shapes = Vec::new();
+        for &idx in &self.selected_shape_indices {
+            if idx < self.doc.shapes.len() {
+                let s = &self.doc.shapes[idx];
+                let layer = s.layer_index();
+                if self.offset_both {
+                    new_shapes.extend(s.offset_shape(dist, Some(layer)));
+                    new_shapes.extend(s.offset_shape(-dist, Some(layer)));
+                } else if self.offset_inward {
+                    new_shapes.extend(s.offset_shape(-dist, Some(layer)));
+                } else {
+                    new_shapes.extend(s.offset_shape(dist, Some(layer)));
+                }
+            }
+        }
+
+        if new_shapes.is_empty() {
+            self.status_msg = "Offset distance too small or inward offset collapsed shape".to_string();
+            return;
+        }
+
+        if self.offset_delete_orig {
+            let mut sorted = self.selected_shape_indices.clone();
+            sorted.sort_unstable_by(|a, b| b.cmp(a));
+            sorted.dedup();
+            for idx in sorted {
+                if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                    self.doc.shapes.remove(idx);
+                }
+            }
+        }
+
+        let mut new_sel = Vec::new();
+        for ns in new_shapes {
+            self.doc.add_shape(ns);
+            new_sel.push(self.doc.shapes.len() - 1);
+        }
+        self.selected_shape_indices = new_sel;
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.status_msg = format!(
+            "Created {} offset contour(s) ({:.2} mm {})",
+            self.selected_shape_indices.len(),
+            dist,
+            if self.offset_both {
+                "both"
+            } else if self.offset_inward {
+                "inward"
+            } else {
+                "outward"
+            }
+        );
+    }
+
+    /// Generates a calibrated Power (%) vs. Speed (mm/s) Material Test Matrix on the canvas
+    pub fn generate_material_test_grid(&mut self) {
+        self.push_undo();
+        let rows = self.mat_test_rows.clamp(2, 12);
+        let cols = self.mat_test_cols.clamp(2, 12);
+        let box_sz = self.mat_test_box_size.clamp(4.0, 40.0);
+        let gap = (box_sz * 0.30).max(2.5);
+
+        let min_spd = self.mat_test_min_speed.min(self.mat_test_max_speed).max(1.0);
+        let max_spd = self.mat_test_max_speed.max(self.mat_test_min_speed).max(1.0);
+        let min_pwr = self.mat_test_min_power.min(self.mat_test_max_power).clamp(1.0, 100.0);
+        let max_pwr = self.mat_test_max_power.max(self.mat_test_min_power).clamp(1.0, 100.0);
+
+        let start_x = 35.0;
+        let start_y = 32.0;
+
+        let mut new_sel = Vec::new();
+
+        // Title & Axis labels on Layer 0 (Line Score)
+        let label_layer = 0;
+        if let Some(l0) = self.doc.layers.get_mut(&label_layer) {
+            l0.name = "Labels (Score)".to_string();
+            l0.cut_setting.mode = CutMode::Line;
+            l0.cut_setting.speed = 60.0;
+            l0.cut_setting.power_max = 35.0;
+            l0.output = true;
+        }
+
+        let title_str = if self.mat_test_is_engrave {
+            format!("MATERIAL TEST (GRAYSCALE / CERAMIC) {:.0}-{:.0}% | {:.0}-{:.0}mm/s", min_pwr, max_pwr, min_spd, max_spd)
+        } else {
+            format!("CUT TEST {:.0}-{:.0}% | {:.0}-{:.0}mm/s", min_pwr, max_pwr, min_spd, max_spd)
+        };
+        if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+            text: title_str,
+            font_type: crate::text::FontType::SingleLine,
+            font_size_mm: (box_sz * 0.38).clamp(3.0, 6.0),
+            x: start_x,
+            y: start_y - 14.0,
+            align: crate::text::TextAlign::Left,
+            letter_spacing: 1.0,
+            line_spacing: 1.2,
+        }) {
+            let shapes: Vec<Shape> = polys
+                .into_iter()
+                .map(|polyline| Shape::Path { layer_index: label_layer, polyline })
+                .collect();
+            if !shapes.is_empty() {
+                self.doc.add_shape(Shape::Group { layer_index: label_layer, shapes, locked: false });
+                new_sel.push(self.doc.shapes.len() - 1);
+            }
+        }
+
+        // Column header labels (Power %)
+        for c in 0..cols {
+            let t_col = if cols > 1 { c as f64 / (cols - 1) as f64 } else { 0.0 };
+            let pwr = min_pwr + t_col * (max_pwr - min_pwr);
+            let cx = start_x + c as f64 * (box_sz + gap);
+            let cy = start_y - 4.5;
+            if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                text: format!("{:.0}%", pwr),
+                font_type: crate::text::FontType::SingleLine,
+                font_size_mm: (box_sz * 0.32).clamp(2.5, 5.0),
+                x: cx + box_sz * 0.1,
+                y: cy,
+                align: crate::text::TextAlign::Left,
+                letter_spacing: 1.0,
+                line_spacing: 1.2,
+            }) {
+                let shapes: Vec<Shape> = polys
+                    .into_iter()
+                    .map(|polyline| Shape::Path { layer_index: label_layer, polyline })
+                    .collect();
+                if !shapes.is_empty() {
+                    self.doc.add_shape(Shape::Group { layer_index: label_layer, shapes, locked: false });
+                    new_sel.push(self.doc.shapes.len() - 1);
+                }
+            }
+        }
+
+        // Rows (Speed mm/s)
+        for r in 0..rows {
+            let t_row = if rows > 1 { r as f64 / (rows - 1) as f64 } else { 0.0 };
+            let spd = min_spd + t_row * (max_spd - min_spd);
+            let ry = start_y + r as f64 * (box_sz + gap);
+
+            // Row label on left
+            if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                text: format!("{:.0}mm/s", spd),
+                font_type: crate::text::FontType::SingleLine,
+                font_size_mm: (box_sz * 0.30).clamp(2.5, 4.8),
+                x: (start_x - 26.0).max(2.0),
+                y: ry + box_sz * 0.65,
+                align: crate::text::TextAlign::Left,
+                letter_spacing: 1.0,
+                line_spacing: 1.2,
+            }) {
+                let shapes: Vec<Shape> = polys
+                    .into_iter()
+                    .map(|polyline| Shape::Path { layer_index: label_layer, polyline })
+                    .collect();
+                if !shapes.is_empty() {
+                    self.doc.add_shape(Shape::Group { layer_index: label_layer, shapes, locked: false });
+                    new_sel.push(self.doc.shapes.len() - 1);
+                }
+            }
+
+            if self.mat_test_is_engrave {
+                // Use 1 layer per row (speed) configured as GrayscalePower (0%..100%) so all columns in this row
+                // burn at the exact row speed with each column's exact analog PWM power!
+                let layer_idx = (r + 1).min(29);
+                let l = self.doc.get_or_create_layer(layer_idx);
+                l.name = format!("Row {} ({:.0} mm/s)", r + 1, spd);
+                l.output = true;
+                l.cut_setting.mode = CutMode::Image;
+                l.cut_setting.dither_mode = DitherMode::GrayscalePower;
+                l.cut_setting.speed = spd;
+                l.cut_setting.power_min = 0.0;
+                l.cut_setting.power_max = 100.0;
+                l.cut_setting.invert_image = false;
+                l.cut_setting.overscan = 2.0;
+                l.cut_setting.line_interval = 0.10;
+
+                for c in 0..cols {
+                    let t_col = if cols > 1 { c as f64 / (cols - 1) as f64 } else { 0.0 };
+                    let pwr = min_pwr + t_col * (max_pwr - min_pwr);
+                    let cx = start_x + c as f64 * (box_sz + gap);
+
+                    // Darkness (1.0 - gray/255.0) = pwr / 100.0 -> gray = ((1.0 - pwr/100.0) * 255.0)
+                    // Ensure gray <= 254 so GrayscalePower treats it as an active burn pixel
+                    let gray_val = ((1.0 - (pwr / 100.0).clamp(0.01, 1.0)) * 254.0).round() as u8;
+                    let mut raw_pixels = Vec::with_capacity(16 * 16 * 4);
+                    for _ in 0..(16 * 16) {
+                        raw_pixels.push(gray_val);
+                        raw_pixels.push(gray_val);
+                        raw_pixels.push(gray_val);
+                        raw_pixels.push(255);
+                    }
+
+                    self.doc.add_shape(Shape::Image {
+                        layer_index: layer_idx,
+                        x: cx,
+                        y: ry,
+                        width: box_sz,
+                        height: box_sz,
+                        image_path: None,
+                        raw_pixels: Some(raw_pixels),
+                        raw_width: 16,
+                        raw_height: 16,
+                        brightness: 0.0,
+                        contrast: 0.0,
+                        gamma: 1.0,
+                        sharpen: 0.0,
+                    });
+                    new_sel.push(self.doc.shapes.len() - 1);
+                }
+            } else {
+                // Vector Cut mode: assign layers across the grid (up to 29 layers)
+                for c in 0..cols {
+                    let t_col = if cols > 1 { c as f64 / (cols - 1) as f64 } else { 0.0 };
+                    let pwr = min_pwr + t_col * (max_pwr - min_pwr);
+                    let cx = start_x + c as f64 * (box_sz + gap);
+                    let layer_idx = ((r * cols + c) % 29) + 1;
+                    let l = self.doc.get_or_create_layer(layer_idx);
+                    l.name = format!("{:.0}mm/s {:.0}%", spd, pwr);
+                    l.output = true;
+                    l.cut_setting.mode = CutMode::Line;
+                    l.cut_setting.speed = spd;
+                    l.cut_setting.power_max = pwr;
+
+                    self.doc.add_shape(Shape::Rect {
+                        layer_index: layer_idx,
+                        x: cx,
+                        y: ry,
+                        width: box_sz,
+                        height: box_sz,
+                        corner_radius: 0.0,
+                    });
+                    new_sel.push(self.doc.shapes.len() - 1);
+                }
+            }
+        }
+
+        self.selected_shape_indices = new_sel;
+        self.image_textures.clear();
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.status_msg = format!(
+            "Generated {}x{} Material Test Matrix ({:.0}-{:.0}% Power, {:.0}-{:.0} mm/s Speed)",
+            rows, cols, min_pwr, max_pwr, min_spd, max_spd
+        );
+    }
+
+    /// Automatically detects the rectangular tile/workpiece on the bed from the camera feed
+    /// and centers (and optionally scales & rotates) the selected shapes onto it.
+    pub fn auto_fit_to_camera_tile(&mut self, scale_to_fit: bool, margin_mm: f64) {
+        let frame_opt = self
+            .last_raw_frame
+            .clone()
+            .or_else(|| self.camera_manager.get_latest_frame());
+
+        let Some(raw_frame) = frame_opt else {
+            self.status_msg = "No camera image available! Click 'Update Overlay' (Cmd+U) or Start Stream first.".to_string();
+            return;
+        };
+
+        let undistorted = self
+            .lens_undistorter
+            .undistort_frame(&raw_frame, &self.camera_calibration);
+
+        let Some(tile) = crate::camera::detect_workpiece_on_bed(
+            &undistorted,
+            &self.camera_calibration,
+            self.doc.width,
+            self.doc.height,
+        ) else {
+            self.status_msg = "Could not detect a distinct tile/workpiece on the bed. Ensure good contrast between tile and bed.".to_string();
+            return;
+        };
+
+        if self.selected_shape_indices.is_empty() && !self.doc.shapes.is_empty() {
+            self.selected_shape_indices = (0..self.doc.shapes.len()).collect();
+        }
+        if self.selected_shape_indices.is_empty() {
+            self.status_msg = format!(
+                "Detected tile at ({:.1}, {:.1}) mm, size {:.1}x{:.1} mm (angle {:+.1}°), but no shapes to fit!",
+                tile.center_x, tile.center_y, tile.width, tile.height, tile.angle_deg
+            );
+            return;
+        }
+
+        self.push_undo();
+
+        if let Some(bounds) = self.selection_bounds() {
+            let cur_center = bounds.center();
+            let dx = tile.center_x - cur_center.x;
+            let dy = tile.center_y - cur_center.y;
+
+            for &idx in &self.selected_shape_indices {
+                if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                    self.doc.shapes[idx].translate(dx, dy);
+                }
+            }
+
+            if scale_to_fit {
+                let target_w = (tile.width - margin_mm * 2.0).max(5.0);
+                let target_h = (tile.height - margin_mm * 2.0).max(5.0);
+                let sx = target_w / bounds.width().max(1e-4);
+                let sy = target_h / bounds.height().max(1e-4);
+                let s = if self.lock_aspect_ratio { sx.min(sy) } else { sx };
+                let sy_final = if self.lock_aspect_ratio { s } else { sy };
+                let center_pt = Point2D::new(tile.center_x, tile.center_y);
+                for &idx in &self.selected_shape_indices {
+                    if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                        self.doc.shapes[idx].scale(center_pt, s, sy_final);
+                    }
+                }
+            }
+
+            // If tile is rotated noticeably (> 0.5 deg) and not near 45 deg symmetry ambiguity, align vector shapes
+            if tile.angle_deg.abs() > 0.5 && tile.angle_deg.abs() < 40.0 {
+                let center_pt = Point2D::new(tile.center_x, tile.center_y);
+                let rad = tile.angle_deg.to_radians();
+                for &idx in &self.selected_shape_indices {
+                    if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                        self.doc.shapes[idx].rotate(center_pt, rad);
+                    }
+                }
+            }
+        }
+
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.status_msg = format!(
+            "🎯 Auto-fitted to detected tile: Center ({:.1}, {:.1}) mm, Size {:.1}x{:.1} mm, Angle {:+.1}°",
+            tile.center_x, tile.center_y, tile.width, tile.height, tile.angle_deg
+        );
+    }
+
     pub fn load_sample_gear(&mut self, cx: f64, cy: f64, teeth: usize, r_inner: f64, r_outer: f64) {
+        self.push_undo();
         // Center bore
         self.doc.add_shape(Shape::Circle {
             layer_index: 0,
@@ -373,6 +789,8 @@ impl LaserBurnApp {
         let (raw_w, raw_h) = (rgba.width(), rgba.height());
         let raw_pixels = rgba.into_raw();
 
+        self.push_undo();
+
         // Calculate initial physical size (default max 100mm, preserving aspect ratio)
         let aspect = raw_h as f64 / raw_w as f64;
         let mut width_mm = 100.0_f64.min(self.device.settings.bed_width * 0.7);
@@ -414,6 +832,10 @@ impl LaserBurnApp {
             raw_pixels: Some(raw_pixels),
             raw_width: raw_w,
             raw_height: raw_h,
+            brightness: 0.0,
+            contrast: 0.0,
+            gamma: 1.0,
+            sharpen: 0.0,
         };
 
         self.doc.add_shape(shape);
@@ -684,6 +1106,7 @@ impl LaserBurnApp {
             self.status_msg = "Select at least 2 shapes to group".to_string();
             return;
         }
+        self.push_undo();
 
         // Sort indices descending so removal doesn't shift earlier indices
         let mut sorted = self.selected_shape_indices.clone();
@@ -712,6 +1135,10 @@ impl LaserBurnApp {
 
     /// Ungroups selected Shape::Group back into individual shapes
     pub fn ungroup_selected(&mut self) {
+        if self.selected_shape_indices.is_empty() {
+            return;
+        }
+        self.push_undo();
         let mut new_selection = Vec::new();
         let mut sorted = self.selected_shape_indices.clone();
         sorted.sort_unstable_by(|a, b| b.cmp(a));
@@ -741,6 +1168,7 @@ impl LaserBurnApp {
         if self.selected_shape_indices.is_empty() {
             return;
         }
+        self.push_undo();
 
         let any_locked = self.selected_shape_indices.iter().any(|&i| {
             i < self.doc.shapes.len() && self.doc.shapes[i].is_locked()
@@ -787,6 +1215,7 @@ impl LaserBurnApp {
             self.status_msg = "Select multiple paths to join".to_string();
             return;
         }
+        self.push_undo();
 
         let mut polylines = Vec::new();
         let mut sorted = self.selected_shape_indices.clone();
@@ -864,6 +1293,7 @@ impl LaserBurnApp {
         if self.selected_shape_indices.is_empty() {
             return;
         }
+        self.push_undo();
         if let Some(bounds) = self.selection_bounds() {
             let c = bounds.center();
             let rad = angle_deg.to_radians();
@@ -881,6 +1311,7 @@ impl LaserBurnApp {
         if self.selected_shape_indices.is_empty() {
             return;
         }
+        self.push_undo();
         if let Some(bounds) = self.selection_bounds() {
             let c = bounds.center();
             for &idx in &self.selected_shape_indices {
@@ -897,6 +1328,7 @@ impl LaserBurnApp {
         if self.selected_shape_indices.is_empty() {
             return;
         }
+        self.push_undo();
         if let Some(bounds) = self.selection_bounds() {
             let c = bounds.center();
             for &idx in &self.selected_shape_indices {
@@ -944,6 +1376,7 @@ impl LaserBurnApp {
             self.status_msg = "Clipboard is empty".to_string();
             return;
         }
+        self.push_undo();
         const PASTE_OFFSET: f64 = 5.0;
         let mut new_selection = Vec::new();
         for s in &mut self.clipboard_shapes {
@@ -962,6 +1395,7 @@ impl LaserBurnApp {
             self.status_msg = "Nothing selected to duplicate".to_string();
             return;
         }
+        self.push_undo();
         const DUP_OFFSET: f64 = 5.0;
         let mut new_selection = Vec::new();
         for &idx in &self.selected_shape_indices {
@@ -983,6 +1417,7 @@ impl LaserBurnApp {
         if self.selected_shape_indices.is_empty() {
             return;
         }
+        self.push_undo();
         let mut sorted = self.selected_shape_indices.clone();
         sorted.sort_unstable_by(|a, b| b.cmp(a));
         sorted.dedup();
@@ -1016,6 +1451,7 @@ impl LaserBurnApp {
         if self.text_input.trim().is_empty() {
             return;
         }
+        self.push_undo();
 
         let font_type = if self.text_is_singleline {
             crate::text::FontType::SingleLine
@@ -1756,6 +2192,13 @@ impl eframe::App for LaserBurnApp {
         // KEYBOARD SHORTCUTS & ARROW KEYS HANDLING
         // -------------------------------------------------------------
         if !ctx.wants_keyboard_input() {
+            // Cmd+Z (Undo) and Cmd+Shift+Z / Ctrl+Y (Redo)
+            if ctx.input(|i| (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Z)) || (i.modifiers.command && i.key_pressed(egui::Key::Y))) {
+                self.redo();
+            } else if ctx.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::Z)) {
+                self.undo();
+            }
+
             // Cmd+O (Open Project)
             if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
                 self.prompt_open_project(ctx);
@@ -1870,6 +2313,7 @@ impl eframe::App for LaserBurnApp {
                     let nudge_shapes = (cmd_down || !self.keyboard_jog_laser) && !self.selected_shape_indices.is_empty();
 
                     if nudge_shapes {
+                        self.push_undo();
                         let step: f64 = if shift_down { 10.0 } else if alt_down { 0.1 } else { 1.0 };
                         let dx = arrow_x * step;
                         let dy = -arrow_y * step; // visual Y inversion for canvas
@@ -1946,6 +2390,7 @@ impl eframe::App for LaserBurnApp {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("New Project").clicked() {
+                        self.push_undo();
                         self.doc = Document::new("Untitled", self.device.settings.bed_width, self.device.settings.bed_height);
                         self.selected_shape_indices.clear();
                         self.selected_layer = 0;
@@ -1995,6 +2440,18 @@ impl eframe::App for LaserBurnApp {
                 ui.menu_button("Edit", |ui| {
                     let has_selection = !self.selected_shape_indices.is_empty();
                     let has_clipboard = !self.clipboard_shapes.is_empty();
+                    let can_undo = !self.undo_stack.is_empty();
+                    let can_redo = !self.redo_stack.is_empty();
+
+                    if ui.add_enabled(can_undo, egui::Button::new(format!("Undo ({}+Z)", cmd))).clicked() {
+                        self.undo();
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(can_redo, egui::Button::new(format!("Redo ({}+Shift+Z)", cmd))).clicked() {
+                        self.redo();
+                        ui.close_menu();
+                    }
+                    ui.separator();
 
                     if ui.add_enabled(has_selection, egui::Button::new(format!("Cut ({}+X)", cmd))).clicked() {
                         self.cut_selected();
@@ -2017,6 +2474,13 @@ impl eframe::App for LaserBurnApp {
                         ui.close_menu();
                     }
                     ui.separator();
+                    if ui.add_enabled(has_selection, egui::Button::new("Offset Shapes (Contour)..."))
+                        .on_hover_text("Create outward or inward offset contours around selected shapes")
+                        .clicked()
+                    {
+                        self.show_offset_window = true;
+                        ui.close_menu();
+                    }
                     if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new(format!("Group ({}+G)", cmd))).clicked() {
                         self.group_selected();
                         ui.close_menu();
@@ -2043,6 +2507,7 @@ impl eframe::App for LaserBurnApp {
                         ui.close_menu();
                     }
                     if ui.button("Clear Canvas").clicked() {
+                        self.push_undo();
                         self.doc.shapes.clear();
                         self.selected_shape_indices.clear();
                         ui.close_menu();
@@ -2050,6 +2515,11 @@ impl eframe::App for LaserBurnApp {
                 });
 
                 ui.menu_button("Laser", |ui| {
+                    if ui.button("🧪 Material Test Generator (Power vs. Speed)...").clicked() {
+                        self.show_material_test_window = true;
+                        ui.close_menu();
+                    }
+                    ui.separator();
                     if ui.button(format!("Laser Control & Jogging ({}+M)", cmd)).clicked() {
                         self.show_move_window = true;
                         ui.close_menu();
@@ -2111,6 +2581,15 @@ impl eframe::App for LaserBurnApp {
                         self.trigger_update_overlay();
                         ui.close_menu();
                     }
+                    ui.separator();
+                    if ui.button("🎯 Auto-Center Selection on Camera Tile").clicked() {
+                        self.auto_fit_to_camera_tile(false, 2.0);
+                        ui.close_menu();
+                    }
+                    if ui.button("🎯 Auto-Fit & Scale Selection to Camera Tile (2mm Margin)").clicked() {
+                        self.auto_fit_to_camera_tile(true, 2.0);
+                        ui.close_menu();
+                    }
                 });
 
                 ui.separator();
@@ -2134,10 +2613,19 @@ impl eframe::App for LaserBurnApp {
 
                 ui.separator();
 
-                // Clipboard & Editing Operations
+                // Undo / Redo & Clipboard Operations
                 let has_selection = !self.selected_shape_indices.is_empty();
                 let multi_selected = self.selected_shape_indices.len() >= 2;
                 let has_clipboard = !self.clipboard_shapes.is_empty();
+                let can_undo = !self.undo_stack.is_empty();
+                let can_redo = !self.redo_stack.is_empty();
+
+                if ui.add_enabled(can_undo, egui::Button::new("↩ Undo")).on_hover_text(format!("Undo last edit ({}+Z)", cmd)).clicked() {
+                    self.undo();
+                }
+                if ui.add_enabled(can_redo, egui::Button::new("↪ Redo")).on_hover_text(format!("Redo edit ({}+Shift+Z)", cmd)).clicked() {
+                    self.redo();
+                }
 
                 if ui.add_enabled(has_selection, egui::Button::new("Copy")).on_hover_text(format!("Copy selected shapes to clipboard ({}+C)", cmd)).clicked() {
                     self.copy_selected();
@@ -2154,7 +2642,10 @@ impl eframe::App for LaserBurnApp {
 
                 ui.separator();
 
-                // Group, Ungroup, Lock, Weld Buttons
+                // Offset, Group, Ungroup, Lock, Weld Buttons
+                if ui.add_enabled(has_selection, egui::Button::new("Offset")).on_hover_text("Create outward/inward contour offset around selected shapes").clicked() {
+                    self.show_offset_window = true;
+                }
                 if ui.add_enabled(multi_selected, egui::Button::new("Group")).on_hover_text(format!("Group selected shapes into a single item ({}+G)", cmd)).clicked() {
                     self.group_selected();
                 }
@@ -2176,12 +2667,17 @@ impl eframe::App for LaserBurnApp {
 
                 ui.separator();
 
+                if ui.button("🧪 Material Test").on_hover_text("Generate calibrated Power vs. Speed test matrix for tiles or cutting").clicked() {
+                    self.show_material_test_window = true;
+                }
+
                 if ui.button("+ Gear").clicked() {
                     self.load_sample_gear(180.0, 180.0, 12, 40.0, 50.0);
                     self.selected_shape_indices = vec![self.doc.shapes.len() - 1];
                     self.status_msg = "Added gear".to_string();
                 }
                 if ui.button("+ Square").clicked() {
+                    self.push_undo();
                     self.doc.add_shape(Shape::Rect {
                         layer_index: self.selected_layer,
                         x: 80.0,
@@ -2194,6 +2690,7 @@ impl eframe::App for LaserBurnApp {
                     self.status_msg = "Added square".to_string();
                 }
                 if ui.button("+ Circle").clicked() {
+                    self.push_undo();
                     self.doc.add_shape(Shape::Circle {
                         layer_index: self.selected_layer,
                         center: Point2D::new(120.0, 120.0),
@@ -2305,6 +2802,9 @@ impl eframe::App for LaserBurnApp {
 
                 if ui.add(snap_btn).on_hover_text(format!("Capture a fresh photo of the bed with your material (Cmd+U / {}+Shift+U)", cmd)).clicked() {
                     self.trigger_update_overlay();
+                }
+                if ui.button("🎯 Snap to Tile").on_hover_text("Auto-detect ceramic tile / workpiece on camera bed and center/fit selection onto it (Right-click to also scale to fit)").clicked() {
+                    self.auto_fit_to_camera_tile(false, 2.0);
                 }
                 if ui.button("Settings").on_hover_text(format!("Device & bed settings ({}+,)", cmd)).clicked() {
                     self.show_settings_window = true;
@@ -2663,21 +3163,89 @@ impl eframe::App for LaserBurnApp {
                             ui.horizontal(|ui| {
                                 ui.label("Layer:");
                                 let cur_label = self.doc.layers.get(&cur_layer).map(|l| l.display_label()).unwrap_or_else(|| format!("[L{:02}]", cur_layer));
+                                let mut new_target_layer = None;
                                 egui::ComboBox::from_id_salt("shape_layer_combo")
                                     .selected_text(cur_label)
                                     .show_ui(ui, |ui| {
                                         for (&layer_idx, layer) in &self.doc.layers {
                                             if ui.selectable_label(cur_layer == layer_idx, layer.display_label()).clicked() {
-                                                for &s_idx in &self.selected_shape_indices {
-                                                    if s_idx < self.doc.shapes.len() {
-                                                        self.doc.shapes[s_idx].set_layer_index(layer_idx);
-                                                    }
-                                                }
-                                                self.selected_layer = layer_idx;
+                                                new_target_layer = Some(layer_idx);
                                             }
                                         }
                                     });
+                                if let Some(layer_idx) = new_target_layer {
+                                    self.push_undo();
+                                    for &s_idx in &self.selected_shape_indices {
+                                        if s_idx < self.doc.shapes.len() {
+                                            self.doc.shapes[s_idx].set_layer_index(layer_idx);
+                                        }
+                                    }
+                                    self.selected_layer = layer_idx;
+                                    self.image_textures.clear();
+                                }
                             });
+
+                            // Image Preprocessing Adjustments (Brightness, Contrast, Gamma, Sharpen)
+                            if first_idx < self.doc.shapes.len() {
+                                if let Shape::Image {
+                                    ref mut brightness,
+                                    ref mut contrast,
+                                    ref mut gamma,
+                                    ref mut sharpen,
+                                    ..
+                                } = self.doc.shapes[first_idx]
+                                {
+                                    ui.add_space(6.0);
+                                    ui.group(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label(egui::RichText::new("🖼 Image Adjustments (Preprocess)").strong().color(egui::Color32::from_rgb(100, 210, 255)));
+                                            if ui.small_button("Reset").on_hover_text("Reset Brightness, Contrast, Gamma, and Sharpen to neutral").clicked() {
+                                                *brightness = 0.0;
+                                                *contrast = 0.0;
+                                                *gamma = 1.0;
+                                                *sharpen = 0.0;
+                                                self.image_textures.remove(&first_idx);
+                                                self.doc_version = self.doc_version.wrapping_add(1);
+                                            }
+                                        });
+
+                                        let mut img_changed = false;
+                                        egui::Grid::new("image_preprocess_grid")
+                                            .num_columns(2)
+                                            .spacing([8.0, 4.0])
+                                            .show(ui, |ui| {
+                                                ui.label("Brightness:");
+                                                if ui.add(egui::Slider::new(brightness, -100.0..=100.0).suffix("%")).changed() {
+                                                    img_changed = true;
+                                                }
+                                                ui.end_row();
+
+                                                ui.label("Contrast:");
+                                                if ui.add(egui::Slider::new(contrast, -100.0..=100.0).suffix("%")).changed() {
+                                                    img_changed = true;
+                                                }
+                                                ui.end_row();
+
+                                                ui.label("Gamma:");
+                                                if ui.add(egui::Slider::new(gamma, 0.20..=3.00)).changed() {
+                                                    img_changed = true;
+                                                }
+                                                ui.end_row();
+
+                                                ui.label("Sharpen:");
+                                                if ui.add(egui::Slider::new(sharpen, 0.0..=100.0).suffix("%")).changed() {
+                                                    img_changed = true;
+                                                }
+                                                ui.end_row();
+                                            });
+
+                                        if img_changed {
+                                            self.image_textures.remove(&first_idx);
+                                            self.doc_version = self.doc_version.wrapping_add(1);
+                                        }
+                                    });
+                                }
+                            }
                         }
                     } else {
                         ui.label(egui::RichText::new("No shape selected.").italics().color(egui::Color32::GRAY));
@@ -2797,6 +3365,7 @@ impl eframe::App for LaserBurnApp {
                     });
 
                     // Controls for currently selected layer
+                    let mut invalidate_img_preview = false;
                     if let Some(layer) = self.doc.layers.get_mut(&self.selected_layer) {
                         ui.group(|ui| {
                             if layer.is_tool() {
@@ -2862,31 +3431,39 @@ impl eframe::App for LaserBurnApp {
 
                                     let power_label = if is_grayscale_power { "Max Power:" } else { "Power:" };
                                     ui.label(power_label);
-                                    ui.add(
+                                    if ui.add(
                                         egui::DragValue::new(&mut layer.cut_setting.power_max)
                                             .speed(0.5)
                                             .range(0.0..=100.0)
                                             .suffix(" %"),
-                                    ).on_hover_text("Max laser power (e.g. for pure black or deep layer burn)");
-                                    ui.add(
+                                    ).on_hover_text("Max laser power (e.g. for pure black or deep layer burn)").changed() {
+                                        invalidate_img_preview = true;
+                                    }
+                                    if ui.add(
                                         egui::Slider::new(&mut layer.cut_setting.power_max, 0.0..=100.0)
                                             .show_value(false),
-                                    );
+                                    ).changed() {
+                                        invalidate_img_preview = true;
+                                    }
                                     ui.end_row();
 
                                     // Min Power (Only shown for GrayscalePower)
                                     if is_grayscale_power {
                                         ui.label("Min Power:");
-                                        ui.add(
+                                        if ui.add(
                                             egui::DragValue::new(&mut layer.cut_setting.power_min)
                                                 .speed(0.5)
                                                 .range(0.0..=100.0)
                                                 .suffix(" %"),
-                                        ).on_hover_text("Min laser power for light tones / top paint layer");
-                                        ui.add(
+                                        ).on_hover_text("Min laser power for light tones / top paint layer").changed() {
+                                            invalidate_img_preview = true;
+                                        }
+                                        if ui.add(
                                             egui::Slider::new(&mut layer.cut_setting.power_min, 0.0..=100.0)
                                                 .show_value(false),
-                                        );
+                                        ).changed() {
+                                            invalidate_img_preview = true;
+                                        }
                                         ui.end_row();
                                     }
 
@@ -2951,8 +3528,12 @@ impl eframe::App for LaserBurnApp {
 
                                         if layer.cut_setting.dither_mode == DitherMode::GrayscalePower {
                                             ui.label("Invert:");
-                                            ui.checkbox(&mut layer.cut_setting.invert_image, "Negative / Invert")
-                                                .on_hover_text("Invert light/dark mapping (e.g. for ceramics where laser removes dark coat to reveal light coat)");
+                                            if ui.checkbox(&mut layer.cut_setting.invert_image, "Negative / Invert")
+                                                .on_hover_text("Invert light/dark mapping (e.g. for ceramics where laser removes dark coat to reveal light coat)")
+                                                .changed()
+                                            {
+                                                invalidate_img_preview = true;
+                                            }
                                             ui.label(egui::RichText::new("For layered tiles / glass").small().weak());
                                             ui.end_row();
 
@@ -2987,8 +3568,94 @@ impl eframe::App for LaserBurnApp {
                                         ui.end_row();
                                     }
                                 });
+
+                                // Ceramic Multi-Layer Paint Color Simulator & Mapper (Shown in GrayscalePower mode)
+                                if layer.cut_setting.mode == CutMode::Image
+                                    && layer.cut_setting.dither_mode == DitherMode::GrayscalePower
+                                {
+                                    ui.add_space(4.0);
+                                    ui.separator();
+                                    ui.horizontal(|ui| {
+                                        if ui.checkbox(
+                                            &mut layer.cut_setting.ceramic_preview,
+                                            egui::RichText::new("🎨 Ceramic Paint Layer Simulator").strong().color(egui::Color32::from_rgb(255, 190, 80)),
+                                        )
+                                        .on_hover_text("Simulate multi-layer spray-painted ceramic tile colors directly on the canvas based on laser power % thresholds!")
+                                        .changed()
+                                        {
+                                            invalidate_img_preview = true;
+                                        }
+                                        if layer.cut_setting.ceramic_preview {
+                                            if ui.small_button("Reset Colors").clicked() {
+                                                layer.cut_setting.ceramic_bands = crate::document::default_ceramic_bands();
+                                                invalidate_img_preview = true;
+                                            }
+                                        }
+                                    });
+
+                                    if layer.cut_setting.ceramic_preview {
+                                        if layer.cut_setting.ceramic_bands.is_empty() {
+                                            layer.cut_setting.ceramic_bands = crate::document::default_ceramic_bands();
+                                        }
+                                        ui.label(egui::RichText::new("Define paint coat colors & the max laser power (%) that reveals each coat:").small().weak());
+                                        let mut remove_idx = None;
+                                        for (b_idx, band) in layer.cut_setting.ceramic_bands.iter_mut().enumerate() {
+                                            ui.horizontal(|ui| {
+                                                let hex = band.color_hex.trim_start_matches('#');
+                                                let mut srgb = if hex.len() >= 6 {
+                                                    [
+                                                        u8::from_str_radix(&hex[0..2], 16).unwrap_or(128),
+                                                        u8::from_str_radix(&hex[2..4], 16).unwrap_or(128),
+                                                        u8::from_str_radix(&hex[4..6], 16).unwrap_or(128),
+                                                    ]
+                                                } else {
+                                                    [128, 128, 128]
+                                                };
+                                                if ui.color_edit_button_srgb(&mut srgb).changed() {
+                                                    band.color_hex = format!("#{:02X}{:02X}{:02X}", srgb[0], srgb[1], srgb[2]);
+                                                    invalidate_img_preview = true;
+                                                }
+                                                if ui.add(egui::TextEdit::singleline(&mut band.label).desired_width(110.0)).changed() {
+                                                    invalidate_img_preview = true;
+                                                }
+                                                ui.label("≤");
+                                                if ui.add(
+                                                    egui::DragValue::new(&mut band.max_power_pct)
+                                                        .speed(0.5)
+                                                        .range(0.0..=100.0)
+                                                        .suffix("%"),
+                                                ).on_hover_text("Up to this laser power %, this paint layer remains visible").changed() {
+                                                    invalidate_img_preview = true;
+                                                }
+                                                if ui.small_button("✖").on_hover_text("Remove paint coat").clicked() {
+                                                    remove_idx = Some(b_idx);
+                                                }
+                                            });
+                                        }
+                                        if let Some(ri) = remove_idx {
+                                            if layer.cut_setting.ceramic_bands.len() > 2 {
+                                                layer.cut_setting.ceramic_bands.remove(ri);
+                                                invalidate_img_preview = true;
+                                            }
+                                        }
+                                        if layer.cut_setting.ceramic_bands.len() < 8 {
+                                            if ui.small_button("+ Add Paint Coat").clicked() {
+                                                layer.cut_setting.ceramic_bands.push(crate::document::CeramicColorBand {
+                                                    label: format!("Coat {}", layer.cut_setting.ceramic_bands.len() + 1),
+                                                    max_power_pct: 90.0,
+                                                    color_hex: "#C8C8C8".to_string(),
+                                                });
+                                                invalidate_img_preview = true;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         });
+                    }
+                    if invalidate_img_preview {
+                        self.image_textures.clear();
+                        self.doc_version = self.doc_version.wrapping_add(1);
                     }
 
                     ui.add_space(8.0);
@@ -3762,6 +4429,7 @@ impl eframe::App for LaserBurnApp {
                         }
 
                         if handle_hit != DragHandle::None {
+                            self.push_undo();
                             self.drag_handle = handle_hit;
                             self.drag_start_doc = Some(doc_pt);
                             self.last_drag_doc = Some(doc_pt);
@@ -3772,6 +4440,7 @@ impl eframe::App for LaserBurnApp {
                             });
 
                             if hit_already_selected {
+                                self.push_undo();
                                 self.drag_handle = DragHandle::Move;
                                 self.drag_start_doc = Some(doc_pt);
                                 self.last_drag_doc = Some(doc_pt);
@@ -3786,6 +4455,7 @@ impl eframe::App for LaserBurnApp {
                                 if best_idx < self.doc.shapes.len() {
                                     self.selected_layer = self.doc.shapes[best_idx].layer_index();
                                 }
+                                self.push_undo();
                                 self.drag_handle = DragHandle::Move;
                                 self.drag_start_doc = Some(doc_pt);
                                 self.last_drag_doc = Some(doc_pt);
@@ -3803,6 +4473,7 @@ impl eframe::App for LaserBurnApp {
                         }
                     } else {
                         // Drawing new shape mode
+                        self.push_undo();
                         self.is_drawing = true;
                         self.draw_start = Some(doc_pt);
                         self.draw_current = Some(doc_pt);
@@ -4181,19 +4852,40 @@ impl eframe::App for LaserBurnApp {
 
                 let stroke_width = if is_selected { 2.5_f32 } else { 1.5_f32 };
 
-                if let Shape::Image { x, y, width, height, raw_pixels, raw_width, raw_height, image_path, .. } = shape {
+                if let Shape::Image { x, y, width, height, raw_pixels, raw_width, raw_height, image_path, brightness, contrast, gamma, sharpen, .. } = shape {
                     let min_p = self.doc_to_screen(Point2D::new(*x, *y), canvas_origin);
                     let max_p = self.doc_to_screen(Point2D::new(*x + *width, *y + *height), canvas_origin);
                     let img_rect = egui::Rect::from_two_pos(min_p, max_p);
 
-                    // Ensure GPU texture is loaded
+                    let invert = layer.map_or(false, |l| l.cut_setting.dither_mode == DitherMode::GrayscalePower && l.cut_setting.invert_image);
+                    let ceramic_preview = layer.map_or(false, |l| l.cut_setting.dither_mode == DitherMode::GrayscalePower && l.cut_setting.ceramic_preview);
+                    let power_min = layer.map_or(0.0, |l| l.cut_setting.power_min);
+                    let power_max = layer.map_or(100.0, |l| l.cut_setting.power_max);
+                    let default_bands = Vec::new();
+                    let ceramic_bands = layer.map_or(default_bands.as_slice(), |l| l.cut_setting.ceramic_bands.as_slice());
+
+                    // Ensure GPU texture is loaded (with live Brightness/Contrast/Gamma/Sharpen & Ceramic Color Preview)
                     let tex_id_opt = if let Some((_, tex)) = self.image_textures.get(&shape_idx) {
                         Some(tex.id())
                     } else if let Some(pixels) = raw_pixels {
                         if *raw_width > 0 && *raw_height > 0 {
+                            let processed_rgba = crate::dither::render_processed_preview_rgba(
+                                pixels,
+                                *raw_width as usize,
+                                *raw_height as usize,
+                                *brightness,
+                                *contrast,
+                                *gamma,
+                                *sharpen,
+                                invert,
+                                ceramic_preview,
+                                power_min,
+                                power_max,
+                                ceramic_bands,
+                            );
                             let color_img = egui::ColorImage::from_rgba_unmultiplied(
                                 [*raw_width as usize, *raw_height as usize],
-                                pixels,
+                                &processed_rgba,
                             );
                             let tex = ctx.load_texture(
                                 format!("img_shape_{}", shape_idx),
@@ -4210,7 +4902,21 @@ impl eframe::App for LaserBurnApp {
                         if let Ok(dyn_img) = image::open(path) {
                             let rgba = dyn_img.to_rgba8();
                             let (w, h) = (rgba.width() as usize, rgba.height() as usize);
-                            let color_img = egui::ColorImage::from_rgba_unmultiplied([w, h], rgba.as_raw());
+                            let processed_rgba = crate::dither::render_processed_preview_rgba(
+                                rgba.as_raw(),
+                                w,
+                                h,
+                                *brightness,
+                                *contrast,
+                                *gamma,
+                                *sharpen,
+                                invert,
+                                ceramic_preview,
+                                power_min,
+                                power_max,
+                                ceramic_bands,
+                            );
+                            let color_img = egui::ColorImage::from_rgba_unmultiplied([w, h], &processed_rgba);
                             let tex = ctx.load_texture(
                                 format!("img_shape_{}", shape_idx),
                                 color_img,
@@ -4474,6 +5180,162 @@ impl eframe::App for LaserBurnApp {
             }
             if close_dialog || !is_open {
                 self.show_text_dialog = false;
+            }
+        }
+
+        // -------------------------------------------------------------
+        // OFFSET SHAPES (CONTOUR) DIALOG WINDOW
+        // -------------------------------------------------------------
+        if self.show_offset_window {
+            let mut close_offset = false;
+            let mut do_apply_offset = false;
+            let mut is_open = true;
+
+            egui::Window::new("Offset Shapes (Contour)")
+                .collapsible(false)
+                .resizable(false)
+                .default_width(340.0)
+                .open(&mut is_open)
+                .show(ctx, |ui| {
+                    ui.heading("Create Contour Offset");
+                    ui.label(egui::RichText::new("Generate outward or inward cutting borders around selected shapes, text, or images.").small().weak());
+                    ui.add_space(6.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label("Offset Distance:");
+                        ui.add(
+                            egui::DragValue::new(&mut self.offset_distance)
+                                .speed(0.1)
+                                .range(0.05..=200.0)
+                                .suffix(" mm"),
+                        );
+                    });
+
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Direction:").strong());
+                    ui.horizontal(|ui| {
+                        if ui.radio(!self.offset_inward && !self.offset_both, "Outward").clicked() {
+                            self.offset_inward = false;
+                            self.offset_both = false;
+                        }
+                        if ui.radio(self.offset_inward && !self.offset_both, "Inward").clicked() {
+                            self.offset_inward = true;
+                            self.offset_both = false;
+                        }
+                        if ui.radio(self.offset_both, "Both").clicked() {
+                            self.offset_both = true;
+                        }
+                    });
+
+                    ui.add_space(4.0);
+                    ui.checkbox(&mut self.offset_delete_orig, "Delete original shape(s)");
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        let apply_btn = egui::Button::new(
+                            egui::RichText::new(" Apply Offset ").strong().color(egui::Color32::WHITE),
+                        ).fill(egui::Color32::from_rgb(0, 120, 215));
+                        if ui.add(apply_btn).clicked() {
+                            do_apply_offset = true;
+                            close_offset = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close_offset = true;
+                        }
+                    });
+                });
+
+            if do_apply_offset {
+                self.apply_offset_selected();
+            }
+            if close_offset || !is_open {
+                self.show_offset_window = false;
+            }
+        }
+
+        // -------------------------------------------------------------
+        // MATERIAL TEST GENERATOR WINDOW
+        // -------------------------------------------------------------
+        if self.show_material_test_window {
+            let mut close_mat = false;
+            let mut do_gen_mat = false;
+            let mut is_open = true;
+
+            egui::Window::new("🧪 Material Test Generator")
+                .collapsible(false)
+                .resizable(false)
+                .default_width(390.0)
+                .open(&mut is_open)
+                .show(ctx, |ui| {
+                    ui.heading("Power vs. Speed Test Matrix");
+                    ui.label(
+                        egui::RichText::new("Automatically generates a labeled calibration matrix to find the exact speed and power for ceramic paint layers, engraving, or cutting.")
+                            .small()
+                            .weak(),
+                    );
+                    ui.add_space(6.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Test Mode:").strong());
+                        ui.radio_value(&mut self.mat_test_is_engrave, true, "Engrave / Ceramic Paint (Grayscale PWM)");
+                        ui.radio_value(&mut self.mat_test_is_engrave, false, "Vector Cut (Line)");
+                    });
+
+                    ui.add_space(4.0);
+                    egui::Grid::new("mat_test_params_grid")
+                        .num_columns(3)
+                        .spacing([8.0, 6.0])
+                        .show(ui, |ui| {
+                            ui.label("Rows (Speeds):");
+                            ui.add(egui::DragValue::new(&mut self.mat_test_rows).range(2..=12));
+                            ui.label(egui::RichText::new("Y-axis").small().weak());
+                            ui.end_row();
+
+                            ui.label("Columns (Powers):");
+                            ui.add(egui::DragValue::new(&mut self.mat_test_cols).range(2..=12));
+                            ui.label(egui::RichText::new("X-axis").small().weak());
+                            ui.end_row();
+
+                            ui.label("Min Speed:");
+                            ui.add(egui::DragValue::new(&mut self.mat_test_min_speed).speed(1.0).range(1.0..=1000.0).suffix(" mm/s"));
+                            ui.label("Max Speed:");
+                            ui.add(egui::DragValue::new(&mut self.mat_test_max_speed).speed(1.0).range(1.0..=1000.0).suffix(" mm/s"));
+                            ui.end_row();
+
+                            ui.label("Min Power:");
+                            ui.add(egui::DragValue::new(&mut self.mat_test_min_power).speed(1.0).range(1.0..=100.0).suffix(" %"));
+                            ui.label("Max Power:");
+                            ui.add(egui::DragValue::new(&mut self.mat_test_max_power).speed(1.0).range(1.0..=100.0).suffix(" %"));
+                            ui.end_row();
+
+                            ui.label("Square Size:");
+                            ui.add(egui::DragValue::new(&mut self.mat_test_box_size).speed(0.5).range(4.0..=30.0).suffix(" mm"));
+                            ui.label("");
+                            ui.end_row();
+                        });
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        let gen_btn = egui::Button::new(
+                            egui::RichText::new(" Generate Test Grid on Bed ").strong().color(egui::Color32::WHITE),
+                        ).fill(egui::Color32::from_rgb(34, 139, 34));
+                        if ui.add(gen_btn).clicked() {
+                            do_gen_mat = true;
+                            close_mat = true;
+                        }
+                        if ui.button("Close").clicked() {
+                            close_mat = true;
+                        }
+                    });
+                });
+
+            if do_gen_mat {
+                self.generate_material_test_grid();
+            }
+            if close_mat || !is_open {
+                self.show_material_test_window = false;
             }
         }
 
@@ -6321,6 +7183,10 @@ mod tests {
             raw_width: 800,
             raw_height: 640,
             image_path: None,
+            brightness: 0.0,
+            contrast: 0.0,
+            gamma: 1.0,
+            sharpen: 0.0,
         };
         app.doc.add_shape(shape);
         app.selected_shape_indices = vec![0];
@@ -6338,5 +7204,92 @@ mod tests {
         assert!(est.total_cut_distance_mm > 0.0);
         assert!(est.total_estimated_time_sec > 0.0);
         assert!(!est.formatted_time.is_empty());
+    }
+
+    #[test]
+    fn test_undo_redo_and_offset_and_material_test_and_camera_autofit() {
+        let mut app = LaserBurnApp::default();
+        app.doc.shapes.clear();
+
+        // 1. Test Undo / Redo
+        app.push_undo();
+        app.doc.add_shape(Shape::Rect {
+            layer_index: 0,
+            x: 10.0,
+            y: 10.0,
+            width: 40.0,
+            height: 30.0,
+            corner_radius: 0.0,
+        });
+        assert_eq!(app.doc.shapes.len(), 1);
+        app.undo();
+        assert_eq!(app.doc.shapes.len(), 0);
+        app.redo();
+        assert_eq!(app.doc.shapes.len(), 1);
+
+        // 2. Test Offset Shapes (Outward + Inward)
+        app.selected_shape_indices = vec![0];
+        app.offset_distance = 5.0;
+        app.offset_inward = false; // Outward
+        app.offset_both = false;
+        app.offset_delete_orig = false;
+        app.apply_offset_selected();
+        assert_eq!(app.doc.shapes.len(), 2);
+        let b = app.doc.shapes[1].bounds();
+        assert!((b.width() - 50.0).abs() < 1e-4);
+        assert!((b.height() - 40.0).abs() < 1e-4);
+
+        // 3. Test Material Test Generator
+        app.doc.shapes.clear();
+        app.mat_test_rows = 3;
+        app.mat_test_cols = 4;
+        app.generate_material_test_grid();
+        assert!(app.doc.shapes.len() > 12, "Material test grid should create cells and text labels");
+
+        // 4. Test Image Preprocess & Ceramic Preview
+        let gray = vec![0.0f32, 0.25, 0.5, 0.75, 1.0, 0.5, 0.25, 0.75, 0.5];
+        let processed = crate::dither::preprocess_grayscale(&gray, 3, 3, 10.0, 20.0, 1.2, 0.5);
+        assert_eq!(processed.len(), 9);
+        let raw_rgba = vec![128u8; 3 * 3 * 4];
+        let bands = crate::document::default_ceramic_bands();
+        let rgba = crate::dither::render_processed_preview_rgba(
+            &raw_rgba,
+            3,
+            3,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            false,
+            true,
+            10.0,
+            90.0,
+            &bands,
+        );
+        assert_eq!(rgba.len(), 3 * 3 * 4);
+
+        // 5. Test Camera Workpiece Detection & Auto-Fit
+        let mut frame = crate::camera::CameraFrame {
+            width: 320,
+            height: 240,
+            rgba: vec![25u8; 320 * 240 * 4],
+            frame_number: 1,
+        };
+        // Paint dark background and bright centered tile (x: 100..220, y: 60..180)
+        for y in 0..240 {
+            for x in 0..320 {
+                let idx = ((y * 320 + x) * 4) as usize;
+                let in_tile = x >= 100 && x <= 220 && y >= 60 && y <= 180;
+                let c = if in_tile { 230 } else { 25 };
+                frame.rgba[idx] = c;
+                frame.rgba[idx + 1] = c;
+                frame.rgba[idx + 2] = c;
+                frame.rgba[idx + 3] = 255;
+            }
+        }
+        let cal = crate::camera::CameraCalibration::default();
+        let wp = crate::camera::detect_workpiece_on_bed(&frame, &cal, 400.0, 400.0)
+            .expect("Should detect bright ceramic tile on dark bed");
+        assert!(wp.width > 50.0 && wp.height > 50.0);
     }
 }

@@ -461,6 +461,10 @@ mod tests {
             raw_pixels: Some(pixels),
             raw_width: w as u32,
             raw_height: h as u32,
+            brightness: 0.0,
+            contrast: 0.0,
+            gamma: 1.0,
+            sharpen: 0.0,
         });
 
         let opt = CutOptimizer::new();

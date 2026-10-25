@@ -723,6 +723,252 @@ impl Drop for CameraManager {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DetectedWorkpiece {
+    pub center_x: f64,
+    pub center_y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub angle_deg: f64,
+}
+
+/// Automatically detects a rectangular tile or workpiece on the laser bed from the camera frame.
+/// Projects bed coordinates through the active camera calibration (homography or linear transform),
+/// segments the largest foreground object against the honeycomb bed background, and computes its
+/// center (mm), dimensions (mm), and rotation angle (degrees).
+pub fn detect_workpiece_on_bed(
+    frame: &CameraFrame,
+    cal: &CameraCalibration,
+    bed_w: f64,
+    bed_h: f64,
+) -> Option<DetectedWorkpiece> {
+    if frame.width < 8 || frame.height < 8 || bed_w <= 1.0 || bed_h <= 1.0 {
+        return None;
+    }
+
+    let gw = 160usize;
+    let gh = 160usize;
+    let mut rgb_grid = vec![(0.0f32, 0.0f32, 0.0f32); gw * gh];
+    let mut valid_mask = vec![false; gw * gh];
+
+    for gy in 0..gh {
+        let doc_y = (gy as f64 + 0.5) / gh as f64 * bed_h;
+        for gx in 0..gw {
+            let doc_x = (gx as f64 + 0.5) / gw as f64 * bed_w;
+
+            let (mut u, mut v) = if cal.use_homography {
+                if let Some(ref inv_h) = cal.inv_homography_matrix {
+                    project_homography(inv_h, doc_x, doc_y)
+                } else {
+                    (doc_x / bed_w, doc_y / bed_h)
+                }
+            } else {
+                let sx = (cal.uniform_scale * cal.scale_x).max(0.05) as f64;
+                let sy = (cal.uniform_scale * cal.scale_y).max(0.05) as f64;
+                (
+                    (doc_x - cal.offset_x_mm) / (bed_w * sx),
+                    (doc_y - cal.offset_y_mm) / (bed_h * sy),
+                )
+            };
+
+            if cal.flip_h {
+                u = 1.0 - u;
+            }
+            if cal.flip_v {
+                v = 1.0 - v;
+            }
+
+            if (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v) {
+                let px = ((u * (frame.width - 1) as f64).round() as usize).min(frame.width as usize - 1);
+                let py = ((v * (frame.height - 1) as f64).round() as usize).min(frame.height as usize - 1);
+                let idx = (py * frame.width as usize + px) * 4;
+                if idx + 3 < frame.rgba.len() {
+                    rgb_grid[gy * gw + gx] = (
+                        frame.rgba[idx] as f32,
+                        frame.rgba[idx + 1] as f32,
+                        frame.rgba[idx + 2] as f32,
+                    );
+                    valid_mask[gy * gw + gx] = true;
+                }
+            }
+        }
+    }
+
+    // Estimate background color from outer border cells of the valid region
+    let mut bg_r = 0.0f32;
+    let mut bg_g = 0.0f32;
+    let mut bg_b = 0.0f32;
+    let mut bg_count = 0usize;
+
+    for gy in 0..gh {
+        for gx in 0..gw {
+            let is_border = gx < 6 || gx >= gw - 6 || gy < 6 || gy >= gh - 6;
+            let idx = gy * gw + gx;
+            if is_border && valid_mask[idx] {
+                let (r, g, b) = rgb_grid[idx];
+                bg_r += r;
+                bg_g += g;
+                bg_b += b;
+                bg_count += 1;
+            }
+        }
+    }
+
+    if bg_count == 0 {
+        return None;
+    }
+    bg_r /= bg_count as f32;
+    bg_g /= bg_count as f32;
+    bg_b /= bg_count as f32;
+
+    // Compute color difference from background
+    let mut diffs = vec![0.0f32; gw * gh];
+    let mut max_diff = 0.0f32;
+    for i in 0..(gw * gh) {
+        if valid_mask[i] {
+            let (r, g, b) = rgb_grid[i];
+            let dr = r - bg_r;
+            let dg = g - bg_g;
+            let db = b - bg_b;
+            let d = (dr * dr + dg * dg + db * db).sqrt();
+            diffs[i] = d;
+            if d > max_diff {
+                max_diff = d;
+            }
+        }
+    }
+
+    if max_diff < 25.0 {
+        return None; // No distinct object contrast on bed
+    }
+
+    let threshold = (max_diff * 0.42).max(30.0);
+    let mut fg_mask = vec![false; gw * gh];
+    for i in 0..(gw * gh) {
+        fg_mask[i] = valid_mask[i] && diffs[i] >= threshold;
+    }
+
+    // Connected components BFS to find the largest contiguous workpiece
+    let mut visited = vec![false; gw * gh];
+    let mut best_component: Vec<(usize, usize)> = Vec::new();
+    let mut queue = std::collections::VecDeque::new();
+
+    for sy in 2..(gh - 2) {
+        for sx in 2..(gw - 2) {
+            let start_idx = sy * gw + sx;
+            if fg_mask[start_idx] && !visited[start_idx] {
+                let mut comp = Vec::new();
+                visited[start_idx] = true;
+                queue.push_back((sx, sy));
+
+                while let Some((cx, cy)) = queue.pop_front() {
+                    comp.push((cx, cy));
+                    let neighbors = [
+                        (cx.wrapping_sub(1), cy),
+                        (cx + 1, cy),
+                        (cx, cy.wrapping_sub(1)),
+                        (cx, cy + 1),
+                    ];
+                    for (nx, ny) in neighbors {
+                        if nx >= 1 && nx < gw - 1 && ny >= 1 && ny < gh - 1 {
+                            let n_idx = ny * gw + nx;
+                            if fg_mask[n_idx] && !visited[n_idx] {
+                                visited[n_idx] = true;
+                                queue.push_back((nx, ny));
+                            }
+                        }
+                    }
+                }
+
+                if comp.len() > best_component.len() {
+                    best_component = comp;
+                }
+            }
+        }
+    }
+
+    // Require at least ~0.5% of bed area
+    if best_component.len() < 40 {
+        return None;
+    }
+
+    let cell_w = bed_w / gw as f64;
+    let cell_h = bed_h / gh as f64;
+
+    let n = best_component.len() as f64;
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    let mut pts_mm = Vec::with_capacity(best_component.len());
+
+    for &(gx, gy) in &best_component {
+        let px = (gx as f64 + 0.5) * cell_w;
+        let py = (gy as f64 + 0.5) * cell_h;
+        sum_x += px;
+        sum_y += py;
+        pts_mm.push((px, py));
+    }
+
+    let center_x = sum_x / n;
+    let center_y = sum_y / n;
+
+    // Principal axis orientation via 2nd central moments
+    let mut mu20 = 0.0;
+    let mut mu02 = 0.0;
+    let mut mu11 = 0.0;
+    for &(px, py) in &pts_mm {
+        let dx = px - center_x;
+        let dy = py - center_y;
+        mu20 += dx * dx;
+        mu02 += dy * dy;
+        mu11 += dx * dy;
+    }
+
+    let mut angle_rad = 0.5 * (2.0 * mu11).atan2(mu20 - mu02);
+    // Normalize angle to [-45°, +45°] so upright tiles stay upright
+    while angle_rad > std::f64::consts::FRAC_PI_4 {
+        angle_rad -= std::f64::consts::FRAC_PI_2;
+    }
+    while angle_rad < -std::f64::consts::FRAC_PI_4 {
+        angle_rad += std::f64::consts::FRAC_PI_2;
+    }
+
+    // If very close to 0 degrees (< 1.2°), snap to 0°
+    let angle_deg = if angle_rad.to_degrees().abs() < 1.2 {
+        0.0
+    } else {
+        angle_rad.to_degrees()
+    };
+    let eff_rad = angle_deg.to_radians();
+    let (sin_a, cos_a) = eff_rad.sin_cos();
+
+    let mut min_u = f64::INFINITY;
+    let mut max_u = f64::NEG_INFINITY;
+    let mut min_v = f64::INFINITY;
+    let mut max_v = f64::NEG_INFINITY;
+
+    for &(px, py) in &pts_mm {
+        let dx = px - center_x;
+        let dy = py - center_y;
+        let u = dx * cos_a + dy * sin_a;
+        let v = -dx * sin_a + dy * cos_a;
+        if u < min_u { min_u = u; }
+        if u > max_u { max_u = u; }
+        if v < min_v { min_v = v; }
+        if v > max_v { max_v = v; }
+    }
+
+    let width = (max_u - min_u + cell_w).max(5.0);
+    let height = (max_v - min_v + cell_h).max(5.0);
+
+    Some(DetectedWorkpiece {
+        center_x,
+        center_y,
+        width,
+        height,
+        angle_deg,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

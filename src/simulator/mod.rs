@@ -270,6 +270,10 @@ mod tests {
             raw_width: 500,
             raw_height: 500,
             image_path: None,
+            brightness: 0.0,
+            contrast: 0.0,
+            gamma: 1.0,
+            sharpen: 0.0,
         });
 
         let sim = Simulator::new();

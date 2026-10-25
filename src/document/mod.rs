@@ -67,6 +67,42 @@ fn default_overscan() -> f64 {
     2.5
 }
 
+fn default_gamma() -> f32 {
+    1.0
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CeramicColorBand {
+    pub max_power_pct: f64, // Power threshold % up to which this layer is visible (0..=100)
+    pub color_hex: String,  // Revealed paint/tile color in "#RRGGBB"
+    pub label: String,      // Layer description, e.g. "Top Coat (Black)"
+}
+
+pub fn default_ceramic_bands() -> Vec<CeramicColorBand> {
+    vec![
+        CeramicColorBand {
+            max_power_pct: 18.0,
+            color_hex: "#1C1C1C".to_string(),
+            label: "1. Pintamaali (Musta)".to_string(),
+        },
+        CeramicColorBand {
+            max_power_pct: 45.0,
+            color_hex: "#1E64C8".to_string(),
+            label: "2. Välikerros (Sininen)".to_string(),
+        },
+        CeramicColorBand {
+            max_power_pct: 75.0,
+            color_hex: "#E6A817".to_string(),
+            label: "3. Pohjamaali (Keltainen/Kulta)".to_string(),
+        },
+        CeramicColorBand {
+            max_power_pct: 100.0,
+            color_hex: "#F5F5F0".to_string(),
+            label: "4. Keraaminen laatta (Valkoinen)".to_string(),
+        },
+    ]
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CutSetting {
     pub name: String,
@@ -89,6 +125,10 @@ pub struct CutSetting {
     pub invert_image: bool,     // invert light/dark in image engraving (negative)
     #[serde(default = "default_overscan")]
     pub overscan: f64,          // overscan acceleration/deceleration margin in mm (e.g. 2.5mm)
+    #[serde(default)]
+    pub ceramic_preview: bool,  // simulate multi-layer ceramic paint colors on canvas
+    #[serde(default = "default_ceramic_bands")]
+    pub ceramic_bands: Vec<CeramicColorBand>,
 }
 
 impl Default for CutSetting {
@@ -112,6 +152,8 @@ impl Default for CutSetting {
             galvo: GalvoTiming::default(),
             invert_image: false,
             overscan: 2.5,
+            ceramic_preview: false,
+            ceramic_bands: default_ceramic_bands(),
         }
     }
 }
@@ -207,6 +249,14 @@ pub enum Shape {
         raw_pixels: Option<Vec<u8>>, // Grayscale or RGBA bytes
         raw_width: u32,
         raw_height: u32,
+        #[serde(default)]
+        brightness: f32,
+        #[serde(default)]
+        contrast: f32,
+        #[serde(default = "default_gamma")]
+        gamma: f32,
+        #[serde(default)]
+        sharpen: f32,
     },
 }
 
@@ -502,6 +552,10 @@ impl Shape {
                 raw_width,
                 raw_height,
                 image_path,
+                brightness,
+                contrast,
+                gamma,
+                sharpen,
                 ..
             } => {
                 if *width <= 0.0 || *height <= 0.0 {
@@ -527,8 +581,17 @@ impl Shape {
                     return vec![];
                 };
 
-                // Convert to grayscale
-                let gray = crate::dither::to_grayscale(&pixels, w_orig, h_orig, 4);
+                // Convert to grayscale & apply Brightness/Contrast/Gamma/Sharpen
+                let gray_raw = crate::dither::to_grayscale(&pixels, w_orig, h_orig, 4);
+                let gray = crate::dither::preprocess_grayscale(
+                    &gray_raw,
+                    w_orig,
+                    h_orig,
+                    *brightness,
+                    *contrast,
+                    *gamma,
+                    *sharpen,
+                );
 
                 // Calculate target raster resolution based on line_interval_mm
                 let interval = if line_interval_mm > 0.005 { line_interval_mm } else { 0.08 };
@@ -616,6 +679,10 @@ impl Shape {
                 raw_width,
                 raw_height,
                 image_path,
+                brightness,
+                contrast,
+                gamma,
+                sharpen,
                 ..
             } => {
                 if *width <= 0.0 || *height <= 0.0 {
@@ -648,7 +715,16 @@ impl Shape {
                 };
 
                 if cut_setting.dither_mode == DitherMode::GrayscalePower {
-                    let gray = crate::dither::to_grayscale(&pixels, w_orig, h_orig, 4);
+                    let gray_raw = crate::dither::to_grayscale(&pixels, w_orig, h_orig, 4);
+                    let gray = crate::dither::preprocess_grayscale(
+                        &gray_raw,
+                        w_orig,
+                        h_orig,
+                        *brightness,
+                        *contrast,
+                        *gamma,
+                        *sharpen,
+                    );
                     let target_h = ((*height / interval).round() as usize).clamp(1, 4000);
                     let target_w = ((*width / interval).round() as usize).clamp(1, 4000);
                     let resampled = crate::dither::resample_grayscale(&gray, w_orig, h_orig, target_w, target_h);
@@ -777,6 +853,96 @@ impl Shape {
             }
             _ => {
                 self.to_polylines().into_iter().map(|p| (p, None)).collect()
+            }
+        }
+    }
+
+    /// Creates an outward (+distance) or inward (-distance) offset contour of this shape.
+    pub fn offset_shape(&self, distance: f64, target_layer: Option<usize>) -> Vec<Shape> {
+        let layer_index = target_layer.unwrap_or_else(|| self.layer_index());
+        match self {
+            Shape::Rect {
+                x,
+                y,
+                width,
+                height,
+                corner_radius,
+                ..
+            } => {
+                let nw = *width + 2.0 * distance;
+                let nh = *height + 2.0 * distance;
+                if nw > 0.1 && nh > 0.1 {
+                    vec![Shape::Rect {
+                        layer_index,
+                        x: *x - distance,
+                        y: *y - distance,
+                        width: nw,
+                        height: nh,
+                        corner_radius: (*corner_radius + distance).max(0.0),
+                    }]
+                } else {
+                    vec![]
+                }
+            }
+            Shape::Circle { center, radius, .. } => {
+                let nr = *radius + distance;
+                if nr > 0.1 {
+                    vec![Shape::Circle {
+                        layer_index,
+                        center: *center,
+                        radius: nr,
+                    }]
+                } else {
+                    vec![]
+                }
+            }
+            Shape::Path { polyline, .. } => {
+                let off = polyline.offset(distance);
+                if off.points.len() >= 2 {
+                    vec![Shape::Path {
+                        layer_index,
+                        polyline: off,
+                    }]
+                } else {
+                    vec![]
+                }
+            }
+            Shape::Group { shapes, locked, .. } => {
+                let child_offsets: Vec<Shape> = shapes
+                    .iter()
+                    .flat_map(|s| s.offset_shape(distance, target_layer))
+                    .collect();
+                if child_offsets.is_empty() {
+                    vec![]
+                } else {
+                    vec![Shape::Group {
+                        layer_index,
+                        shapes: child_offsets,
+                        locked: *locked,
+                    }]
+                }
+            }
+            Shape::Image {
+                x,
+                y,
+                width,
+                height,
+                ..
+            } => {
+                let nw = *width + 2.0 * distance;
+                let nh = *height + 2.0 * distance;
+                if nw > 0.1 && nh > 0.1 {
+                    vec![Shape::Rect {
+                        layer_index,
+                        x: *x - distance,
+                        y: *y - distance,
+                        width: nw,
+                        height: nh,
+                        corner_radius: 0.0,
+                    }]
+                } else {
+                    vec![]
+                }
             }
         }
     }
