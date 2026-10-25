@@ -102,6 +102,13 @@ pub struct LaserBurnApp {
     pub last_applied_calibration: Option<crate::camera::CameraCalibration>,
     pub camera_window_tab: usize,
 
+    // 4-Point Camera Alignment Wizard State
+    pub wizard_step: usize,
+    pub wizard_target_idx: usize,
+    pub wizard_points: [Option<(f64, f64)>; 4],
+    pub wizard_dragged_pt: Option<usize>,
+    pub wizard_magnifier_zoom: f32,
+
     // Keyboard Jogging Control
     pub keyboard_jog_laser: bool,
 
@@ -166,6 +173,11 @@ impl Default for LaserBurnApp {
             last_raw_frame: None,
             last_applied_calibration: None,
             camera_window_tab: 0,
+            wizard_step: 0,
+            wizard_target_idx: 0,
+            wizard_points: [None; 4],
+            wizard_dragged_pt: None,
+            wizard_magnifier_zoom: 4.0,
             keyboard_jog_laser: true,
             file_dialog_tx,
             file_dialog_rx,
@@ -173,6 +185,13 @@ impl Default for LaserBurnApp {
 
         app.doc.width = app.device.settings.bed_width;
         app.doc.height = app.device.settings.bed_height;
+
+        if app.camera_calibration.homography_points.len() == 4 {
+            for i in 0..4 {
+                let pt = &app.camera_calibration.homography_points[i];
+                app.wizard_points[i] = Some((pt.camera_u, pt.camera_v));
+            }
+        }
 
         app.load_sample_gear(200.0, 220.0, 12, 45.0, 55.0);
 
@@ -970,7 +989,61 @@ impl LaserBurnApp {
         let cal = &self.camera_calibration;
         let doc_w = self.doc.width;
         let doc_h = self.doc.height;
+        let alpha = (cal.opacity.clamp(0.05, 1.0) * 255.0) as u8;
+        let color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha);
 
+        // High-precision 4-Point Homography perspective mesh
+        if cal.use_homography {
+            if let Some(ref inv_h) = cal.inv_homography_matrix {
+                let nx = 20;
+                let ny = 20;
+                let mut mesh = egui::Mesh::with_texture(texture.id());
+
+                for k in 0..=ny {
+                    let ty = k as f64 / ny as f64;
+                    let doc_y = doc_h * ty;
+                    for j in 0..=nx {
+                        let tx = j as f64 / nx as f64;
+                        let doc_x = doc_w * tx;
+
+                        let screen_pos = self.doc_to_screen(Point2D::new(doc_x, doc_y), canvas_origin);
+                        let (mut u, mut v) = crate::camera::project_homography(inv_h, doc_x, doc_y);
+
+                        if cal.flip_h {
+                            u = 1.0 - u;
+                        }
+                        if cal.flip_v {
+                            v = 1.0 - v;
+                        }
+
+                        mesh.vertices.push(egui::epaint::Vertex {
+                            pos: screen_pos,
+                            uv: egui::pos2(u as f32, v as f32),
+                            color,
+                        });
+                    }
+                }
+
+                for k in 0..ny {
+                    for j in 0..nx {
+                        let top_left = (k * (nx + 1) + j) as u32;
+                        let top_right = top_left + 1;
+                        let bottom_left = ((k + 1) * (nx + 1) + j) as u32;
+                        let bottom_right = bottom_left + 1;
+
+                        mesh.indices.extend_from_slice(&[
+                            top_left, top_right, bottom_right,
+                            top_left, bottom_right, bottom_left,
+                        ]);
+                    }
+                }
+
+                painter.add(egui::Shape::mesh(mesh));
+                return;
+            }
+        }
+
+        // Fallback: 4-corner affine transform
         let cx = doc_w * 0.5 + cal.offset_x_mm;
         let cy = doc_h * 0.5 + cal.offset_y_mm;
 
@@ -1009,9 +1082,6 @@ impl LaserBurnApp {
             egui::pos2(u_min, v_max),
         ];
 
-        let alpha = (cal.opacity.clamp(0.05, 1.0) * 255.0) as u8;
-        let color = egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha);
-
         let mut mesh = egui::Mesh::with_texture(texture.id());
         for i in 0..4 {
             mesh.vertices.push(egui::epaint::Vertex {
@@ -1023,6 +1093,95 @@ impl LaserBurnApp {
         mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
 
         painter.add(egui::Shape::mesh(mesh));
+    }
+
+    /// Calculate the 4 target coordinates in document mm space:
+    /// 0: Top-Left (inset, inset)
+    /// 1: Top-Right (width - inset, inset)
+    /// 2: Bottom-Right (width - inset, height - inset)
+    /// 3: Bottom-Left (inset, height - inset)
+    pub fn alignment_target_doc_coords(&self) -> [(f64, f64); 4] {
+        let inset = self.camera_calibration.target_inset_mm.clamp(10.0, self.doc.width.min(self.doc.height) * 0.45);
+        let w = self.doc.width;
+        let h = self.doc.height;
+        [
+            (inset, inset),           // 0: Top-Left
+            (w - inset, inset),       // 1: Top-Right
+            (w - inset, h - inset),   // 2: Bottom-Right
+            (inset, h - inset),       // 3: Bottom-Left
+        ]
+    }
+
+    /// Move the physical laser head directly over target index 0..3 with weak light spot turned on
+    pub fn jog_to_alignment_target(&mut self, idx: usize) {
+        let targets = self.alignment_target_doc_coords();
+        if idx < 4 {
+            let (doc_x, doc_y) = targets[idx];
+            if !self.device.is_weak_light_on {
+                self.device.set_weak_light(true);
+            }
+            self.device.go_to_point(Point2D::new(doc_x, doc_y));
+            self.status_msg = format!("Laser positioned at Target {} (X: {:.1}, Y: {:.1} mm). Place paper under the laser spot!", idx + 1, doc_x, doc_y);
+        }
+    }
+
+    /// Generate rapid G-code for 4 bullseye alignment targets (crosshairs + concentric circles)
+    pub fn generate_alignment_targets_gcode(&self) -> String {
+        let targets = self.alignment_target_doc_coords();
+        let speed = self.camera_calibration.burn_speed.clamp(100.0, 10000.0);
+        let max_s = self.device.settings.max_s_value;
+        let power_s = (max_s * (self.camera_calibration.burn_power_percent.clamp(1.0, 100.0) as f64 / 100.0)).round();
+
+        let mut lines = Vec::new();
+        lines.push("; LaserBurn 4-Point Camera Alignment Targets".to_string());
+        lines.push("G21 ; millimeters".to_string());
+        lines.push("G90 ; absolute coordinates".to_string());
+        lines.push("M5 ; ensure laser off".to_string());
+
+        for (idx, &(doc_x, doc_y)) in targets.iter().enumerate() {
+            let m_pt = self.device.doc_to_machine(Point2D::new(doc_x, doc_y));
+            let mx = m_pt.x;
+            let my = m_pt.y;
+
+            lines.push(format!("; Target {} at doc X{:.1} Y{:.1} -> machine X{:.1} Y{:.1}", idx + 1, doc_x, doc_y, mx, my));
+            lines.push(format!("G0 X{:.3} Y{:.3} F{:.0}", mx, my, self.device.settings.rapid_speed));
+
+            // Horizontal crosshair (10mm)
+            lines.push(format!("G0 X{:.3} Y{:.3}", mx - 5.0, my));
+            lines.push(format!("M3 S{:.0}", power_s));
+            lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", mx + 5.0, my, speed));
+            lines.push("M5".to_string());
+
+            // Vertical crosshair (10mm)
+            lines.push(format!("G0 X{:.3} Y{:.3}", mx, my - 5.0));
+            lines.push(format!("M3 S{:.0}", power_s));
+            lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", mx, my + 5.0, speed));
+            lines.push("M5".to_string());
+
+            // Inner circle (diameter 6mm)
+            lines.push(format!("G0 X{:.3} Y{:.3}", mx + 3.0, my));
+            lines.push(format!("M3 S{:.0}", power_s));
+            lines.push(format!("G2 X{:.3} Y{:.3} I-3.0 J0.0 F{:.0}", mx + 3.0, my, speed));
+            lines.push("M5".to_string());
+
+            // Outer circle (diameter 12mm)
+            lines.push(format!("G0 X{:.3} Y{:.3}", mx + 6.0, my));
+            lines.push(format!("M3 S{:.0}", power_s));
+            lines.push(format!("G2 X{:.3} Y{:.3} I-6.0 J0.0 F{:.0}", mx + 6.0, my, speed));
+            lines.push("M5".to_string());
+        }
+
+        // Return to home/origin
+        lines.push("M5 ; laser off".to_string());
+        lines.push(format!("G0 X0 Y0 F{:.0}", self.device.settings.rapid_speed));
+        lines.join("\n")
+    }
+
+    /// Burn the 4 alignment targets onto the scrap papers placed on the bed
+    pub fn burn_alignment_targets(&mut self) {
+        let gcode = self.generate_alignment_targets_gcode();
+        self.device.start_job(&gcode);
+        self.status_msg = "Burning 4 alignment targets onto scrap papers...".to_string();
     }
 
     /// Screen position of the Origin point (0, 0) - positioned at the machine's origin corner
@@ -4199,9 +4358,10 @@ impl eframe::App for LaserBurnApp {
 
                     // Navigation Tabs
                     ui.horizontal(|ui| {
-                        ui.selectable_value(&mut self.camera_window_tab, 0, "Lens & Fisheye");
-                        ui.selectable_value(&mut self.camera_window_tab, 1, "Bed Alignment");
-                        ui.selectable_value(&mut self.camera_window_tab, 2, "Canvas Overlay");
+                        ui.selectable_value(&mut self.camera_window_tab, 0, "4-Point Wizard");
+                        ui.selectable_value(&mut self.camera_window_tab, 1, "Manual Sliders");
+                        ui.selectable_value(&mut self.camera_window_tab, 2, "Lens & Fisheye");
+                        ui.selectable_value(&mut self.camera_window_tab, 3, "Canvas Overlay");
                     });
 
                     ui.separator();
@@ -4214,6 +4374,10 @@ impl eframe::App for LaserBurnApp {
                         .show_inside(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.checkbox(&mut self.camera_calibration.show_on_canvas, "Show on Canvas");
+
+                                if self.camera_calibration.use_homography {
+                                    ui.label(egui::RichText::new("Homography: Active").color(egui::Color32::from_rgb(0, 230, 0)).small().strong());
+                                }
 
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     if ui.button(egui::RichText::new("Save Calibration").color(egui::Color32::from_rgb(100, 220, 255)).strong()).clicked() {
@@ -4237,7 +4401,397 @@ impl eframe::App for LaserBurnApp {
                                     match self.camera_window_tab {
                                         0 => {
                                             // -------------------------------------------------
-                                            // TAB 0: FISHEYE LENS & PREVIEW
+                                            // TAB 0: 4-POINT ALIGNMENT WIZARD (HOMOGRAPHY)
+                                            // -------------------------------------------------
+                                            ui.heading("4-Point Alignment Wizard");
+                                            ui.label(egui::RichText::new("Mathematically align camera with 4 scrap papers or cardboard pieces!").small().weak());
+                                            ui.add_space(4.0);
+
+                                            // Wizard Step Tabs
+                                            ui.horizontal(|ui| {
+                                                let step_names = ["1. Place Papers", "2. Burn Marks", "3. Click Targets", "4. Complete"];
+                                                for (i, name) in step_names.iter().enumerate() {
+                                                    let is_cur = self.wizard_step == i;
+                                                    let is_past = self.wizard_step > i;
+                                                    let color = if is_cur {
+                                                        egui::Color32::from_rgb(100, 210, 255)
+                                                    } else if is_past {
+                                                        egui::Color32::from_rgb(80, 230, 80)
+                                                    } else {
+                                                        egui::Color32::GRAY
+                                                    };
+                                                    if ui.selectable_label(is_cur, egui::RichText::new(*name).color(color).strong()).clicked() {
+                                                        self.wizard_step = i;
+                                                    }
+                                                }
+                                            });
+                                            ui.separator();
+                                            ui.add_space(4.0);
+
+                                            let targets = self.alignment_target_doc_coords();
+
+                                            match self.wizard_step {
+                                                0 => {
+                                                    // STEP 0: SETUP 4 PAPERS
+                                                    ui.label(egui::RichText::new("Step 1: Place 4 small pieces of paper or cardboard").strong());
+                                                    ui.label(egui::RichText::new("You do NOT need a large sheet covering the whole bed! Just place 4 small scrap pieces (A5/A6, Post-it notes, tape, or cardboard) under the 4 target locations.").small());
+                                                    ui.add_space(6.0);
+
+                                                    ui.horizontal(|ui| {
+                                                        ui.label("Margin from Bed Edges (mm):");
+                                                        ui.add(egui::DragValue::new(&mut self.camera_calibration.target_inset_mm).speed(1.0).range(15.0..=150.0));
+                                                    });
+                                                    ui.add(egui::Slider::new(&mut self.camera_calibration.target_inset_mm, 15.0..=150.0).text("Edge Inset"));
+                                                    ui.add_space(6.0);
+
+                                                    ui.label(egui::RichText::new("Target Locations on Laser Bed:").strong());
+                                                    egui::Grid::new("wizard_target_coords_grid").spacing([10.0, 6.0]).show(ui, |ui| {
+                                                        let corner_names = ["1: Top-Left", "2: Top-Right", "3: Bottom-Right", "4: Bottom-Left"];
+                                                        for i in 0..4 {
+                                                            let (x, y) = targets[i];
+                                                            ui.label(format!("{}: ({:.1}, {:.1}) mm", corner_names[i], x, y));
+                                                            if ui.button("📍 Move Laser Here (Weak Light)").on_hover_text("Jog laser head directly over this target with weak diode light to position your paper").clicked() {
+                                                                self.jog_to_alignment_target(i);
+                                                            }
+                                                            ui.end_row();
+                                                        }
+                                                    });
+                                                    ui.add_space(8.0);
+                                                    if ui.button(egui::RichText::new("Framing: Visit All 4 Spots Sequentially").color(egui::Color32::from_rgb(100, 220, 255))).on_hover_text("Laser will visit each of the 4 spots so you can verify paper placement").clicked() {
+                                                        for i in 0..4 {
+                                                            self.jog_to_alignment_target(i);
+                                                        }
+                                                    }
+
+                                                    ui.add_space(10.0);
+                                                    ui.horizontal(|ui| {
+                                                        if ui.button(egui::RichText::new("Next: Proceed to Burn Marks ➔").color(egui::Color32::from_rgb(0, 230, 0)).strong()).clicked() {
+                                                            self.wizard_step = 1;
+                                                        }
+                                                        if ui.button("Skip Burning (Marks already placed) ➔").clicked() {
+                                                            self.wizard_step = 2;
+                                                        }
+                                                    });
+                                                }
+                                                1 => {
+                                                    // STEP 1: BURN BULLSEYE MARKS
+                                                    ui.label(egui::RichText::new("Step 2: Burn 4 High-Contrast Bullseye Marks").strong());
+                                                    ui.label(egui::RichText::new("The laser will mark a 10mm crosshair and concentric rings on each of your 4 scrap papers, then park out of the way.").small());
+                                                    ui.add_space(6.0);
+
+                                                    ui.horizontal(|ui| {
+                                                        ui.label("Laser Power (%):");
+                                                        ui.add(egui::Slider::new(&mut self.camera_calibration.burn_power_percent, 1.0..=100.0).custom_formatter(|v, _| format!("{:.0}%", v)));
+                                                    });
+                                                    ui.horizontal(|ui| {
+                                                        ui.label("Marking Speed (mm/min):");
+                                                        ui.add(egui::DragValue::new(&mut self.camera_calibration.burn_speed).speed(50.0).range(200.0..=6000.0));
+                                                    });
+                                                    ui.add_space(8.0);
+
+                                                    if self.device.is_job_running {
+                                                        ui.horizontal(|ui| {
+                                                            ui.spinner();
+                                                            ui.label(egui::RichText::new(format!("Marking in progress: {:.0}%", self.device.job_progress * 100.0)).color(egui::Color32::YELLOW));
+                                                            if ui.button(egui::RichText::new("Stop").color(egui::Color32::RED)).clicked() {
+                                                                self.device.stop_job();
+                                                            }
+                                                        });
+                                                    } else {
+                                                        ui.horizontal(|ui| {
+                                                            if ui.button(egui::RichText::new("🔥 Burn 4 Alignment Marks").color(egui::Color32::from_rgb(255, 120, 50)).strong()).on_hover_text("Execute rapid G-code to burn 4 crosshair bullseyes").clicked() {
+                                                                self.burn_alignment_targets();
+                                                            }
+                                                            if ui.button("Marks Already Burned / Skip ➔").clicked() {
+                                                                self.wizard_step = 2;
+                                                            }
+                                                        });
+                                                    }
+
+                                                    ui.add_space(10.0);
+                                                    ui.horizontal(|ui| {
+                                                        if ui.button("⬅ Back to Paper Setup").clicked() {
+                                                            self.wizard_step = 0;
+                                                        }
+                                                        if ui.button(egui::RichText::new("Next: Click Targets on Camera ➔").color(egui::Color32::from_rgb(0, 230, 0)).strong()).clicked() {
+                                                            self.wizard_step = 2;
+                                                        }
+                                                    });
+                                                }
+                                                2 => {
+                                                    // STEP 2: CLICK TARGETS WITH ZOOM LOUPE
+                                                    ui.label(egui::RichText::new("Step 3: Click the 4 Bullseye Targets on the Camera Image").strong());
+                                                    ui.label(egui::RichText::new("Hover mouse over a target to see the 4x Zoom Loupe for pixel-perfect centering!").small().weak());
+                                                    ui.add_space(4.0);
+
+                                                    let target_labels = [
+                                                        ("Target 1 (Top-Left)", egui::Color32::from_rgb(255, 80, 80)),
+                                                        ("Target 2 (Top-Right)", egui::Color32::from_rgb(80, 240, 80)),
+                                                        ("Target 3 (Bottom-Right)", egui::Color32::from_rgb(255, 230, 70)),
+                                                        ("Target 4 (Bottom-Left)", egui::Color32::from_rgb(80, 210, 255)),
+                                                    ];
+
+                                                    ui.horizontal(|ui| {
+                                                        for i in 0..4 {
+                                                            let is_active = self.wizard_target_idx == i;
+                                                            let has_val = self.wizard_points[i].is_some();
+                                                            let (name, col) = target_labels[i];
+                                                            let text = if has_val { format!("✓ {}", name) } else { name.to_string() };
+                                                            if ui.selectable_label(is_active, egui::RichText::new(text).color(col).strong()).clicked() {
+                                                                self.wizard_target_idx = i;
+                                                            }
+                                                        }
+                                                    });
+
+                                                    ui.add_space(6.0);
+
+                                                    // Interactive Camera Canvas with Loupe
+                                                    if let Some(ref texture) = self.camera_texture {
+                                                        let avail_w = ui.available_width();
+                                                        let tex_size = texture.size_vec2();
+                                                        if tex_size.x > 0.0 && tex_size.y > 0.0 {
+                                                            let aspect = tex_size.y / tex_size.x;
+                                                            let target_w = (avail_w - 14.0).clamp(180.0, 480.0);
+                                                            let target_h = target_w * aspect;
+                                                            let final_size = egui::vec2(target_w, target_h);
+
+                                                            ui.vertical_centered(|ui| {
+                                                                let (rect, response) = ui.allocate_exact_size(final_size, egui::Sense::click_and_drag());
+
+                                                                // Draw camera frame
+                                                                ui.painter().image(
+                                                                    texture.id(),
+                                                                    rect,
+                                                                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                                                                    egui::Color32::WHITE,
+                                                                );
+
+                                                                let hover_pos = response.hover_pos();
+                                                                if response.clicked() {
+                                                                    if let Some(pos) = hover_pos {
+                                                                        let u = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0) as f64;
+                                                                        let v = ((pos.y - rect.top()) / rect.height()).clamp(0.0, 1.0) as f64;
+                                                                        self.wizard_points[self.wizard_target_idx] = Some((u, v));
+                                                                        self.wizard_target_idx = (self.wizard_target_idx + 1).min(3);
+                                                                    }
+                                                                }
+
+                                                                // Draw placed target markers (1, 2, 3, 4)
+                                                                for (i, opt_pt) in self.wizard_points.iter().enumerate() {
+                                                                    if let Some((u, v)) = *opt_pt {
+                                                                        let px = rect.left() + rect.width() * u as f32;
+                                                                        let py = rect.top() + rect.height() * v as f32;
+                                                                        let marker_pos = egui::pos2(px, py);
+                                                                        let (_, col) = target_labels[i];
+
+                                                                        ui.painter().circle_filled(marker_pos, 10.0, col);
+                                                                        ui.painter().circle_stroke(marker_pos, 10.0, egui::Stroke::new(1.5_f32, egui::Color32::BLACK));
+                                                                        ui.painter().text(
+                                                                            marker_pos,
+                                                                            egui::Align2::CENTER_CENTER,
+                                                                            format!("{}", i + 1),
+                                                                            egui::FontId::proportional(13.0),
+                                                                            egui::Color32::BLACK,
+                                                                        );
+                                                                    }
+                                                                }
+
+                                                                // Draw Floating Zoom Loupe (Magnifier) near cursor
+                                                                if let Some(pos) = hover_pos {
+                                                                    if rect.contains(pos) {
+                                                                        let u = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+                                                                        let v = ((pos.y - rect.top()) / rect.height()).clamp(0.0, 1.0);
+
+                                                                        let loupe_size = 130.0_f32;
+                                                                        let zoom = self.wizard_magnifier_zoom.clamp(2.0, 8.0);
+                                                                        let half_uv = 0.5 / zoom;
+
+                                                                        let uv_min = egui::pos2((u - half_uv).clamp(0.0, 1.0), (v - half_uv).clamp(0.0, 1.0));
+                                                                        let uv_max = egui::pos2((u + half_uv).clamp(0.0, 1.0), (v + half_uv).clamp(0.0, 1.0));
+
+                                                                        // Position loupe away from cursor
+                                                                        let loupe_x = if pos.x < rect.center().x {
+                                                                            rect.right() - loupe_size - 8.0
+                                                                        } else {
+                                                                            rect.left() + 8.0
+                                                                        };
+                                                                        let loupe_y = rect.top() + 8.0;
+                                                                        let loupe_rect = egui::Rect::from_min_size(egui::pos2(loupe_x, loupe_y), egui::vec2(loupe_size, loupe_size));
+
+                                                                        ui.painter().rect_filled(loupe_rect, 6.0, egui::Color32::BLACK);
+                                                                        ui.painter().image(
+                                                                            texture.id(),
+                                                                            loupe_rect,
+                                                                            egui::Rect::from_min_max(uv_min, uv_max),
+                                                                            egui::Color32::WHITE,
+                                                                        );
+                                                                        ui.painter().rect_stroke(loupe_rect, 6.0, egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(0, 230, 255)), egui::StrokeKind::Outside);
+
+                                                                        let loupe_center = loupe_rect.center();
+                                                                        let cross_stroke = egui::Stroke::new(1.2_f32, egui::Color32::from_rgb(255, 30, 30));
+                                                                        ui.painter().line_segment([egui::pos2(loupe_center.x - 16.0, loupe_center.y), egui::pos2(loupe_center.x + 16.0, loupe_center.y)], cross_stroke);
+                                                                        ui.painter().line_segment([egui::pos2(loupe_center.x, loupe_center.y - 16.0), egui::pos2(loupe_center.x, loupe_center.y + 16.0)], cross_stroke);
+                                                                        ui.painter().circle_stroke(loupe_center, 4.0, cross_stroke);
+                                                                    }
+                                                                }
+                                                            });
+                                                        }
+                                                    } else {
+                                                        ui.vertical_centered(|ui| {
+                                                            ui.add_space(30.0);
+                                                            ui.label("Camera stream is currently IDLE. Click 'Start Stream' above to view feed.");
+                                                            ui.add_space(30.0);
+                                                        });
+                                                    }
+
+                                                    ui.add_space(6.0);
+                                                    ui.horizontal(|ui| {
+                                                        ui.label("Loupe Zoom:");
+                                                        ui.add(egui::Slider::new(&mut self.wizard_magnifier_zoom, 2.0..=8.0).custom_formatter(|v, _| format!("{:.1}x", v)));
+                                                        if ui.button("Clear Points").clicked() {
+                                                            self.wizard_points = [None; 4];
+                                                            self.wizard_target_idx = 0;
+                                                        }
+                                                    });
+
+                                                    ui.add_space(8.0);
+                                                    let all_set = self.wizard_points.iter().all(|p| p.is_some());
+                                                    if all_set {
+                                                        let apply_btn = egui::Button::new(
+                                                            egui::RichText::new("✨ Compute & Apply Homography Alignment")
+                                                                .color(egui::Color32::from_rgb(0, 240, 0))
+                                                                .strong(),
+                                                        );
+                                                        if ui.add(apply_btn).clicked() {
+                                                            let mut pts = [crate::camera::AlignmentPoint { machine_x: 0.0, machine_y: 0.0, camera_u: 0.0, camera_v: 0.0 }; 4];
+                                                            for i in 0..4 {
+                                                                let (x, y) = targets[i];
+                                                                let (u, v) = self.wizard_points[i].unwrap();
+                                                                pts[i] = crate::camera::AlignmentPoint { machine_x: x, machine_y: y, camera_u: u, camera_v: v };
+                                                            }
+                                                            match self.camera_calibration.update_homography(&pts) {
+                                                                Ok(()) => {
+                                                                    let _ = self.camera_calibration.save();
+                                                                    self.camera_calibration.show_on_canvas = true;
+                                                                    self.wizard_step = 3;
+                                                                    self.status_msg = "Homography alignment solved & saved! Bed overlay is now active.".to_string();
+                                                                }
+                                                                Err(e) => {
+                                                                    self.status_msg = format!("Alignment calculation error: {}", e);
+                                                                }
+                                                            }
+                                                        }
+                                                    } else {
+                                                        let missing_count = self.wizard_points.iter().filter(|p| p.is_none()).count();
+                                                        ui.label(egui::RichText::new(format!("Click {} more target(s) on the camera image above to complete.", missing_count)).color(egui::Color32::YELLOW));
+                                                    }
+
+                                                    ui.add_space(8.0);
+                                                    ui.horizontal(|ui| {
+                                                        if ui.button("⬅ Back to Burn").clicked() {
+                                                            self.wizard_step = 1;
+                                                        }
+                                                    });
+                                                }
+                                                3 => {
+                                                    // STEP 3: COMPLETED
+                                                    ui.vertical_centered(|ui| {
+                                                        ui.add_space(10.0);
+                                                        ui.heading(egui::RichText::new("🎉 4-Point Alignment Complete!").color(egui::Color32::from_rgb(0, 240, 0)));
+                                                        ui.label("The camera is now mathematically aligned to your laser bed coordinates using perspective homography.");
+                                                        ui.label("The background image under the grid now exactly matches your physical workpiece.");
+                                                        ui.add_space(10.0);
+
+                                                        if ui.button(egui::RichText::new("Recalibrate / Start Over").strong()).clicked() {
+                                                            self.wizard_step = 0;
+                                                        }
+                                                    });
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                        1 => {
+                                            // -------------------------------------------------
+                                            // TAB 1: BED ALIGNMENT (MANUAL SLIDERS)
+                                            // -------------------------------------------------
+                                            ui.heading("Bed Alignment (Manual Sliders)");
+                                            ui.label(egui::RichText::new("Manual affine controls (offset, scale, rotation).").small().weak());
+                                            ui.add_space(6.0);
+
+                                            if self.camera_calibration.use_homography {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(egui::RichText::new("✓ 4-Point Homography Active").color(egui::Color32::from_rgb(0, 230, 0)).strong());
+                                                    if ui.button("Switch to Manual Mode").clicked() {
+                                                        self.camera_calibration.use_homography = false;
+                                                    }
+                                                });
+                                                ui.add_space(6.0);
+                                            }
+
+                                            ui.label(egui::RichText::new("Separate Zooms X & Y (Image size on laser bed):").strong());
+
+                                            ui.horizontal(|ui| {
+                                                ui.label("Zoom X (Width):");
+                                                ui.add(egui::DragValue::new(&mut self.camera_calibration.scale_x).speed(0.005).range(0.1..=4.0));
+                                            });
+                                            ui.add(egui::Slider::new(&mut self.camera_calibration.scale_x, 0.2..=3.0)
+                                                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+                                                .text("X Width"));
+
+                                            ui.horizontal(|ui| {
+                                                ui.label("Zoom Y (Height):");
+                                                ui.add(egui::DragValue::new(&mut self.camera_calibration.scale_y).speed(0.005).range(0.1..=4.0));
+                                            });
+                                            ui.add(egui::Slider::new(&mut self.camera_calibration.scale_y, 0.2..=3.0)
+                                                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+                                                .text("Y Height"));
+
+                                            ui.horizontal(|ui| {
+                                                ui.label("Uniform Zoom (Both):");
+                                                ui.add(egui::DragValue::new(&mut self.camera_calibration.uniform_scale).speed(0.005).range(0.1..=4.0));
+                                                if ui.button("Reset 1:1").clicked() {
+                                                    self.camera_calibration.scale_x = 1.0;
+                                                    self.camera_calibration.scale_y = 1.0;
+                                                    self.camera_calibration.uniform_scale = 1.0;
+                                                }
+                                            });
+
+                                            ui.add_space(8.0);
+                                            egui::Grid::new("bed_align_compact_grid")
+                                                .spacing([12.0, 10.0])
+                                                .show(ui, |ui| {
+                                                    ui.label("Offset X (mm):");
+                                                    ui.add(egui::DragValue::new(&mut self.camera_calibration.offset_x_mm).speed(0.5).range(-500.0..=500.0));
+                                                    ui.end_row();
+
+                                                    ui.label("Offset Y (mm):");
+                                                    ui.add(egui::DragValue::new(&mut self.camera_calibration.offset_y_mm).speed(0.5).range(-500.0..=500.0));
+                                                    ui.end_row();
+
+                                                    ui.label("Rotation (°):");
+                                                    ui.add(egui::DragValue::new(&mut self.camera_calibration.rotation_deg).speed(0.5).range(-180.0..=180.0));
+                                                    ui.end_row();
+                                                });
+
+                                            ui.add_space(6.0);
+                                            ui.horizontal(|ui| {
+                                                ui.checkbox(&mut self.camera_calibration.flip_h, "Flip Horizontal");
+                                                ui.checkbox(&mut self.camera_calibration.flip_v, "Flip Vertical");
+                                            });
+
+                                            ui.add_space(8.0);
+                                            ui.horizontal(|ui| {
+                                                if ui.button("Fit to Bed").on_hover_text("Fit camera image directly to bed dimensions").clicked() {
+                                                    self.camera_calibration.reset_alignment();
+                                                }
+                                                if ui.button("Reset Alignment").clicked() {
+                                                    self.camera_calibration.reset_alignment();
+                                                }
+                                            });
+                                        }
+                                        2 => {
+                                            // -------------------------------------------------
+                                            // TAB 2: FISHEYE LENS & PREVIEW
                                             // -------------------------------------------------
                                             if let Some(ref texture) = self.camera_texture {
                                                 let avail_w = ui.available_width();
@@ -4354,78 +4908,9 @@ impl eframe::App for LaserBurnApp {
                                                 self.camera_calibration.reset_lens();
                                             }
                                         }
-                                        1 => {
-                                            // -------------------------------------------------
-                                            // TAB 1: BED ALIGNMENT
-                                            // -------------------------------------------------
-                                            ui.heading("Bed Alignment");
-                                            ui.label(egui::RichText::new("Align camera feed with the laser work area. Changes reflect immediately on the canvas grid background!").small().weak());
-                                            ui.add_space(8.0);
-
-                                            ui.label(egui::RichText::new("Separate Zooms X & Y (Image size on laser bed):").strong());
-
-                                            ui.horizontal(|ui| {
-                                                ui.label("Zoom X (Width):");
-                                                ui.add(egui::DragValue::new(&mut self.camera_calibration.scale_x).speed(0.005).range(0.1..=4.0));
-                                            });
-                                            ui.add(egui::Slider::new(&mut self.camera_calibration.scale_x, 0.2..=3.0)
-                                                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
-                                                .text("X Width"));
-
-                                            ui.horizontal(|ui| {
-                                                ui.label("Zoom Y (Height):");
-                                                ui.add(egui::DragValue::new(&mut self.camera_calibration.scale_y).speed(0.005).range(0.1..=4.0));
-                                            });
-                                            ui.add(egui::Slider::new(&mut self.camera_calibration.scale_y, 0.2..=3.0)
-                                                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
-                                                .text("Y Height"));
-
-                                            ui.horizontal(|ui| {
-                                                ui.label("Uniform Zoom (Both):");
-                                                ui.add(egui::DragValue::new(&mut self.camera_calibration.uniform_scale).speed(0.005).range(0.1..=4.0));
-                                                if ui.button("Reset 1:1").clicked() {
-                                                    self.camera_calibration.scale_x = 1.0;
-                                                    self.camera_calibration.scale_y = 1.0;
-                                                    self.camera_calibration.uniform_scale = 1.0;
-                                                }
-                                            });
-
-                                            ui.add_space(8.0);
-                                            egui::Grid::new("bed_align_compact_grid")
-                                                .spacing([12.0, 10.0])
-                                                .show(ui, |ui| {
-                                                    ui.label("Offset X (mm):");
-                                                    ui.add(egui::DragValue::new(&mut self.camera_calibration.offset_x_mm).speed(0.5).range(-500.0..=500.0));
-                                                    ui.end_row();
-
-                                                    ui.label("Offset Y (mm):");
-                                                    ui.add(egui::DragValue::new(&mut self.camera_calibration.offset_y_mm).speed(0.5).range(-500.0..=500.0));
-                                                    ui.end_row();
-
-                                                    ui.label("Rotation (°):");
-                                                    ui.add(egui::DragValue::new(&mut self.camera_calibration.rotation_deg).speed(0.5).range(-180.0..=180.0));
-                                                    ui.end_row();
-                                                });
-
-                                            ui.add_space(6.0);
-                                            ui.horizontal(|ui| {
-                                                ui.checkbox(&mut self.camera_calibration.flip_h, "Flip Horizontal");
-                                                ui.checkbox(&mut self.camera_calibration.flip_v, "Flip Vertical");
-                                            });
-
-                                            ui.add_space(8.0);
-                                            ui.horizontal(|ui| {
-                                                if ui.button("Fit to Bed").on_hover_text("Fit camera image directly to bed dimensions").clicked() {
-                                                    self.camera_calibration.reset_alignment();
-                                                }
-                                                if ui.button("Reset Alignment").clicked() {
-                                                    self.camera_calibration.reset_alignment();
-                                                }
-                                            });
-                                        }
                                         _ => {
                                             // -------------------------------------------------
-                                            // TAB 2: CANVAS OVERLAY SETTINGS
+                                            // TAB 3: CANVAS OVERLAY SETTINGS
                                             // -------------------------------------------------
                                             ui.heading("Bed Canvas Background");
                                             ui.add_space(6.0);
@@ -4727,5 +5212,39 @@ mod tests {
         } else {
             panic!("Expected SaveProject action from file_dialog_rx");
         }
+    }
+
+    #[test]
+    fn test_alignment_wizard_targets_and_gcode() {
+        let mut app = LaserBurnApp::default();
+        app.doc.width = 465.0;
+        app.doc.height = 440.0;
+        app.camera_calibration.target_inset_mm = 50.0;
+
+        let targets = app.alignment_target_doc_coords();
+        assert_eq!(targets.len(), 4);
+        assert_eq!(targets[0], (50.0, 50.0));
+        assert_eq!(targets[1], (415.0, 50.0));
+        assert_eq!(targets[2], (415.0, 390.0));
+        assert_eq!(targets[3], (50.0, 390.0));
+
+        let gcode = app.generate_alignment_targets_gcode();
+        assert!(gcode.contains("G21"));
+        assert!(gcode.contains("G90"));
+        assert!(gcode.contains("M3"));
+        assert!(gcode.contains("M5"));
+        assert!(gcode.contains("G1")); // Crosshairs
+        assert!(gcode.contains("G2")); // Bullseye circles
+
+        // Test homography solving with these targets
+        let pts = [
+            crate::camera::AlignmentPoint { machine_x: targets[0].0, machine_y: targets[0].1, camera_u: 0.1, camera_v: 0.1 },
+            crate::camera::AlignmentPoint { machine_x: targets[1].0, machine_y: targets[1].1, camera_u: 0.9, camera_v: 0.1 },
+            crate::camera::AlignmentPoint { machine_x: targets[2].0, machine_y: targets[2].1, camera_u: 0.9, camera_v: 0.9 },
+            crate::camera::AlignmentPoint { machine_x: targets[3].0, machine_y: targets[3].1, camera_u: 0.1, camera_v: 0.9 },
+        ];
+        assert!(app.camera_calibration.update_homography(&pts).is_ok());
+        assert!(app.camera_calibration.use_homography);
+        assert!(app.camera_calibration.inv_homography_matrix.is_some());
     }
 }

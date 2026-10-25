@@ -31,6 +31,27 @@ fn default_one_f32() -> f32 {
     1.0
 }
 
+fn default_target_inset() -> f64 {
+    50.0
+}
+
+fn default_burn_speed() -> f64 {
+    1500.0
+}
+
+fn default_burn_power() -> f32 {
+    15.0
+}
+
+/// A target point pairing laser machine millimeter coordinates with normalized camera image UV coordinates
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AlignmentPoint {
+    pub machine_x: f64, // Machine bed coordinate in mm
+    pub machine_y: f64, // Machine bed coordinate in mm
+    pub camera_u: f64,  // Normalized camera UV (0.0 .. 1.0)
+    pub camera_v: f64,  // Normalized camera UV (0.0 .. 1.0)
+}
+
 /// Lens and Bed Calibration settings for laser background overlay
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CameraCalibration {
@@ -59,6 +80,22 @@ pub struct CameraCalibration {
     pub rotation_deg: f64,// Rotation angle in degrees (default 0.0)
     pub flip_h: bool,     // Mirror horizontally
     pub flip_v: bool,     // Flip vertically
+
+    // 4-Point Homography perspective alignment
+    #[serde(default)]
+    pub use_homography: bool,
+    #[serde(default)]
+    pub homography_points: Vec<AlignmentPoint>,
+    #[serde(default)]
+    pub homography_matrix: Option<[f64; 9]>,
+    #[serde(default)]
+    pub inv_homography_matrix: Option<[f64; 9]>,
+    #[serde(default = "default_target_inset")]
+    pub target_inset_mm: f64,
+    #[serde(default = "default_burn_power")]
+    pub burn_power_percent: f32,
+    #[serde(default = "default_burn_speed")]
+    pub burn_speed: f64,
 }
 
 impl Default for CameraCalibration {
@@ -82,7 +119,130 @@ impl Default for CameraCalibration {
             rotation_deg: 0.0,
             flip_h: false,
             flip_v: false,
+            use_homography: false,
+            homography_points: Vec::new(),
+            homography_matrix: None,
+            inv_homography_matrix: None,
+            target_inset_mm: 50.0,
+            burn_power_percent: 15.0,
+            burn_speed: 1500.0,
         }
+    }
+}
+
+/// Solve a 3x3 Homography matrix mapping 4 points from `src` to `dst`.
+/// Returns H such that [dst_x, dst_y, 1]^T ~ H * [src_x, src_y, 1]^T with H[8] = 1.0.
+pub fn solve_homography(src: &[(f64, f64); 4], dst: &[(f64, f64); 4]) -> Option<[f64; 9]> {
+    let mut a = [[0.0f64; 8]; 8];
+    let mut b = [0.0f64; 8];
+
+    for i in 0..4 {
+        let (u, v) = src[i];
+        let (x, y) = dst[i];
+
+        // Row 2*i: u*h00 + v*h01 + h02 - x*u*h20 - x*v*h21 = x
+        a[2 * i][0] = u;
+        a[2 * i][1] = v;
+        a[2 * i][2] = 1.0;
+        a[2 * i][6] = -x * u;
+        a[2 * i][7] = -x * v;
+        b[2 * i] = x;
+
+        // Row 2*i+1: u*h10 + v*h11 + h12 - y*u*h20 - y*v*h21 = y
+        a[2 * i + 1][3] = u;
+        a[2 * i + 1][4] = v;
+        a[2 * i + 1][5] = 1.0;
+        a[2 * i + 1][6] = -y * u;
+        a[2 * i + 1][7] = -y * v;
+        b[2 * i + 1] = y;
+    }
+
+    let h = solve_8x8(&mut a, &mut b)?;
+    Some([
+        h[0], h[1], h[2],
+        h[3], h[4], h[5],
+        h[6], h[7], 1.0,
+    ])
+}
+
+/// Solve an 8x8 linear system A * x = b via Gaussian elimination with partial pivoting.
+pub fn solve_8x8(a: &mut [[f64; 8]; 8], b: &mut [f64; 8]) -> Option<[f64; 8]> {
+    let n = 8;
+    for i in 0..n {
+        let mut max_row = i;
+        let mut max_val = a[i][i].abs();
+        for r in (i + 1)..n {
+            let val = a[r][i].abs();
+            if val > max_val {
+                max_val = val;
+                max_row = r;
+            }
+        }
+        if max_val < 1e-12 {
+            return None; // Singular matrix
+        }
+        if max_row != i {
+            a.swap(i, max_row);
+            b.swap(i, max_row);
+        }
+
+        let pivot = a[i][i];
+        for c in i..n {
+            a[i][c] /= pivot;
+        }
+        b[i] /= pivot;
+
+        for r in 0..n {
+            if r != i {
+                let factor = a[r][i];
+                if factor.abs() > 1e-15 {
+                    for c in i..n {
+                        a[r][c] -= factor * a[i][c];
+                    }
+                    b[r] -= factor * b[i];
+                }
+            }
+        }
+    }
+    let mut result = [0.0; 8];
+    result.copy_from_slice(b);
+    Some(result)
+}
+
+/// Invert a 3x3 matrix.
+pub fn invert_3x3(m: &[f64; 9]) -> Option<[f64; 9]> {
+    let det = m[0] * (m[4] * m[8] - m[5] * m[7])
+        - m[1] * (m[3] * m[8] - m[5] * m[6])
+        + m[2] * (m[3] * m[7] - m[4] * m[6]);
+
+    if det.abs() < 1e-12 {
+        return None;
+    }
+
+    let inv_det = 1.0 / det;
+    Some([
+        (m[4] * m[8] - m[5] * m[7]) * inv_det,
+        (m[2] * m[7] - m[1] * m[8]) * inv_det,
+        (m[1] * m[5] - m[2] * m[4]) * inv_det,
+        (m[5] * m[6] - m[3] * m[8]) * inv_det,
+        (m[0] * m[8] - m[2] * m[6]) * inv_det,
+        (m[2] * m[3] - m[0] * m[5]) * inv_det,
+        (m[3] * m[7] - m[4] * m[6]) * inv_det,
+        (m[1] * m[6] - m[0] * m[7]) * inv_det,
+        (m[0] * m[4] - m[1] * m[3]) * inv_det,
+    ])
+}
+
+/// Project a 2D point (x, y) through a 3x3 homography matrix.
+pub fn project_homography(m: &[f64; 9], x: f64, y: f64) -> (f64, f64) {
+    let px = m[0] * x + m[1] * y + m[2];
+    let py = m[3] * x + m[4] * y + m[5];
+    let pw = m[6] * x + m[7] * y + m[8];
+
+    if pw.abs() > 1e-12 {
+        (px / pw, py / pw)
+    } else {
+        (px, py)
     }
 }
 
@@ -126,6 +286,29 @@ impl CameraCalibration {
         self.center_y = 0.0;
     }
 
+    /// Update homography matrices from 4 pairs of camera UV and machine coordinates (in mm)
+    pub fn update_homography(&mut self, points: &[AlignmentPoint; 4]) -> Result<(), String> {
+        let mut src_uv = [(0.0, 0.0); 4];
+        let mut dst_mm = [(0.0, 0.0); 4];
+
+        for i in 0..4 {
+            src_uv[i] = (points[i].camera_u, points[i].camera_v);
+            dst_mm[i] = (points[i].machine_x, points[i].machine_y);
+        }
+
+        let h = solve_homography(&src_uv, &dst_mm)
+            .ok_or_else(|| "Failed to solve homography: points may be collinear or degenerate".to_string())?;
+
+        let inv_h = invert_3x3(&h)
+            .ok_or_else(|| "Failed to invert homography matrix".to_string())?;
+
+        self.homography_points = points.to_vec();
+        self.homography_matrix = Some(h);
+        self.inv_homography_matrix = Some(inv_h);
+        self.use_homography = true;
+        Ok(())
+    }
+
     /// Reset bed alignment parameters to default fit
     pub fn reset_alignment(&mut self) {
         self.offset_x_mm = 0.0;
@@ -136,6 +319,10 @@ impl CameraCalibration {
         self.rotation_deg = 0.0;
         self.flip_h = false;
         self.flip_v = false;
+        self.use_homography = false;
+        self.homography_points.clear();
+        self.homography_matrix = None;
+        self.inv_homography_matrix = None;
     }
 }
 
@@ -541,5 +728,46 @@ mod tests {
         assert_eq!(out_distorted.width, 4);
         assert_eq!(out_distorted.height, 4);
         assert_eq!(out_distorted.rgba.len(), 4 * 4 * 4);
+    }
+
+    #[test]
+    fn test_homography_solve_and_invert() {
+        let src_uv = [
+            (0.10, 0.15),
+            (0.85, 0.12),
+            (0.90, 0.88),
+            (0.08, 0.85),
+        ];
+        let dst_mm = [
+            (50.0, 50.0),
+            (415.0, 50.0),
+            (415.0, 390.0),
+            (50.0, 390.0),
+        ];
+
+        let h = solve_homography(&src_uv, &dst_mm).expect("Should solve valid homography");
+        let inv_h = invert_3x3(&h).expect("Should invert homography");
+
+        for i in 0..4 {
+            let (px, py) = project_homography(&h, src_uv[i].0, src_uv[i].1);
+            assert!((px - dst_mm[i].0).abs() < 1e-3, "Point {} X error: {} vs {}", i, px, dst_mm[i].0);
+            assert!((py - dst_mm[i].1).abs() < 1e-3, "Point {} Y error: {} vs {}", i, py, dst_mm[i].1);
+
+            let (pu, pv) = project_homography(&inv_h, dst_mm[i].0, dst_mm[i].1);
+            assert!((pu - src_uv[i].0).abs() < 1e-3, "Point {} U error: {} vs {}", i, pu, src_uv[i].0);
+            assert!((pv - src_uv[i].1).abs() < 1e-3, "Point {} V error: {} vs {}", i, pv, src_uv[i].1);
+        }
+
+        let mut cal = CameraCalibration::default();
+        let pts = [
+            AlignmentPoint { machine_x: dst_mm[0].0, machine_y: dst_mm[0].1, camera_u: src_uv[0].0, camera_v: src_uv[0].1 },
+            AlignmentPoint { machine_x: dst_mm[1].0, machine_y: dst_mm[1].1, camera_u: src_uv[1].0, camera_v: src_uv[1].1 },
+            AlignmentPoint { machine_x: dst_mm[2].0, machine_y: dst_mm[2].1, camera_u: src_uv[2].0, camera_v: src_uv[2].1 },
+            AlignmentPoint { machine_x: dst_mm[3].0, machine_y: dst_mm[3].1, camera_u: src_uv[3].0, camera_v: src_uv[3].1 },
+        ];
+        assert!(cal.update_homography(&pts).is_ok());
+        assert!(cal.use_homography);
+        assert!(cal.homography_matrix.is_some());
+        assert!(cal.inv_homography_matrix.is_some());
     }
 }
