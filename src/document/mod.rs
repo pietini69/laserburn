@@ -281,10 +281,28 @@ impl Shape {
                 *height = (new_y2 - new_y1).abs();
                 *corner_radius *= sx.abs().min(sy.abs());
             }
-            Shape::Circle { center, radius, .. } => {
-                center.x = origin.x + (center.x - origin.x) * sx;
-                center.y = origin.y + (center.y - origin.y) * sy;
-                *radius *= (sx.abs() + sy.abs()) * 0.5;
+            Shape::Circle { center, radius, layer_index } => {
+                if (sx.abs() - sy.abs()).abs() < 1e-4 {
+                    center.x = origin.x + (center.x - origin.x) * sx;
+                    center.y = origin.y + (center.y - origin.y) * sy;
+                    *radius *= sx.abs();
+                } else {
+                    // Non-uniform scaling: convert Circle into a smooth Ellipse / Oval Polyline Path!
+                    let segments = 48;
+                    let mut pts = Vec::with_capacity(segments);
+                    for i in 0..segments {
+                        let a = (i as f64 / segments as f64) * std::f64::consts::TAU;
+                        let px = center.x + *radius * a.cos();
+                        let py = center.y + *radius * a.sin();
+                        let scaled_x = origin.x + (px - origin.x) * sx;
+                        let scaled_y = origin.y + (py - origin.y) * sy;
+                        pts.push(Point2D::new(scaled_x, scaled_y));
+                    }
+                    *self = Shape::Path {
+                        layer_index: *layer_index,
+                        polyline: Polyline::new(pts, true),
+                    };
+                }
             }
             Shape::Group { shapes, locked, .. } => {
                 if !*locked {

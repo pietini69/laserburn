@@ -3,7 +3,6 @@ use crate::document::{CutMode, DitherMode, Document, Layer, Shape};
 use crate::formats::{GCodeConfig, GCodeGenerator, Lbrn2File, RuidaGenerator, SvgFormat};
 use crate::geometry::{BoundingBox, Point2D, Polyline};
 use crate::optimizer::CutOptimizer;
-use crate::simulator::Simulator;
 use eframe::egui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +145,11 @@ pub struct LaserBurnApp {
 
     // GPU Texture Cache for photographic raster image shapes
     pub image_textures: std::collections::HashMap<usize, (u64, egui::TextureHandle)>,
+
+    // Simulation / Estimate Cache
+    pub doc_version: u64,
+    pub cached_estimate: crate::simulator::SimulationStats,
+    pub last_sim_version: u64,
 }
 
 #[cfg(feature = "gui")]
@@ -212,6 +216,9 @@ impl Default for LaserBurnApp {
             keyboard_jog_laser: true,
             oneshot_snapshot: None,
             image_textures: std::collections::HashMap::new(),
+            doc_version: 0,
+            cached_estimate: crate::simulator::SimulationStats::default(),
+            last_sim_version: u64::MAX,
             file_dialog_tx,
             file_dialog_rx,
         };
@@ -583,6 +590,16 @@ impl LaserBurnApp {
                 }
             });
         });
+    }
+
+    /// Fast, non-blocking cached simulation estimate for total job time and distances
+    pub fn get_job_estimate(&mut self) -> crate::simulator::SimulationStats {
+        if self.doc_version != self.last_sim_version {
+            let sim = crate::simulator::Simulator::new();
+            self.cached_estimate = sim.estimate_document(&self.doc, self.device.settings.rapid_speed);
+            self.last_sim_version = self.doc_version;
+        }
+        self.cached_estimate.clone()
     }
 
     /// Combined bounding box of all currently selected shapes
@@ -1409,7 +1426,7 @@ impl LaserBurnApp {
     /// Burn the 4 alignment targets onto the scrap papers placed on the bed
     pub fn burn_alignment_targets(&mut self) {
         let gcode = self.generate_alignment_targets_gcode();
-        self.device.start_job(&gcode);
+        self.device.start_job(&gcode, 30.0);
         self.status_msg = "Burning 4 alignment targets onto scrap papers...".to_string();
     }
 
@@ -1490,8 +1507,9 @@ impl LaserBurnApp {
         let gen = GCodeGenerator::new(cfg);
         let gcode = gen.generate(&self.doc, &job);
 
-        self.device.start_job(&gcode);
-        self.status_msg = format!("Cut job started ({} paths, {} commands)...", job.paths.len(), self.device.job_total_lines);
+        let est = self.get_job_estimate();
+        self.device.start_job(&gcode, est.total_estimated_time_sec);
+        self.status_msg = format!("Cut job started ({} paths, ~{})...", job.paths.len(), est.formatted_time);
     }
 }
 
@@ -2106,7 +2124,7 @@ impl eframe::App for LaserBurnApp {
             ui.horizontal_wrapped(|ui| {
                 ui.selectable_value(&mut self.active_tool, ActiveTool::Select, "Select / Move");
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawRect, "Rect");
-                ui.selectable_value(&mut self.active_tool, ActiveTool::DrawCircle, "Circle");
+                ui.selectable_value(&mut self.active_tool, ActiveTool::DrawCircle, "Circle / Oval");
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawLine, "Line");
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawText, "Text");
 
@@ -2451,6 +2469,7 @@ impl eframe::App for LaserBurnApp {
                                         self.doc.shapes[idx].translate(dx, 0.0);
                                     }
                                 }
+                                self.doc_version = self.doc_version.wrapping_add(1);
                             }
                             ui.label("Y (mm):");
                             if ui.add(egui::DragValue::new(&mut cur_y).speed(1.0).range(-2000.0..=5000.0)).changed() {
@@ -2460,13 +2479,14 @@ impl eframe::App for LaserBurnApp {
                                         self.doc.shapes[idx].translate(0.0, dy);
                                     }
                                 }
+                                self.doc_version = self.doc_version.wrapping_add(1);
                             }
                         });
 
                         // Size controls
                         ui.horizontal(|ui| {
-                            ui.label("Width:");
-                            if ui.add(egui::DragValue::new(&mut cur_w).speed(1.0).range(0.1..=5000.0)).changed() {
+                            ui.label("Width (mm):");
+                            if ui.add(egui::DragValue::new(&mut cur_w).speed(0.5).range(0.1..=5000.0)).changed() {
                                 let new_h = if self.lock_aspect_ratio && bounds.width() > 1e-4 {
                                     cur_w * (bounds.height() / bounds.width())
                                 } else {
@@ -2479,10 +2499,11 @@ impl eframe::App for LaserBurnApp {
                                         self.doc.shapes[idx].scale(Point2D::new(bounds.min_x, bounds.min_y), sx, sy);
                                     }
                                 }
+                                self.doc_version = self.doc_version.wrapping_add(1);
                             }
 
-                            ui.label("Height:");
-                            if ui.add(egui::DragValue::new(&mut cur_h).speed(1.0).range(0.1..=5000.0)).changed() {
+                            ui.label("Height (mm):");
+                            if ui.add(egui::DragValue::new(&mut cur_h).speed(0.5).range(0.1..=5000.0)).changed() {
                                 let new_w = if self.lock_aspect_ratio && bounds.height() > 1e-4 {
                                     cur_h * (bounds.width() / bounds.height())
                                 } else {
@@ -2495,10 +2516,11 @@ impl eframe::App for LaserBurnApp {
                                         self.doc.shapes[idx].scale(Point2D::new(bounds.min_x, bounds.min_y), sx, sy);
                                     }
                                 }
+                                self.doc_version = self.doc_version.wrapping_add(1);
                             }
                         });
 
-                        ui.checkbox(&mut self.lock_aspect_ratio, "Lock Aspect Ratio");
+                        ui.checkbox(&mut self.lock_aspect_ratio, "Lock Aspect Ratio (Säilytä kuvasuhde)");
 
                         // Nudge Buttons (also mention keyboard arrow keys!)
                         ui.horizontal(|ui| {
@@ -2684,7 +2706,7 @@ impl eframe::App for LaserBurnApp {
                                 Shape::Path { .. } => format!("#{}: Path ({:.1}x{:.1}mm) {}{}", idx + 1, b.width(), b.height(), layer_tag, lock_str),
                                 Shape::Rect { .. } => format!("#{}: Rect ({:.1}x{:.1}mm) {}{}", idx + 1, b.width(), b.height(), layer_tag, lock_str),
                                 Shape::Circle { radius, .. } => format!("#{}: Circle (D={:.1}mm) {}{}", idx + 1, radius * 2.0, layer_tag, lock_str),
-                                Shape::Image { .. } => format!("#{}: Image {}{}", idx + 1, layer_tag, lock_str),
+                                Shape::Image { .. } => format!("#{}: Image ({:.1}x{:.1}mm) {}{}", idx + 1, b.width(), b.height(), layer_tag, lock_str),
                             };
 
                             let shift_held = ui.input(|i| i.modifiers.shift);
@@ -3257,6 +3279,14 @@ impl eframe::App for LaserBurnApp {
                     ui.heading("Job Execution (G-Code)");
 
                     if !self.device.is_job_running {
+                        let est = self.get_job_estimate();
+                        ui.label(
+                            egui::RichText::new(format!("⏱ Arvioitu kesto: ~{}", est.formatted_time))
+                                .strong()
+                                .color(egui::Color32::from_rgb(0, 180, 255)),
+                        );
+                        ui.add_space(2.0);
+
                         let start_btn = egui::Button::new(
                             egui::RichText::new(" START JOB (CUT) ").strong().color(egui::Color32::WHITE),
                         ).fill(egui::Color32::from_rgb(34, 139, 34));
@@ -3291,21 +3321,39 @@ impl eframe::App for LaserBurnApp {
 
                         let pct = self.device.job_progress;
                         ui.add(egui::ProgressBar::new(pct).text(format!("{:.1}% ({}/{})", pct * 100.0, self.device.job_idx, self.device.job_total_lines)));
+
+                        if let Some(st) = self.device.job_start_instant {
+                            let elapsed = st.elapsed().as_secs_f64();
+                            let elapsed_str = crate::simulator::Simulator::format_duration(elapsed);
+                            let remaining_sec = if pct > 0.05 {
+                                let rate_est = elapsed / (pct as f64).clamp(0.01, 1.0);
+                                let model_rem = (self.device.job_estimated_total_sec - elapsed).max(0.0);
+                                let prog_rem = (rate_est - elapsed).max(0.0);
+                                (model_rem * 0.3 + prog_rem * 0.7).max(0.0)
+                            } else {
+                                (self.device.job_estimated_total_sec - elapsed).max(0.0)
+                            };
+                            let rem_str = crate::simulator::Simulator::format_duration(remaining_sec);
+
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(format!("⏱ Kulunut: {}", elapsed_str)).size(11.5));
+                                ui.label("|");
+                                ui.label(egui::RichText::new(format!("Jäljellä: ~{}", rem_str)).strong().color(egui::Color32::from_rgb(0, 200, 255)).size(11.5));
+                            });
+                        }
+                        if self.device.is_job_paused {
+                            ui.colored_label(egui::Color32::from_rgb(255, 193, 7), "⏸ TYÖ KESKEYTETTY (PAUSED)");
+                        }
                     }
 
                     ui.add_space(8.0);
                     ui.separator();
                     ui.heading("Simulation Stats");
 
-                    let mut opt = CutOptimizer::new();
-                    opt.default_kerf = self.device.settings.default_kerf;
-                    let job = opt.optimize(&self.doc);
-                    let sim = Simulator::new();
-                    let stats = sim.simulate(&self.doc, &job);
-
+                    let stats = self.get_job_estimate();
                     ui.label(format!("Cut Distance: {:.1} mm", stats.total_cut_distance_mm));
                     ui.label(format!("Rapid Distance: {:.1} mm", stats.total_rapid_distance_mm));
-                    ui.label(egui::RichText::new(format!("Est. Time: {:.1} s ({:.2} min)", stats.total_estimated_time_sec, stats.total_estimated_time_sec / 60.0)).strong());
+                    ui.label(egui::RichText::new(format!("Est. Time: {}", stats.formatted_time)).strong().color(egui::Color32::from_rgb(0, 180, 255)));
                 });
             });
 
@@ -3595,7 +3643,7 @@ impl eframe::App for LaserBurnApp {
             if let Some(mouse_pos) = pointer_pos {
                 let doc_pt = self.screen_to_doc(mouse_pos, canvas_origin);
 
-                let handle_radius_doc = 10.0 / self.zoom as f64;
+                let handle_radius_doc = (16.0 / self.zoom as f64).max(6.0);
                 let hit_tolerance_doc = (10.0 / self.zoom as f64).max(3.0);
 
                 let shift_held = ui.input(|i| i.modifiers.shift);
@@ -3630,19 +3678,27 @@ impl eframe::App for LaserBurnApp {
                         self.show_text_dialog = true;
                         self.active_tool = ActiveTool::Select;
                     } else if self.active_tool == ActiveTool::Select {
-                        if let Some(best_idx) = self.find_best_shape_at_point(&doc_pt, hit_tolerance_doc) {
-                            if shift_held {
-                                if self.selected_shape_indices.contains(&best_idx) {
-                                    self.selected_shape_indices.retain(|&i| i != best_idx);
+                        // Keep selection if clicking on or near an existing selection handle
+                        let on_handle = if let Some(bounds) = self.selection_bounds() {
+                            self.test_handles(&doc_pt, &bounds, handle_radius_doc) != DragHandle::None
+                        } else {
+                            false
+                        };
+                        if !on_handle {
+                            if let Some(best_idx) = self.find_best_shape_at_point(&doc_pt, hit_tolerance_doc) {
+                                if shift_held {
+                                    if self.selected_shape_indices.contains(&best_idx) {
+                                        self.selected_shape_indices.retain(|&i| i != best_idx);
+                                    } else {
+                                        self.selected_shape_indices.push(best_idx);
+                                    }
                                 } else {
-                                    self.selected_shape_indices.push(best_idx);
+                                    self.selected_shape_indices = vec![best_idx];
                                 }
-                            } else {
-                                self.selected_shape_indices = vec![best_idx];
+                                self.status_msg = format!("Selected shape #{} - Drag or use Arrow Keys to move", best_idx + 1);
+                            } else if !shift_held {
+                                self.selected_shape_indices.clear();
                             }
-                            self.status_msg = format!("Selected shape #{} - Drag or use Arrow Keys to move", best_idx + 1);
-                        } else if !shift_held {
-                            self.selected_shape_indices.clear();
                         }
                     }
                 }
@@ -3657,7 +3713,14 @@ impl eframe::App for LaserBurnApp {
                         // First check if clicking on resize handle of existing selection
                         let mut handle_hit = DragHandle::None;
                         if let Some(bounds) = self.selection_bounds() {
-                            handle_hit = self.test_handles(&doc_pt, &bounds, handle_radius_doc);
+                            // First test origin where mouse was clicked down before dragging started
+                            let press_doc_pt = ui.input(|i| i.pointer.press_origin()).map(|p| self.screen_to_doc(p, canvas_origin));
+                            if let Some(ref ppt) = press_doc_pt {
+                                handle_hit = self.test_handles(ppt, &bounds, handle_radius_doc);
+                            }
+                            if handle_hit == DragHandle::None {
+                                handle_hit = self.test_handles(&doc_pt, &bounds, handle_radius_doc);
+                            }
                         }
 
                         if handle_hit != DragHandle::None {
@@ -3724,64 +3787,173 @@ impl eframe::App for LaserBurnApp {
                                                 self.doc.shapes[idx].translate(delta_x, delta_y);
                                             }
                                         }
+                                        self.doc_version = self.doc_version.wrapping_add(1);
                                         if let Some(b) = self.selection_bounds() {
                                             self.status_msg = format!("Moving selection to X: {:.1}, Y: {:.1} mm", b.min_x, b.min_y);
                                         }
                                     }
                                     DragHandle::Right => {
                                         if let Some(b) = self.selection_bounds() {
-                                            let new_w = (doc_pt.x - b.min_x).max(2.0);
-                                            let sx = new_w / b.width().max(1e-4);
+                                            let orig_w = b.width().max(1e-4);
+                                            let new_w = (doc_pt.x - b.min_x).max(1.0);
+                                            let sx = new_w / orig_w;
+                                            let (sy, anchor) = if self.lock_aspect_ratio {
+                                                (sx, Point2D::new(b.min_x, (b.min_y + b.max_y) * 0.5))
+                                            } else {
+                                                (1.0, Point2D::new(b.min_x, b.min_y))
+                                            };
                                             for &idx in &self.selected_shape_indices {
                                                 if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
-                                                    self.doc.shapes[idx].scale(Point2D::new(b.min_x, b.min_y), sx, 1.0);
+                                                    self.doc.shapes[idx].scale(anchor, sx, sy);
                                                 }
                                             }
+                                            self.doc_version = self.doc_version.wrapping_add(1);
+                                            self.status_msg = format!("Resized width to {:.1} mm", new_w);
+                                        }
+                                    }
+                                    DragHandle::Left => {
+                                        if let Some(b) = self.selection_bounds() {
+                                            let orig_w = b.width().max(1e-4);
+                                            let new_w = (b.max_x - doc_pt.x).max(1.0);
+                                            let sx = new_w / orig_w;
+                                            let (sy, anchor) = if self.lock_aspect_ratio {
+                                                (sx, Point2D::new(b.max_x, (b.min_y + b.max_y) * 0.5))
+                                            } else {
+                                                (1.0, Point2D::new(b.max_x, b.min_y))
+                                            };
+                                            for &idx in &self.selected_shape_indices {
+                                                if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                                                    self.doc.shapes[idx].scale(anchor, sx, sy);
+                                                }
+                                            }
+                                            self.doc_version = self.doc_version.wrapping_add(1);
+                                            self.status_msg = format!("Resized width to {:.1} mm", new_w);
                                         }
                                     }
                                     DragHandle::Bottom => {
                                         if let Some(b) = self.selection_bounds() {
-                                            let new_h = (doc_pt.y - b.min_y).max(2.0);
-                                            let sy = new_h / b.height().max(1e-4);
+                                            let orig_h = b.height().max(1e-4);
+                                            let new_h = (doc_pt.y - b.min_y).max(1.0);
+                                            let sy = new_h / orig_h;
+                                            let (sx, anchor) = if self.lock_aspect_ratio {
+                                                (sy, Point2D::new((b.min_x + b.max_x) * 0.5, b.min_y))
+                                            } else {
+                                                (1.0, Point2D::new(b.min_x, b.min_y))
+                                            };
                                             for &idx in &self.selected_shape_indices {
                                                 if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
-                                                    self.doc.shapes[idx].scale(Point2D::new(b.min_x, b.min_y), 1.0, sy);
+                                                    self.doc.shapes[idx].scale(anchor, sx, sy);
                                                 }
                                             }
+                                            self.doc_version = self.doc_version.wrapping_add(1);
+                                            self.status_msg = format!("Resized height to {:.1} mm", new_h);
+                                        }
+                                    }
+                                    DragHandle::Top => {
+                                        if let Some(b) = self.selection_bounds() {
+                                            let orig_h = b.height().max(1e-4);
+                                            let new_h = (b.max_y - doc_pt.y).max(1.0);
+                                            let sy = new_h / orig_h;
+                                            let (sx, anchor) = if self.lock_aspect_ratio {
+                                                (sy, Point2D::new((b.min_x + b.max_x) * 0.5, b.max_y))
+                                            } else {
+                                                (1.0, Point2D::new(b.min_x, b.max_y))
+                                            };
+                                            for &idx in &self.selected_shape_indices {
+                                                if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                                                    self.doc.shapes[idx].scale(anchor, sx, sy);
+                                                }
+                                            }
+                                            self.doc_version = self.doc_version.wrapping_add(1);
+                                            self.status_msg = format!("Resized height to {:.1} mm", new_h);
                                         }
                                     }
                                     DragHandle::BottomRight => {
                                         if let Some(b) = self.selection_bounds() {
-                                            let new_w = (doc_pt.x - b.min_x).max(2.0);
-                                            let new_h = if self.lock_aspect_ratio && b.width() > 1e-4 {
-                                                new_w * (b.height() / b.width())
+                                            let orig_w = b.width().max(1e-4);
+                                            let orig_h = b.height().max(1e-4);
+                                            let new_w = (doc_pt.x - b.min_x).max(1.0);
+                                            let (sx, sy) = if self.lock_aspect_ratio {
+                                                let s = new_w / orig_w;
+                                                (s, s)
                                             } else {
-                                                (doc_pt.y - b.min_y).max(2.0)
+                                                let new_h = (doc_pt.y - b.min_y).max(1.0);
+                                                (new_w / orig_w, new_h / orig_h)
                                             };
-                                            let sx = new_w / b.width().max(1e-4);
-                                            let sy = new_h / b.height().max(1e-4);
+                                            let anchor = Point2D::new(b.min_x, b.min_y);
                                             for &idx in &self.selected_shape_indices {
                                                 if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
-                                                    self.doc.shapes[idx].scale(Point2D::new(b.min_x, b.min_y), sx, sy);
+                                                    self.doc.shapes[idx].scale(anchor, sx, sy);
                                                 }
                                             }
+                                            self.doc_version = self.doc_version.wrapping_add(1);
+                                            self.status_msg = format!("Resized to {:.1} x {:.1} mm", b.width(), b.height());
                                         }
                                     }
                                     DragHandle::TopLeft => {
                                         if let Some(b) = self.selection_bounds() {
-                                            let new_w = (b.max_x - doc_pt.x).max(2.0);
-                                            let new_h = if self.lock_aspect_ratio && b.width() > 1e-4 {
-                                                new_w * (b.height() / b.width())
+                                            let orig_w = b.width().max(1e-4);
+                                            let orig_h = b.height().max(1e-4);
+                                            let new_w = (b.max_x - doc_pt.x).max(1.0);
+                                            let (sx, sy) = if self.lock_aspect_ratio {
+                                                let s = new_w / orig_w;
+                                                (s, s)
                                             } else {
-                                                (b.max_y - doc_pt.y).max(2.0)
+                                                let new_h = (b.max_y - doc_pt.y).max(1.0);
+                                                (new_w / orig_w, new_h / orig_h)
                                             };
-                                            let sx = new_w / b.width().max(1e-4);
-                                            let sy = new_h / b.height().max(1e-4);
+                                            let anchor = Point2D::new(b.max_x, b.max_y);
                                             for &idx in &self.selected_shape_indices {
                                                 if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
-                                                    self.doc.shapes[idx].scale(Point2D::new(b.max_x, b.max_y), sx, sy);
+                                                    self.doc.shapes[idx].scale(anchor, sx, sy);
                                                 }
                                             }
+                                            self.doc_version = self.doc_version.wrapping_add(1);
+                                            self.status_msg = format!("Resized to {:.1} x {:.1} mm", b.width(), b.height());
+                                        }
+                                    }
+                                    DragHandle::TopRight => {
+                                        if let Some(b) = self.selection_bounds() {
+                                            let orig_w = b.width().max(1e-4);
+                                            let orig_h = b.height().max(1e-4);
+                                            let new_w = (doc_pt.x - b.min_x).max(1.0);
+                                            let (sx, sy) = if self.lock_aspect_ratio {
+                                                let s = new_w / orig_w;
+                                                (s, s)
+                                            } else {
+                                                let new_h = (b.max_y - doc_pt.y).max(1.0);
+                                                (new_w / orig_w, new_h / orig_h)
+                                            };
+                                            let anchor = Point2D::new(b.min_x, b.max_y);
+                                            for &idx in &self.selected_shape_indices {
+                                                if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                                                    self.doc.shapes[idx].scale(anchor, sx, sy);
+                                                }
+                                            }
+                                            self.doc_version = self.doc_version.wrapping_add(1);
+                                            self.status_msg = format!("Resized to {:.1} x {:.1} mm", b.width(), b.height());
+                                        }
+                                    }
+                                    DragHandle::BottomLeft => {
+                                        if let Some(b) = self.selection_bounds() {
+                                            let orig_w = b.width().max(1e-4);
+                                            let orig_h = b.height().max(1e-4);
+                                            let new_w = (b.max_x - doc_pt.x).max(1.0);
+                                            let (sx, sy) = if self.lock_aspect_ratio {
+                                                let s = new_w / orig_w;
+                                                (s, s)
+                                            } else {
+                                                let new_h = (doc_pt.y - b.min_y).max(1.0);
+                                                (new_w / orig_w, new_h / orig_h)
+                                            };
+                                            let anchor = Point2D::new(b.max_x, b.min_y);
+                                            for &idx in &self.selected_shape_indices {
+                                                if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                                                    self.doc.shapes[idx].scale(anchor, sx, sy);
+                                                }
+                                            }
+                                            self.doc_version = self.doc_version.wrapping_add(1);
+                                            self.status_msg = format!("Resized to {:.1} x {:.1} mm", b.width(), b.height());
                                         }
                                     }
                                     _ => {}
@@ -3849,15 +4021,37 @@ impl eframe::App for LaserBurnApp {
                                     }
                                 }
                                 ActiveTool::DrawCircle => {
-                                    let r = (w.powi(2) + h.powi(2)).sqrt() * 0.5;
-                                    if r > 2.0 {
-                                        self.doc.add_shape(Shape::Circle {
-                                            layer_index: self.selected_layer,
-                                            center: Point2D::new((start.x + curr.x) * 0.5, (start.y + curr.y) * 0.5),
-                                            radius: r,
-                                        });
-                                        self.selected_shape_indices = vec![self.doc.shapes.len() - 1];
-                                        self.status_msg = format!("Created Circle D={:.1}mm", r * 2.0);
+                                    let rx = w * 0.5;
+                                    let ry = h * 0.5;
+                                    let cx = (start.x + curr.x) * 0.5;
+                                    let cy = (start.y + curr.y) * 0.5;
+
+                                    if rx > 1.0 && ry > 1.0 {
+                                        if shift_held || (rx - ry).abs() < 1.0 {
+                                            let r = (rx + ry) * 0.5;
+                                            self.doc.add_shape(Shape::Circle {
+                                                layer_index: self.selected_layer,
+                                                center: Point2D::new(cx, cy),
+                                                radius: r,
+                                            });
+                                            self.selected_shape_indices = vec![self.doc.shapes.len() - 1];
+                                            self.status_msg = format!("Created Circle D={:.1}mm", r * 2.0);
+                                        } else {
+                                            // Create Oval / Ellipse as smooth closed polyline
+                                            let segments = 48;
+                                            let mut pts = Vec::with_capacity(segments);
+                                            for i in 0..segments {
+                                                let a = (i as f64 / segments as f64) * std::f64::consts::TAU;
+                                                pts.push(Point2D::new(cx + rx * a.cos(), cy + ry * a.sin()));
+                                            }
+                                            self.doc.add_shape(Shape::Path {
+                                                layer_index: self.selected_layer,
+                                                polyline: Polyline::new(pts, true),
+                                            });
+                                            self.selected_shape_indices = vec![self.doc.shapes.len() - 1];
+                                            self.status_msg = format!("Created Oval {:.1}x{:.1}mm", rx * 2.0, ry * 2.0);
+                                        }
+                                        self.doc_version = self.doc_version.wrapping_add(1);
                                     }
                                 }
                                 ActiveTool::DrawLine => {
@@ -3894,6 +4088,7 @@ impl eframe::App for LaserBurnApp {
 
             // Render drawing preview
             if self.is_drawing {
+                let shift_held = ui.input(|i| i.modifiers.shift);
                 if let (Some(start), Some(curr)) = (self.draw_start, self.draw_current) {
                     let p1 = self.doc_to_screen(start, canvas_origin);
                     let p2 = self.doc_to_screen(curr, canvas_origin);
@@ -3904,9 +4099,22 @@ impl eframe::App for LaserBurnApp {
                             painter.rect_stroke(egui::Rect::from_two_pos(p1, p2), 0.0, preview_stroke, egui::StrokeKind::Outside);
                         }
                         ActiveTool::DrawCircle => {
+                            let rx = (p2.x - p1.x).abs() * 0.5;
+                            let ry = (p2.y - p1.y).abs() * 0.5;
                             let center = egui::pos2((p1.x + p2.x) * 0.5, (p1.y + p2.y) * 0.5);
-                            let r = p1.distance(p2) * 0.5;
-                            painter.circle_stroke(center, r, preview_stroke);
+
+                            if shift_held || (rx - ry).abs() < 1.5 {
+                                let r = (rx + ry) * 0.5;
+                                painter.circle_stroke(center, r, preview_stroke);
+                            } else {
+                                let segments = 36;
+                                let mut screen_pts = Vec::with_capacity(segments);
+                                for i in 0..segments {
+                                    let a = (i as f32 / segments as f32) * std::f32::consts::TAU;
+                                    screen_pts.push(egui::pos2(center.x + rx * a.cos(), center.y + ry * a.sin()));
+                                }
+                                painter.add(egui::Shape::closed_line(screen_pts, preview_stroke));
+                            }
                         }
                         ActiveTool::DrawLine => {
                             painter.line_segment([p1, p2], preview_stroke);
@@ -4056,11 +4264,11 @@ impl eframe::App for LaserBurnApp {
                 ];
 
                 for hp in handle_pts {
-                    painter.rect_filled(egui::Rect::from_center_size(hp, egui::Vec2::splat(8.0)), 1.5, egui::Color32::WHITE);
+                    painter.rect_filled(egui::Rect::from_center_size(hp, egui::Vec2::splat(10.0)), 2.0, egui::Color32::WHITE);
                     painter.rect_stroke(
-                        egui::Rect::from_center_size(hp, egui::Vec2::splat(8.0)),
-                        1.5,
-                        egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(0, 120, 255)),
+                        egui::Rect::from_center_size(hp, egui::Vec2::splat(10.0)),
+                        2.0,
+                        egui::Stroke::new(1.8_f32, egui::Color32::from_rgb(0, 120, 255)),
                         egui::StrokeKind::Outside,
                     );
                 }
@@ -6029,5 +6237,68 @@ mod tests {
         println!("OptimizedJob contains {} toolpath paths", job.paths.len());
 
         let _ = std::fs::remove_file(temp_path);
+    }
+
+    #[test]
+    fn test_circle_non_uniform_scaling_becomes_oval() {
+        let mut shape = Shape::Circle {
+            layer_index: 0,
+            center: Point2D::new(50.0, 50.0),
+            radius: 20.0, // 40x40 mm
+        };
+
+        // Uniform scaling preserves Circle
+        shape.scale(Point2D::new(50.0, 50.0), 2.0, 2.0);
+        if let Shape::Circle { radius, .. } = &shape {
+            assert_eq!(*radius, 40.0);
+        } else {
+            panic!("Expected uniform scale to preserve Circle");
+        }
+
+        // Non-uniform scaling converts Circle to an Ellipse/Oval Path
+        shape.scale(Point2D::new(50.0, 50.0), 2.0, 0.5);
+        if let Shape::Path { polyline, .. } = &shape {
+            assert!(polyline.is_closed);
+            assert_eq!(polyline.points.len(), 48);
+            let b = polyline.bounds();
+            assert!((b.width() - 160.0).abs() < 1.0, "Expected width ~160mm, got {}", b.width());
+            assert!((b.height() - 40.0).abs() < 1.0, "Expected height ~40mm, got {}", b.height());
+        } else {
+            panic!("Expected non-uniform scale to convert Circle to Oval Path");
+        }
+    }
+
+    #[test]
+    fn test_image_scaling_and_job_estimate() {
+        let mut app = LaserBurnApp::default();
+        app.doc.shapes.clear();
+
+        let shape = Shape::Image {
+            layer_index: 1,
+            x: 20.0,
+            y: 30.0,
+            width: 100.0,
+            height: 80.0,
+            raw_pixels: None,
+            raw_width: 800,
+            raw_height: 640,
+            image_path: None,
+        };
+        app.doc.add_shape(shape);
+        app.selected_shape_indices = vec![0];
+
+        // Scale image non-uniformly
+        app.doc.shapes[0].scale(Point2D::new(20.0, 30.0), 1.5, 0.5);
+        if let Shape::Image { width, height, .. } = &app.doc.shapes[0] {
+            assert_eq!(*width, 150.0);
+            assert_eq!(*height, 40.0);
+        } else {
+            panic!("Expected Shape::Image");
+        }
+
+        let est = app.get_job_estimate();
+        assert!(est.total_cut_distance_mm > 0.0);
+        assert!(est.total_estimated_time_sec > 0.0);
+        assert!(!est.formatted_time.is_empty());
     }
 }

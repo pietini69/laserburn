@@ -331,6 +331,8 @@ pub struct DeviceManager {
     pub job_total_lines: usize,
     pub job_progress: f32,
     pub current_command: String,
+    pub job_start_instant: Option<Instant>,
+    pub job_estimated_total_sec: f64,
 
     pub console_history: VecDeque<String>,
     pub max_history: usize,
@@ -390,6 +392,8 @@ impl DeviceManager {
             job_total_lines: 0,
             job_progress: 0.0,
             current_command: "".to_string(),
+            job_start_instant: None,
+            job_estimated_total_sec: 0.0,
 
             console_history: VecDeque::new(),
             max_history: 100,
@@ -1419,7 +1423,7 @@ impl DeviceManager {
     }
 
     /// Start executing a G-code job
-    pub fn start_job(&mut self, gcode: &str) {
+    pub fn start_job(&mut self, gcode: &str, estimated_time_sec: f64) {
         self.job_lines = gcode
             .lines()
             .map(|l| l.trim().to_string())
@@ -1431,7 +1435,10 @@ impl DeviceManager {
         self.is_job_running = !self.job_lines.is_empty();
         self.is_job_paused = false;
         self.job_progress = 0.0;
-        self.log(&format!("[JOB] ▶ Cut job started ({} G-code lines).", self.job_total_lines));
+        self.job_start_instant = Some(Instant::now());
+        self.job_estimated_total_sec = estimated_time_sec;
+        let est_str = crate::simulator::Simulator::format_duration(estimated_time_sec);
+        self.log(&format!("[JOB] ▶ Cut job started ({} G-code lines, ~{}).", self.job_total_lines, est_str));
     }
 
     /// Pause the active job
@@ -1481,6 +1488,7 @@ impl DeviceManager {
         self.job_idx = 0;
         self.pending_ok_count = 0;
         self.job_progress = 0.0;
+        self.job_start_instant = None;
 
         // 3. Keep target and coordinates anchored at the exact stopped location
         self.target_x = stopped_x;
@@ -1578,7 +1586,12 @@ impl DeviceManager {
                 self.is_job_running = false;
                 self.is_laser_firing = false;
                 self.send_raw("M5");
-                self.log("[JOB] ✅ Job completed successfully!");
+                let dur_str = if let Some(st) = self.job_start_instant.take() {
+                    format!(" in {}", crate::simulator::Simulator::format_duration(st.elapsed().as_secs_f64()))
+                } else {
+                    String::new()
+                };
+                self.log(&format!("[JOB] ✅ Job completed successfully{}!", dur_str));
                 return false;
             }
         }
@@ -1655,7 +1668,7 @@ mod tests {
     fn test_job_execution() {
         let mut dm = DeviceManager::new();
         let gcode = "G21\nG90\nG0 X15.0 Y25.0\nM4 S600\nG1 X45.0 Y65.0 F3000\nM5\n";
-        dm.start_job(gcode);
+        dm.start_job(gcode, 5.0);
         assert!(dm.is_job_running);
         assert!(!dm.is_job_paused);
         assert_eq!(dm.job_total_lines, 6);
@@ -1730,7 +1743,7 @@ mod tests {
         dm.work_y = 10.0;
 
         let gcode = "G0 X30.0 Y40.0\nM4 S500\nG1 X60.0 Y80.0 F2000\nM5\n";
-        dm.start_job(gcode);
+        dm.start_job(gcode, 10.0);
         assert!(dm.is_job_running);
 
         // Step job until mid-execution
