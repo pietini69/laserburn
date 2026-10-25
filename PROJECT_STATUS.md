@@ -2,75 +2,100 @@
 
 ## Current Status (as of October 25, 2026)
 LaserBurn is a high-performance, modern laser CAM/CNC software written in Rust (`eframe`/`egui`).
-It is fully functional, all 37 unit tests pass, and it is deployed as a native macOS app bundle (`/Applications/LaserBurn.app`) as well as a CLI binary (`~/.cargo/bin/laser_burn`).
+It is fully functional, all 50 unit tests pass, and it is deployed as a native signed macOS app bundle (`/Applications/LaserBurn.app`), as well as multi-platform distribution packages in `dist/` (macOS Universal 2 DMG/ZIP, Windows x64 ZIP, and Linux x86_64 tar.gz).
 
-### Key Recent Milestones & Features Implemented:
-1. **Adaptive Grid Subdivisions & Sticky Rulers:**
-   - Multi-tiered millimeter grid subdivisions (`10mm/50mm`, `5mm/20mm`, `2mm/10mm`, `1mm/5mm`, `0.5mm/2mm`) based on zoom factor.
-   - Dynamic viewport-clamped sticky ruler badges along X and Y axes ensuring coordinates remain visible during pan/zoom.
-2. **Native Async File Dialogs (`rfd::AsyncFileDialog`):**
-   - Completely non-blocking background thread dialog execution using `pollster::block_on` and `std::sync::mpsc::channel`.
-   - Resolves macOS `[NSSavePanel runModal]` re-entrancy conflict with the winit runloop (`panic_cannot_unwind`).
-   - Supports `Open Project`, `Save Project` (`.lbrn2`), `Export G-Code`, `Export Ruida`, and `Browse Font`.
-   - Keyboard shortcuts: `Cmd+O` and `Cmd+S`.
-3. **Live Camera Feed & Optical Alignment System:**
-   - Fisheye lens barrel/pincushion undistortion (`k1`, `k2`, optical center offset X/Y, scale X/Y, uniform zoom).
-   - Alignment guide grid overlay.
-   - Bed alignment with independent scale X/Y, offset X/Y (mm), rotation (°), and horizontal/vertical flip.
-   - Canvas background overlay: renders directly on the bed grid beneath laser vectors, strictly clipped to `bed_rect`.
-   - Hotkeys: `Cmd+K` toggles Camera Feed & Alignment window; `Cmd+Shift+C` toggles canvas background overlay.
-   - Persistence: Calibration automatically serialized to `~/.config/laser_burn/camera_calibration.json`.
-4. **Transparent Safe Work Envelope:**
-   - Removed green fill overlay (`rect_filled`) to keep bed canvas completely clear, preserving only bright green boundary lines and corner markers.
-5. **Clean UI & Resizing Stability:**
-   - Stripped missing Unicode emojis/glyphs (`[ ]` / `.notdef`) across menus, buttons, and toolbars.
-   - 100% English interface across all windows, menus, sliders, toolbars, and status messages.
-   - Fixed camera window layout feedback loop: replaced unbounded row allocations with clamped widths and `egui::TopBottomPanel::bottom` + `egui::CentralPanel::default()` + `ScrollArea`, allowing effortless resizing smaller or larger.
-6. **4-Point Alignment Wizard & Homography Perspective Warp:**
-   - Fully automated LightBurn-style 4-point perspective homography solver (Gaussian elimination with partial pivoting & 3x3 matrix inverse).
-   - Tailored specifically for large beds: user only needs **4 small pieces of paper or cardboard** (A5/A6, Post-it notes, tape, or wood scraps).
-   - Laser jog buttons with weak light diode beam to easily place each scrap paper directly under the nozzle.
-   - 1-click G-code generation burning 4 high-contrast 10mm crosshairs with concentric bullseye rings in ~10 seconds.
-   - Interactive camera view with **Floating Zoom Loupe (Magnifier)** providing 2x–8x cursor magnification for sub-pixel centering on low-resolution cameras.
-   - Bed canvas overlay renders a 20x20 subdivided GPU mesh using the inverse homography $H^{-1}$, eliminating perspective and keystoning errors.
+### Key Milestones & Features Implemented:
+1. **8-Handle Non-Uniform Resizing & Aspect Ratio Control:**
+   - Interactive 8 resize handles on canvas (TopLeft, Top, TopRight, Right, BottomRight, Bottom, BottomLeft, Left) with high-visibility 10x10 px squares and generous 16px screen hit tolerance.
+   - Fixed handle drag hit detection by tracking mouse press origin (`press_origin`) and avoiding accidental deselection.
+   - When **"Lock Aspect Ratio"** is unchecked:
+     - Side handles (Left / Right) scale width exclusively.
+     - Top / Bottom handles scale height exclusively.
+     - Corner handles scale width and height independently based on mouse coordinates.
+   - When **"Lock Aspect Ratio"** is checked:
+     - All 8 handles preserve the exact aspect ratio of the selection.
+   - Non-uniform scaling of `Shape::Circle` automatically morphs it into a smooth 48-segment closed `Shape::Path` oval/ellipse, allowing ovals of any ratio.
+   - Direct `"Circle / Oval"` drawing tool: dragging without Shift creates an oval (with real-time ellipse preview), and holding Shift forces a perfect uniform circle.
+   - Full image scaling: `Shape::Image` can be resized arbitrarily on canvas or via properties panel.
+
+2. **Accurate Job Duration Estimation (Kestoaika-arvio):**
+   - Implemented fast, non-blocking trapezoidal acceleration physics modeling (`estimate_document`).
+   - Computes exact acceleration/cruise/deceleration travel times for both vector cuts and multi-thousand line raster images without heavy per-frame dithering lag.
+   - **Pre-run estimate:** Displayed in the right control panel directly above the `[ START JOB (CUT) ]` button (`⏱ Arvioitu kesto: ~XX min YY s`) and in the `Simulation Stats` section.
+   - **Live execution progress:** Displays elapsed time and dynamically extrapolated remaining time (`⏱ Kulunut: MM:SS | Jäljellä: ~MM:SS`) next to the progress bar.
+   - Reports completed execution duration to device console upon job finish.
+
+3. **High-Precision Image Import & Engraving Dithering:**
+   - Supported formats: PNG, JPG, JPEG, and BMP via "File -> Open" (`Cmd+O`), "File -> Import Image..." (`Cmd+I`), or `[🖼 Import Image]` toolbar button.
+   - 8 advanced dithering algorithms: Atkinson, Floyd-Steinberg, Jarvis-Judice-Ninke, Stucki, Burkes, Sierra3, Bayer 8x8, and Halftone.
+   - Generates bidirectional serpentine raster scanlines directly into toolpaths.
+   - Bypasses $O(N^2)$ TSP reordering on image layers to preserve optimal scanline sequence and eliminate processing delay.
+   - Live GPU-accelerated texture preview on canvas.
+
+4. **Full SVG Parser with 2D Affine Transformation:**
+   - Full SVG path tokenizer & executor (`M/m`, `L/l`, `H/h`, `V/v`, `C/c`, `S/s`, `Q/q`, `T/t`, `A/a`, `Z/z`).
+   - 2D affine matrix transformation (`Transform2D`) supporting nested `<g transform="...">` (`matrix`, `translate`, `scale`, `rotate`) and `<use>` elements.
+   - Automatic workspace centering and layer color mapping.
+
+5. **Multi-Platform Distribution & Auto-Deployment:**
+   - Unified build script (`./scripts/build_all.sh`) creating all release assets in `dist/`:
+     - `LaserBurn-1.0.0-beta.1-universal.dmg` (macOS Universal 2: Apple Silicon + Intel, code-signed).
+     - `LaserBurn-1.0.0-beta.1-windows-x64.zip` (Windows 10/11 standalone 64-bit `.exe`).
+     - `LaserBurn-1.0.0-beta.1-linux-x86_64.tar.gz` (Linux 64-bit ELF binary, `.desktop` launcher, icon).
+   - Automatically installs the latest Universal 2 build into local Mac `/Applications/LaserBurn.app`.
+
+6. **Gumroad Product Listing & Assets:**
+   - Product Page: `https://shop.pietiniart.com/l/laserburn`
+   - Store: Gumroad (`shop.pietiniart.com / nikopietinen.gumroad.com`).
+   - Listing assets generated in `dist/gumroad_assets/`:
+     - Cover image: `dist/gumroad_assets/gumroad_cover.jpg` (1280x720 px, 16:9).
+     - Thumbnail icon: `dist/gumroad_assets/gumroad_thumb_square.jpg` (1000x1000 px, 1:1).
+   - Sales copy and listing guide: `GUMROAD_LISTING_GUIDE.md`.
+
+7. **Camera Alignment & Homography System:**
+   - 4-point perspective homography warp solver using 4 scrap paper targets on the bed.
+   - Floating zoom loupe (2x–8x magnifier) for sub-pixel crosshair centering.
+   - Live bed background texture overlay (`Cmd+Shift+C`) mapped via inverse homography $H^{-1}$.
+
+8. **Controller Communication & Safety:**
+   - GRBL 1.1+ USB serial communication and Ruida DSP network/USB support.
+   - Real-time limit switch status reporting ($10=19 Pn:), software limits, and learned workspace envelope.
+   - Clean emergency stop (`!`) preserving coordinate origin (0,0) without losing homing position.
 
 ---
 
 ## Codebase Map & Modules (`src/`)
-- `src/main.rs`: Application entry point, CLI argument parsing (`clap`), native macOS menu/window runner (`eframe`).
-- `src/lib.rs`: Module exports and integration test hooks.
-- `src/gui/mod.rs`: Full `eframe`/`egui` user interface:
-  - Canvas rendering, pan/zoom transformation, grid rulers, and adaptive subdivisions.
-  - Shape selection, drag-to-move, bounding box handles, rotation, alignment tools.
-  - Async file dialog receiver handling (`FileDialogAction`).
-  - Cut layers palette (C00–C29) with power, speed, air-assist, passes.
-  - Camera window (`Camera Feed & Alignment`), docked bottom bar, optical alignment, and bed canvas overlay.
-  - Connection modal, Jogging/Laser Control modal, Settings modal, Text tool dialog.
-- `src/camera/mod.rs`:
-  - `CameraManager`: Nokhwa-based camera discovery, background thread frame capture, RGBA texture conversion.
-  - `CameraCalibration`: Serde persistence for distortion parameters, optical centers, bed offsets, zoom factors.
-  - `LensUndistorter`: Bilinear interpolation barrel/pincushion fisheye lens correction.
-- `src/device/mod.rs`:
-  - Controller abstraction (`Grbl`, `Smoothieware`, `RuidaUdp`, `VirtualDemo`).
-  - Serial port and network communication (`serialport`, UDP sockets).
-  - Machine envelope enforcement, software limits, emergency stop, laser jog, framing box.
-- `src/formats/`:
-  - `lbrn2.rs`: Reverse-engineered LightBurn 2.0 XML reader/writer (`roxmltree`), parsing shapes, layer cut settings, text objects.
-  - `gcode.rs`: GRBL/Smoothie G-code generator (`M3`/`M4`, `G0`, `G1`, `S` duty cycle, `M8`/`M9`).
-  - `ruida.rs`: Direct binary `.rd` generation for Ruida DSP controllers.
-  - `svg.rs`: Standard SVG vector import/export.
-- `src/optimizer/mod.rs`:
-  - Traveling Salesperson (TSP) rapid move minimization, inner-cuts-first topological sorting, cut direction reversal.
-- `src/hatch/mod.rs`:
-  - Hatch fill engine: zig-zag serpentine scanning, cross-hatching, custom angles and line spacing.
-- `src/dither/mod.rs`:
-  - 8 photo dithering algorithms (Atkinson, Floyd-Steinberg, Jarvis-Judice-Ninke, Stucki, Bayer 8x8, Halftone, Threshold, Power Modulation).
+- `src/main.rs`: Application entry point, CLI commands (`clap`), native menu runner (`eframe`).
+- `src/lib.rs`: Library exports and integration test suite (50 tests).
+- `src/gui/mod.rs`:
+  - Main user interface with 2D canvas, sticky rulers, adaptive grid.
+  - Selection, 8-handle non-uniform resize, bounding box drag, rotation, alignment.
+  - Job duration estimation display and live execution tracking.
+  - Layer palette (C00–C29) with mode selection (Line, Fill, Image).
+  - Photographic raster image rendering with GPU textures.
+- `src/document/mod.rs`:
+  - Document model, layer definitions, shape primitives (`Path`, `Rect`, `Circle`, `Image`, `Group`).
+  - Non-uniform scaling logic (automatic Circle to Path oval conversion, Image scaling).
+  - Raster scanline generation (`to_raster_polylines`) with dithering.
 - `src/simulator/mod.rs`:
-  - Job run time estimation considering machine acceleration, maximum velocities, and trapezoidal velocity profiling.
-- `src/text/mod.rs`:
-  - Hershey single-line stroke font vectorizer and TrueType vector font parsing.
-- `src/geometry/mod.rs` & `src/document/mod.rs`:
-  - Document model, layer definitions, shape primitives (paths, rectangles, circles, gears, text), transformations, bounding box calculations.
+  - Trapezoidal velocity and acceleration simulation (`Simulator`).
+  - Fast whole-document estimation (`estimate_document`).
+  - Duration formatting helper (`format_duration`).
+- `src/device/mod.rs`:
+  - `DeviceManager`: GRBL and Ruida controller streaming and state machine.
+  - Live job timer (`job_start_instant`, `job_estimated_total_sec`), progress calculation, pause/resume/stop.
+- `src/formats/`:
+  - `lbrn2.rs`: LightBurn 2.0 XML reader/writer (`roxmltree`).
+  - `svg.rs`: Full SVG path tokenizer and 2D affine matrix parser.
+  - `gcode.rs`: GRBL G-code generator.
+  - `ruida.rs`: Binary Ruida `.rd` generator.
+- `src/optimizer/mod.rs`:
+  - Path optimization, inner-first contour sorting, TSP rapid travel minimization (bypassed on image layers).
+- `src/dither/mod.rs`:
+  - 8 grayscale dithering algorithms for wood, acrylic, slate engraving.
+- `src/camera/mod.rs`:
+  - `CameraManager`: USB webcam video streaming (`nokhwa`).
+  - `CameraCalibration` & `LensUndistorter`: Lens distortion and 4-point homography calibration.
 
 ---
 
@@ -79,25 +104,15 @@ It is fully functional, all 37 unit tests pass, and it is deployed as a native m
 # Manifest location:
 /Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn/Cargo.toml
 
-# Run unit tests (35 tests):
+# Run all 50 unit tests:
 cargo test --manifest-path /Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn/Cargo.toml --features gui
 
-# Compile optimized release build:
-cargo build --manifest-path /Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn/Cargo.toml --release --features gui
+# Build all distribution packages and auto-deploy to /Applications/LaserBurn.app:
+./scripts/build_all.sh
 
-# Deploy to macOS application bundle and CLI:
-cp /Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn/target/release/laser_burn /Applications/LaserBurn.app/Contents/MacOS/LaserBurn
-cp /Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn/target/release/laser_burn ~/.cargo/bin/laser_burn
+# Build macOS Universal 2 bundle only:
+./scripts/build_dmg.sh universal
 
-# Launch/restart app:
-pkill -x LaserBurn || true
+# Launch app:
 open /Applications/LaserBurn.app
 ```
-
----
-
-## Continuation Roadmap (Future Enhancements)
-- **Automatic Camera Calibration:** Fiducial/checkerboard automated lens distortion solving using corner detection.
-- **Trace Bitmap (Vectorization):** Potrace/contour-based vectorization of raster images directly inside LaserBurn.
-- **Rotary Attachment Support:** Cylinder/chuck engraving coordinate transformation mode.
-- **DXF Import/Export:** Direct AutoCAD DXF format parser.
