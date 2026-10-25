@@ -46,15 +46,19 @@ pub enum AbortSequencePhase {
 /// Non-blocking state machine for physical limit switch homing & zero-point calibration
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SwitchHomingPhase {
-    /// Initializing sequence (clear alarm, ensure laser off, enable hard limits $21=1)
+    /// Initializing sequence (clear alarm, ensure laser off)
     Starting { started_at: Instant },
     /// Moving X axis towards the X limit switch
     MovingX { started_at: Instant },
-    /// X limit switch hit: pulling off 5mm to release switch
+    /// X limit switch hit: waiting for soft reset reboot before unlocking and pulling off
+    ResettingX { started_at: Instant },
+    /// X limit switch disengaged: pulling off 5mm to release switch
     PullingOffX { started_at: Instant },
     /// Moving Y axis towards the Y limit switch
     MovingY { started_at: Instant },
-    /// Y limit switch hit: pulling off 5mm to release switch
+    /// Y limit switch hit: waiting for soft reset reboot before unlocking and pulling off
+    ResettingY { started_at: Instant },
+    /// Y limit switch disengaged: pulling off 5mm to release switch
     PullingOffY { started_at: Instant },
     /// Finalizing: set G90, G92 X0 Y0, update LaserBurn zero point
     Finalizing { started_at: Instant },
@@ -1097,18 +1101,24 @@ impl DeviceManager {
                     }
                 }
                 SwitchHomingPhase::MovingX { started_at } => {
-                    let alarm_tripped = self.grbl_state.starts_with("Alarm") || self.pin_limit_x;
+                    let switch_tripped = self.grbl_state.starts_with("Alarm") || self.pin_limit_x;
                     let timed_out = started_at.elapsed() >= Duration::from_secs_f64(timeout_x_secs);
 
-                    if alarm_tripped || timed_out {
-                        self.send_realtime(b'!');
-                        if alarm_tripped {
-                            self.log(&format!("[RESET] 🛑 X limit switch triggered (Alarm/Pn:{}). Motion stopped. Pulling off 5 mm...", self.pin_state));
+                    if switch_tripped || timed_out {
+                        self.send_realtime(0x18);
+                        if switch_tripped {
+                            self.log(&format!("[RESET] 🛑 X limit switch triggered (Pn:{}). Halting motion instantly with soft reset...", self.pin_state));
                         } else {
-                            self.log(&format!("[RESET] ⚠️ Search distance exceeded ({:.0}s timeout). Pulling off 5 mm...", timeout_x_secs));
+                            self.log(&format!("[RESET] ⚠️ Search distance exceeded ({:.0}s timeout). Halting motion...", timeout_x_secs));
                         }
+                        self.homing_phase = Some(SwitchHomingPhase::ResettingX { started_at: Instant::now() });
+                    }
+                }
+                SwitchHomingPhase::ResettingX { started_at } => {
+                    // Wait 900ms for GRBL to finish soft-reset boot sequence before unlocking
+                    if started_at.elapsed() >= Duration::from_millis(900) {
+                        self.log("[RESET] 🔄 Microcontroller reboot complete. Unlocking ($X) and pulling off 5 mm...");
                         self.send_raw("$X");
-                        self.send_raw("$21=0");
                         self.send_raw(&format!("G91 G1 X{:.1} F{:.0}", pull_x, pull_feed));
                         self.homing_phase = Some(SwitchHomingPhase::PullingOffX { started_at: Instant::now() });
                     }
@@ -1120,26 +1130,30 @@ impl DeviceManager {
                         if !switch_released && timed_out {
                             self.log("[RESET] ⚠️ Warning: X limit switch pin still indicates closed after pull-off.");
                         }
-                        self.send_raw("$21=1");
-                        self.send_raw("$X");
                         self.log(&format!("[RESET] ✅ X axis switch disengaged. Moving Y axis towards limit switch ({:+.1} mm @ {:.0} mm/min)...", travel_y, seek_feed));
                         self.send_raw(&format!("G91 G1 Y{:.1} F{:.0}", travel_y, seek_feed));
                         self.homing_phase = Some(SwitchHomingPhase::MovingY { started_at: Instant::now() });
                     }
                 }
                 SwitchHomingPhase::MovingY { started_at } => {
-                    let alarm_tripped = self.grbl_state.starts_with("Alarm") || self.pin_limit_y;
+                    let switch_tripped = self.grbl_state.starts_with("Alarm") || self.pin_limit_y;
                     let timed_out = started_at.elapsed() >= Duration::from_secs_f64(timeout_y_secs);
 
-                    if alarm_tripped || timed_out {
-                        self.send_realtime(b'!');
-                        if alarm_tripped {
-                            self.log(&format!("[RESET] 🛑 Y limit switch triggered (Alarm/Pn:{}). Motion stopped. Pulling off 5 mm...", self.pin_state));
+                    if switch_tripped || timed_out {
+                        self.send_realtime(0x18);
+                        if switch_tripped {
+                            self.log(&format!("[RESET] 🛑 Y limit switch triggered (Pn:{}). Halting motion instantly with soft reset...", self.pin_state));
                         } else {
-                            self.log(&format!("[RESET] ⚠️ Search distance exceeded ({:.0}s timeout). Pulling off 5 mm...", timeout_y_secs));
+                            self.log(&format!("[RESET] ⚠️ Search distance exceeded ({:.0}s timeout). Halting motion...", timeout_y_secs));
                         }
+                        self.homing_phase = Some(SwitchHomingPhase::ResettingY { started_at: Instant::now() });
+                    }
+                }
+                SwitchHomingPhase::ResettingY { started_at } => {
+                    // Wait 900ms for GRBL to finish soft-reset boot sequence before unlocking
+                    if started_at.elapsed() >= Duration::from_millis(900) {
+                        self.log("[RESET] 🔄 Microcontroller reboot complete. Unlocking ($X) and pulling off 5 mm...");
                         self.send_raw("$X");
-                        self.send_raw("$21=0");
                         self.send_raw(&format!("G91 G1 Y{:.1} F{:.0}", pull_y, pull_feed));
                         self.homing_phase = Some(SwitchHomingPhase::PullingOffY { started_at: Instant::now() });
                     }
@@ -1151,8 +1165,6 @@ impl DeviceManager {
                         if !switch_released && timed_out {
                             self.log("[RESET] ⚠️ Warning: Y limit switch pin still indicates closed after pull-off.");
                         }
-                        self.send_raw("$21=1");
-                        self.send_raw("$X");
                         self.send_raw("M5");
                         self.send_raw("G90");
                         self.send_raw("G92 X0 Y0");
@@ -1227,24 +1239,15 @@ impl DeviceManager {
                             self.pending_ok_count = self.pending_ok_count.saturating_sub(1);
                         } else if line.contains("ALARM:1") || line.contains("ALARM") {
                             self.grbl_state = "Alarm".to_string();
-                            let (dir_x, dir_y) = self.origin_corner_direction();
-                            let pull_x = -dir_x * 5.0;
-                            let pull_y = -dir_y * 5.0;
-                            let seek_feed = self.settings.homing_speed.clamp(100.0, 1500.0);
-                            let pull_feed = (seek_feed * 0.75).clamp(100.0, 400.0);
 
                             if matches!(self.homing_phase, Some(SwitchHomingPhase::MovingX { .. })) {
-                                self.log("[RESET] 🛑 X limit switch triggered (ALARM:1). Motion stopped. Pulling off 5 mm...");
-                                self.send_raw("$X");
-                                self.send_raw("$21=0");
-                                self.send_raw(&format!("G91 G1 X{:.1} F{:.0}", pull_x, pull_feed));
-                                self.homing_phase = Some(SwitchHomingPhase::PullingOffX { started_at: Instant::now() });
+                                self.log("[RESET] 🛑 X limit switch triggered (ALARM). Halting motion instantly with soft reset...");
+                                self.send_realtime(0x18);
+                                self.homing_phase = Some(SwitchHomingPhase::ResettingX { started_at: Instant::now() });
                             } else if matches!(self.homing_phase, Some(SwitchHomingPhase::MovingY { .. })) {
-                                self.log("[RESET] 🛑 Y limit switch triggered (ALARM:1). Motion stopped. Pulling off 5 mm...");
-                                self.send_raw("$X");
-                                self.send_raw("$21=0");
-                                self.send_raw(&format!("G91 G1 Y{:.1} F{:.0}", pull_y, pull_feed));
-                                self.homing_phase = Some(SwitchHomingPhase::PullingOffY { started_at: Instant::now() });
+                                self.log("[RESET] 🛑 Y limit switch triggered (ALARM). Halting motion instantly with soft reset...");
+                                self.send_realtime(0x18);
+                                self.homing_phase = Some(SwitchHomingPhase::ResettingY { started_at: Instant::now() });
                             }
                         }
                     }
@@ -1811,6 +1814,13 @@ mod tests {
         // X switch hit (Alarm):
         dm.grbl_state = "Alarm".to_string();
         dm.step_homing_sequence();
+        assert!(matches!(dm.homing_phase, Some(SwitchHomingPhase::ResettingX { .. })));
+
+        // After soft-reset reboot delay (900ms), transitions to PullingOffX:
+        dm.homing_phase = Some(SwitchHomingPhase::ResettingX {
+            started_at: Instant::now() - Duration::from_millis(1000),
+        });
+        dm.step_homing_sequence();
         assert!(matches!(dm.homing_phase, Some(SwitchHomingPhase::PullingOffX { .. })));
 
         // After X pull-off delay, moves to Y axis:
@@ -1822,6 +1832,13 @@ mod tests {
 
         // Y switch hit (Alarm):
         dm.grbl_state = "Alarm".to_string();
+        dm.step_homing_sequence();
+        assert!(matches!(dm.homing_phase, Some(SwitchHomingPhase::ResettingY { .. })));
+
+        // After soft-reset reboot delay (900ms), transitions to PullingOffY:
+        dm.homing_phase = Some(SwitchHomingPhase::ResettingY {
+            started_at: Instant::now() - Duration::from_millis(1000),
+        });
         dm.step_homing_sequence();
         assert!(matches!(dm.homing_phase, Some(SwitchHomingPhase::PullingOffY { .. })));
 
@@ -1877,6 +1894,8 @@ mod tests {
         // Test jogging within boundaries
         dm.target_x = 100.0;
         dm.target_y = 100.0;
+        dm.work_x = 100.0;
+        dm.work_y = 100.0;
         dm.jog(10.0, 10.0, 3000.0);
         assert_eq!(dm.target_x, 110.0);
         assert_eq!(dm.target_y, 110.0);
@@ -1884,6 +1903,8 @@ mod tests {
         // Test jog clamped at boundary
         dm.target_x = 195.0;
         dm.target_y = 175.0;
+        dm.work_x = 195.0;
+        dm.work_y = 175.0;
         dm.jog(15.0, 15.0, 3000.0);
         assert_eq!(dm.target_x, 200.0);
         assert_eq!(dm.target_y, 180.0);
