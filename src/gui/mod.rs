@@ -2442,6 +2442,13 @@ impl eframe::App for LaserBurnApp {
                                 self.status_msg = "Sent $10=19 and $21=1 to GRBL".to_string();
                             }
                         });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Home Speed:");
+                            if ui.add(egui::Slider::new(&mut self.device.settings.homing_speed, 100.0..=1200.0).suffix(" mm/min")).on_hover_text("Gentle seek speed for mechanical switch calibration (default 400 mm/min = 6.6 mm/s)").changed() {
+                                let _ = self.device.settings.save();
+                            }
+                        });
                     }
 
                     if self.device.grbl_state.starts_with("Alarm") {
@@ -3846,6 +3853,13 @@ impl eframe::App for LaserBurnApp {
                                 self.status_msg = "Sent $10=19 and $21=1 to GRBL".to_string();
                             }
                         });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Home Speed:");
+                            if ui.add(egui::Slider::new(&mut self.device.settings.homing_speed, 100.0..=1200.0).suffix(" mm/min")).on_hover_text("Gentle seek speed for mechanical switch calibration (default 400 mm/min = 6.6 mm/s)").changed() {
+                                let _ = self.device.settings.save();
+                            }
+                        });
                     }
 
                     if self.device.grbl_state.starts_with("Alarm") {
@@ -4245,6 +4259,12 @@ impl eframe::App for LaserBurnApp {
                         ui.label(egui::RichText::new("Switch-related buttons and homing are disabled by default for machine protection.").small().weak());
                     } else {
                         ui.label(egui::RichText::new("Ensure your machine has working switches and wiring before homing.").small().color(egui::Color32::from_rgb(220, 160, 40)));
+                        ui.horizontal(|ui| {
+                            ui.label("Homing / Seek Speed:");
+                            if ui.add(egui::Slider::new(&mut self.device.settings.homing_speed, 100.0..=1200.0).suffix(" mm/min")).on_hover_text("Gentle seek speed for mechanical switch calibration (default 400 mm/min = 6.6 mm/s)").changed() {
+                                let _ = self.device.settings.save();
+                            }
+                        });
                     }
 
                     ui.add_space(8.0);
