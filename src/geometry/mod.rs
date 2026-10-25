@@ -273,6 +273,107 @@ impl Polyline {
         }
         min_d
     }
+
+    /// Offsets the polyline by a given distance.
+    /// Positive distance expands outward for closed shapes (or shifts right for open paths).
+    /// Negative distance shrinks inward for closed shapes.
+    pub fn offset(&self, distance: f64) -> Polyline {
+        if self.points.len() < 2 || distance.abs() < 1e-7 {
+            return self.clone();
+        }
+
+        // Deduplicate consecutive identical points
+        let mut pts: Vec<Point2D> = Vec::with_capacity(self.points.len());
+        for &p in &self.points {
+            if pts.last().map_or(true, |last: &Point2D| last.distance_to(&p) > 1e-6) {
+                pts.push(p);
+            }
+        }
+        if self.is_closed && pts.len() > 1 {
+            if pts.first().unwrap().distance_to(pts.last().unwrap()) < 1e-6 {
+                pts.pop();
+            }
+        }
+        if pts.len() < 2 {
+            return self.clone();
+        }
+
+        let n = pts.len();
+        let is_ccw = if self.is_closed && n >= 3 {
+            // Shoelace area
+            let mut area = 0.0;
+            for i in 0..n {
+                let j = (i + 1) % n;
+                area += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+            }
+            area >= 0.0
+        } else {
+            true
+        };
+
+        let edge_count = if self.is_closed { n } else { n - 1 };
+        let mut normals: Vec<Vector2D> = Vec::with_capacity(edge_count);
+
+        for i in 0..edge_count {
+            let p1 = pts[i];
+            let p2 = pts[(i + 1) % n];
+            let dx = p2.x - p1.x;
+            let dy = p2.y - p1.y;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 1e-12 {
+                normals.push(Vector2D::new(0.0, 0.0));
+            } else {
+                let tx = dx / len;
+                let ty = dy / len;
+                // Outward normal:
+                // CCW: outward normal is (ty, -tx)
+                // CW: outward normal is (-ty, tx)
+                if is_ccw {
+                    normals.push(Vector2D::new(ty, -tx));
+                } else {
+                    normals.push(Vector2D::new(-ty, tx));
+                }
+            }
+        }
+
+        let miter_limit = 3.0 * distance.abs();
+        let mut offset_pts: Vec<Point2D> = Vec::with_capacity(n);
+
+        for i in 0..n {
+            let (n1, n2) = if self.is_closed {
+                let prev_idx = if i == 0 { n - 1 } else { i - 1 };
+                (normals[prev_idx], normals[i])
+            } else {
+                if i == 0 {
+                    (normals[0], normals[0])
+                } else if i == n - 1 {
+                    (normals[n - 2], normals[n - 2])
+                } else {
+                    (normals[i - 1], normals[i])
+                }
+            };
+
+            let det = n1.dx * n2.dy - n1.dy * n2.dx;
+            let (vx, vy) = if det.abs() < 1e-5 {
+                // Nearly parallel lines
+                (distance * n2.dx, distance * n2.dy)
+            } else {
+                let raw_vx = distance * (n2.dy - n1.dy) / det;
+                let raw_vy = distance * (n1.dx - n2.dx) / det;
+                let v_len = (raw_vx * raw_vx + raw_vy * raw_vy).sqrt();
+                if v_len > miter_limit && miter_limit > 0.0 {
+                    let scale = miter_limit / v_len;
+                    (raw_vx * scale, raw_vy * scale)
+                } else {
+                    (raw_vx, raw_vy)
+                }
+            };
+
+            offset_pts.push(Point2D::new(pts[i].x + vx, pts[i].y + vy));
+        }
+
+        Polyline::new(offset_pts, self.is_closed)
+    }
 }
 
 pub fn point_to_segment_distance(p: &Point2D, a: &Point2D, b: &Point2D) -> f64 {
@@ -346,5 +447,50 @@ mod tests {
         assert!(poly.contains_point(&Point2D::new(5.0, 5.0)));
         assert!(!poly.contains_point(&Point2D::new(15.0, 5.0)));
         assert!(!poly.contains_point(&Point2D::new(-5.0, 5.0)));
+    }
+
+    #[test]
+    fn test_polyline_offset_expand_and_shrink() {
+        // CCW Square 10x10 from (0,0) to (10,10)
+        let pts = vec![
+            Point2D::new(0.0, 0.0),
+            Point2D::new(10.0, 0.0),
+            Point2D::new(10.0, 10.0),
+            Point2D::new(0.0, 10.0),
+        ];
+        let poly = Polyline::new(pts, true);
+
+        // Expand outward by 0.1 mm (+d)
+        let expanded = poly.offset(0.1);
+        let exp_bounds = expanded.bounds();
+        assert!((exp_bounds.min_x - (-0.1)).abs() < 1e-4);
+        assert!((exp_bounds.min_y - (-0.1)).abs() < 1e-4);
+        assert!((exp_bounds.max_x - 10.1).abs() < 1e-4);
+        assert!((exp_bounds.max_y - 10.1).abs() < 1e-4);
+        assert!((exp_bounds.width() - 10.2).abs() < 1e-4);
+        assert!((exp_bounds.height() - 10.2).abs() < 1e-4);
+
+        // Shrink inward by 0.1 mm (-d)
+        let shrunk = poly.offset(-0.1);
+        let sh_bounds = shrunk.bounds();
+        assert!((sh_bounds.min_x - 0.1).abs() < 1e-4);
+        assert!((sh_bounds.min_y - 0.1).abs() < 1e-4);
+        assert!((sh_bounds.max_x - 9.9).abs() < 1e-4);
+        assert!((sh_bounds.max_y - 9.9).abs() < 1e-4);
+        assert!((sh_bounds.width() - 9.8).abs() < 1e-4);
+        assert!((sh_bounds.height() - 9.8).abs() < 1e-4);
+
+        // CW Square 10x10
+        let pts_cw = vec![
+            Point2D::new(0.0, 0.0),
+            Point2D::new(0.0, 10.0),
+            Point2D::new(10.0, 10.0),
+            Point2D::new(10.0, 0.0),
+        ];
+        let poly_cw = Polyline::new(pts_cw, true);
+        let expanded_cw = poly_cw.offset(0.1);
+        let exp_cw_bounds = expanded_cw.bounds();
+        assert!((exp_cw_bounds.width() - 10.2).abs() < 1e-4);
+        assert!((exp_cw_bounds.height() - 10.2).abs() < 1e-4);
     }
 }

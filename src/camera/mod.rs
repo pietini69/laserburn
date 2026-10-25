@@ -255,6 +255,9 @@ impl CameraCalibration {
     }
 
     pub fn load() -> Self {
+        if cfg!(test) {
+            return Self::default();
+        }
         if let Some(path) = Self::config_path() {
             if let Ok(data) = std::fs::read_to_string(path) {
                 if let Ok(cal) = serde_json::from_str::<CameraCalibration>(&data) {
@@ -586,13 +589,41 @@ impl CameraManager {
                         let w = res.width_x as usize;
                         let h = res.height_y as usize;
 
-                        // Fast path: if source format is YUYV, use instant conversion
+                        let mut final_w = res.width_x;
+                        let mut final_h = res.height_y;
+
+                        // 1. Fast path: YUYV format
                         let rgba = if buf.source_frame_format() == FrameFormat::YUYV
                             && buf.buffer().len() >= w * h * 2
                         {
                             fast_yuyv_to_rgba(buf.buffer(), w, h)
+                        } else if buf.source_frame_format() == FrameFormat::MJPEG
+                            || (buf.buffer().len() > 4 && buf.buffer().starts_with(&[0xFF, 0xD8]))
+                        {
+                            // 2. Pure Rust JPEG / MJPEG decoding via image crate (cross-platform, zero C deps)
+                            match image::load_from_memory_with_format(buf.buffer(), image::ImageFormat::Jpeg) {
+                                Ok(img) => {
+                                    final_w = img.width();
+                                    final_h = img.height();
+                                    img.to_rgba8().into_raw()
+                                }
+                                Err(e) => {
+                                    // Fallback to auto-detecting memory format
+                                    match image::load_from_memory(buf.buffer()) {
+                                        Ok(img) => {
+                                            final_w = img.width();
+                                            final_h = img.height();
+                                            img.to_rgba8().into_raw()
+                                        }
+                                        Err(err2) => {
+                                            eprintln!("Failed to decode camera JPEG frame ({} bytes): {}, fallback error: {}", buf.buffer().len(), e, err2);
+                                            Vec::new()
+                                        }
+                                    }
+                                }
+                            }
                         } else {
-                            // Fallback to nokhwa decoders
+                            // 3. Fallback to nokhwa decoders, then image crate
                             buf.decode_image::<RgbAFormat>()
                                 .map(|img| img.into_raw())
                                 .or_else(|_| {
@@ -605,15 +636,25 @@ impl CameraManager {
                                         out
                                     })
                                 })
+                                .or_else(|_| {
+                                    image::load_from_memory(buf.buffer()).map(|img| {
+                                        final_w = img.width();
+                                        final_h = img.height();
+                                        img.to_rgba8().into_raw()
+                                    })
+                                })
                                 .unwrap_or_default()
                         };
 
                         if !rgba.is_empty() {
                             frame_count += 1;
+                            if frame_count == 1 {
+                                log::info!("Camera streaming active: {}x{} (format: {:?})", final_w, final_h, buf.source_frame_format());
+                            }
                             if let Ok(mut slot) = frame_slot.lock() {
                                 *slot = Some(CameraFrame {
-                                    width: res.width_x,
-                                    height: res.height_y,
+                                    width: final_w,
+                                    height: final_h,
                                     rgba,
                                     frame_number: frame_count,
                                 });

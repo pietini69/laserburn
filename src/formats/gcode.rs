@@ -25,8 +25,8 @@ impl Default for GCodeConfig {
             rapid_speed: 6000.0,
             air_assist_on_cmd: "M8".to_string(),
             air_assist_off_cmd: "M9".to_string(),
-            bed_width: 465.0,
-            bed_height: 440.0,
+            bed_width: 400.0,
+            bed_height: 400.0,
             mirror_x: false,
             mirror_y: false,
         }

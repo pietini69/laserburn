@@ -177,6 +177,8 @@ pub struct DeviceSettings {
     pub weak_light_percent: f64,   // e.g. 1.0% for aiming / framing without burning
     pub weak_light_enabled: bool,
     pub laser_type: LaserType,
+    #[serde(default = "default_kerf")]
+    pub default_kerf: f64,         // Default beam kerf compensation in mm (0.0 = disabled)
 
     // Speeds
     pub rapid_speed: f64,          // G0 travel speed mm/min
@@ -210,6 +212,10 @@ fn default_homing_speed() -> f64 {
     400.0
 }
 
+fn default_kerf() -> f64 {
+    0.0
+}
+
 impl DeviceSettings {
     pub fn config_path() -> Option<PathBuf> {
         let home = std::env::var("HOME")
@@ -221,6 +227,9 @@ impl DeviceSettings {
     }
 
     pub fn load_saved() -> Self {
+        if cfg!(test) {
+            return Self::default();
+        }
         if let Some(path) = Self::config_path() {
             if path.exists() {
                 if let Ok(content) = std::fs::read_to_string(&path) {
@@ -250,9 +259,9 @@ impl DeviceSettings {
 impl Default for DeviceSettings {
     fn default() -> Self {
         Self {
-            bed_width: 465.0,
-            bed_height: 440.0,
-            origin_corner: OriginCorner::TopRight, // Top-right corner (LightBurn & hardware home)
+            bed_width: 400.0,
+            bed_height: 400.0,
+            origin_corner: OriginCorner::BottomLeft, // Default standard Front-Left origin (GRBL standard)
             enable_limit_switches: false, // Disabled by default for machine safety!
             custom_boundaries: CustomBoundaries::default(),
 
@@ -260,6 +269,7 @@ impl Default for DeviceSettings {
             weak_light_percent: 1.0, // 1% = S10, gentle diode glow
             weak_light_enabled: false,
             laser_type: LaserType::Diode,
+            default_kerf: 0.0,
 
             rapid_speed: 6000.0,
             jog_speed: 3000.0,

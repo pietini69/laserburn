@@ -1,0 +1,72 @@
+{
+  "show_on_canvas": false,
+  "opacity": 0.77,
+  "show_guide_grid": true,
+  "fisheye_k1": 0.0,
+  "fisheye_k2": 0.0,
+  "lens_zoom": 1.0,
+  "lens_zoom_x": 1.0,
+  "lens_zoom_y": 1.0,
+  "center_x": 0.0,
+  "center_y": 0.0,
+  "offset_x_mm": 72.0,
+  "offset_y_mm": 5.0,
+  "uniform_scale": 1.0,
+  "scale_x": 1.0,
+  "scale_y": 1.0,
+  "rotation_deg": 0.0,
+  "flip_h": false,
+  "flip_v": false,
+  "use_homography": true,
+  "homography_points": [
+    {
+      "machine_x": 50.0,
+      "machine_y": 50.0,
+      "camera_u": 0.23340657353401184,
+      "camera_v": 0.19767795503139496
+    },
+    {
+      "machine_x": 415.0,
+      "machine_y": 50.0,
+      "camera_u": 0.6871744990348816,
+      "camera_v": 0.17680121958255768
+    },
+    {
+      "machine_x": 415.0,
+      "machine_y": 390.0,
+      "camera_u": 0.686572253704071,
+      "camera_v": 0.7324001789093018
+    },
+    {
+      "machine_x": 50.0,
+      "machine_y": 390.0,
+      "camera_u": 0.24925944209098816,
+      "camera_v": 0.7321831583976746
+    }
+  ],
+  "homography_matrix": [
+    843.9660793899238,
+    -28.43815382828547,
+    -141.0805863542784,
+    32.54033199679271,
+    612.189025505164,
+    -78.32635372614003,
+    0.0842507895887771,
+    -0.07063874009095823,
+    1.0
+  ],
+  "inv_homography_matrix": [
+    0.001165053177286898,
+    0.00007375281007092139,
+    0.17014317407546248,
+    -0.00007516526394208996,
+    0.0016436219415931366,
+    0.11813455407884492,
+    -0.00010346622964280824,
+    0.00010988965065712748,
+    0.994010179302338
+  ],
+  "target_inset_mm": 50.0,
+  "burn_power_percent": 40.0,
+  "burn_speed": 1500.0
+}

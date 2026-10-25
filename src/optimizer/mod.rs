@@ -20,6 +20,7 @@ pub struct CutOptimizer {
     pub lead_in_length: f64,
     pub tab_width: f64,
     pub tab_count: usize,
+    pub default_kerf: f64, // Laser beam kerf compensation in mm (0.0 = disabled)
 }
 
 impl Default for CutOptimizer {
@@ -31,6 +32,7 @@ impl Default for CutOptimizer {
             lead_in_length: 0.0,
             tab_width: 0.0,
             tab_count: 0,
+            default_kerf: 0.0,
         }
     }
 }
@@ -48,13 +50,37 @@ impl CutOptimizer {
 
         for shape in &doc.shapes {
             let layer_idx = shape.layer_index();
+
+            // Skip Tool layers (T01, T02) and any layer with output disabled
+            if let Some(layer) = doc.layers.get(&layer_idx) {
+                if !layer.output || layer.is_tool() {
+                    continue;
+                }
+            } else if layer_idx >= 30 {
+                continue;
+            }
+
             let priority = doc
                 .layers
                 .get(&layer_idx)
                 .map(|l| l.priority)
                 .unwrap_or(layer_idx as i32);
 
-            let polys = shape.to_polylines();
+            let layer_cut_setting = doc.layers.get(&layer_idx).map(|l| &l.cut_setting);
+            let polys = if let Some(cs) = layer_cut_setting {
+                if cs.mode == crate::document::CutMode::Image {
+                    let interval = if cs.line_interval > 0.005 {
+                        cs.line_interval
+                    } else {
+                        0.08
+                    };
+                    shape.to_raster_polylines(cs.dither_mode, interval)
+                } else {
+                    shape.to_polylines()
+                }
+            } else {
+                shape.to_polylines()
+            };
             for p in polys {
                 layer_groups.entry(priority).or_default().push((layer_idx, p));
             }
@@ -88,9 +114,23 @@ impl CutOptimizer {
                     false
                 };
 
+                let layer_opt = doc.layers.get(&items[i].0);
+                let is_vector_line = layer_opt.map_or(true, |l| l.cut_setting.mode == crate::document::CutMode::Line);
+                let layer_kerf = layer_opt.map(|l| l.cut_setting.kerf).unwrap_or(0.0);
+                let eff_kerf = if layer_kerf != 0.0 { layer_kerf } else { self.default_kerf };
+
+                let poly = if is_vector_line && eff_kerf.abs() > 1e-5 && items[i].1.is_closed {
+                    // Outer cut: laser burns on cutline, so expand shape outward (+eff_kerf / 2.0)
+                    // Inner cut (hole/slot): laser burns on cutline, so shrink hole inward (-eff_kerf / 2.0)
+                    let offset_dist = if is_inner { -eff_kerf * 0.5 } else { eff_kerf * 0.5 };
+                    items[i].1.offset(offset_dist)
+                } else {
+                    items[i].1.clone()
+                };
+
                 classified.push(OptimizedPath {
                     layer_index: items[i].0,
-                    polyline: items[i].1.clone(),
+                    polyline: poly,
                     is_inner_cut: is_inner,
                 });
             }
@@ -106,8 +146,15 @@ impl CutOptimizer {
                 });
             }
 
-            // Step 2c: Nearest-Neighbor TSP optimization for rapid travel
-            if self.minimize_travel && classified.len() > 1 {
+            // For Image (raster) layers, bypass TSP nearest-neighbor reordering to preserve
+            // the optimal serpentine scanline order and avoid O(N^2) processing delay
+            let is_image_layer = items
+                .first()
+                .and_then(|(l_idx, _)| doc.layers.get(l_idx))
+                .map_or(false, |l| l.cut_setting.mode == crate::document::CutMode::Image);
+
+            // Step 2c: Nearest-Neighbor TSP optimization for rapid travel (vector layers only)
+            if !is_image_layer && self.minimize_travel && classified.len() > 1 {
                 let mut remaining = classified;
                 let mut reordered: Vec<OptimizedPath> = Vec::with_capacity(remaining.len());
 
@@ -116,7 +163,14 @@ impl CutOptimizer {
                     let mut best_dist_sq = f64::INFINITY;
                     let mut should_reverse = false;
 
+                    // When inner_cuts_first is enabled, only consider inner cuts until all inner cuts are cut
+                    let has_inner = self.inner_cuts_first && remaining.iter().any(|p| p.is_inner_cut);
+
                     for (idx, item) in remaining.iter().enumerate() {
+                        if has_inner && !item.is_inner_cut {
+                            continue;
+                        }
+
                         let pts = &item.polyline.points;
                         if pts.is_empty() {
                             continue;
@@ -224,5 +278,110 @@ impl CutOptimizer {
         }
 
         segments
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::{Document, Shape};
+
+    #[test]
+    fn test_kerf_compensation_outer_and_inner() {
+        let mut doc = Document::new("test", 100.0, 100.0);
+
+        // Outer box: 20x20 from (0,0) to (20,20)
+        let outer_pts = vec![
+            Point2D::new(0.0, 0.0),
+            Point2D::new(20.0, 0.0),
+            Point2D::new(20.0, 20.0),
+            Point2D::new(0.0, 20.0),
+        ];
+        doc.shapes.push(Shape::Path {
+            polyline: Polyline::new(outer_pts, true),
+            layer_index: 0,
+        });
+
+        // Inner hole: 10x10 from (5,5) to (15,15)
+        let inner_pts = vec![
+            Point2D::new(5.0, 5.0),
+            Point2D::new(15.0, 5.0),
+            Point2D::new(15.0, 15.0),
+            Point2D::new(5.0, 15.0),
+        ];
+        doc.shapes.push(Shape::Path {
+            polyline: Polyline::new(inner_pts, true),
+            layer_index: 0,
+        });
+
+        let mut opt = CutOptimizer::new();
+        opt.inner_cuts_first = true;
+        opt.default_kerf = 0.20; // 0.20 mm beam diameter -> 0.10 mm offset
+
+        let job = opt.optimize(&doc);
+        assert_eq!(job.paths.len(), 2);
+
+        // Path 0 must be inner cut
+        assert!(job.paths[0].is_inner_cut);
+        let inner_bounds = job.paths[0].polyline.bounds();
+        // Inner hole was 10x10, shrunk by 0.1mm on each side -> 9.80 mm
+        assert!((inner_bounds.width() - 9.80).abs() < 1e-4);
+        assert!((inner_bounds.height() - 9.80).abs() < 1e-4);
+        assert!((inner_bounds.min_x - 5.10).abs() < 1e-4);
+        assert!((inner_bounds.min_y - 5.10).abs() < 1e-4);
+
+        // Path 1 must be outer cut
+        assert!(!job.paths[1].is_inner_cut);
+        let outer_bounds = job.paths[1].polyline.bounds();
+        // Outer box was 20x20, expanded by 0.1mm on each side -> 20.20 mm
+        assert!((outer_bounds.width() - 20.20).abs() < 1e-4);
+        assert!((outer_bounds.height() - 20.20).abs() < 1e-4);
+        assert!((outer_bounds.min_x - (-0.10)).abs() < 1e-4);
+        assert!((outer_bounds.min_y - (-0.10)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_tool_layers_and_non_output_layers_are_skipped() {
+        let mut doc = Document::new("test", 100.0, 100.0);
+
+        // Shape on Layer 0 (normal cut)
+        doc.shapes.push(Shape::Rect {
+            layer_index: 0,
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+            corner_radius: 0.0,
+        });
+
+        // Shape on Layer 30 (T01 Tool layer, guide frame)
+        doc.shapes.push(Shape::Rect {
+            layer_index: 30,
+            x: -5.0,
+            y: -5.0,
+            width: 20.0,
+            height: 20.0,
+            corner_radius: 0.0,
+        });
+
+        // Shape on Layer 1 with output disabled
+        if let Some(l1) = doc.layers.get_mut(&1) {
+            l1.output = false;
+        }
+        doc.shapes.push(Shape::Rect {
+            layer_index: 1,
+            x: 2.0,
+            y: 2.0,
+            width: 5.0,
+            height: 5.0,
+            corner_radius: 0.0,
+        });
+
+        let opt = CutOptimizer::new();
+        let job = opt.optimize(&doc);
+
+        // Only Layer 0 should be cut, Layer 30 (Tool) and Layer 1 (Output=false) must be omitted!
+        assert_eq!(job.paths.len(), 1);
+        assert_eq!(job.paths[0].layer_index, 0);
     }
 }

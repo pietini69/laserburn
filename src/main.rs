@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use clap::{Parser, Subcommand};
 use laser_burn::dither::{dither, to_grayscale};
 use laser_burn::document::{DitherMode, Document, Shape};
@@ -12,7 +14,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "laser_burn")]
 #[command(author = "Niko Pietinen")]
-#[command(version = "0.1.0")]
+#[command(version)]
 #[command(about = "Modern, high-performance laser CAM software compatible with LightBurn .lbrn2", long_about = None)]
 struct Cli {
     #[arg(help = "Optional project file to open directly in LaserBurn (.lbrn2, .lbrn, .svg)")]
@@ -39,6 +41,8 @@ enum Commands {
         max_s: f64,
         #[arg(long, default_value = "6000.0", help = "Rapid travel rate in mm/min")]
         rapid: f64,
+        #[arg(long, default_value = "0.0", help = "Laser beam kerf compensation in mm (0.0 = disabled)")]
+        kerf: f64,
     },
     /// Generate Ruida DSP .rd binary file
     Ruida {
@@ -46,6 +50,8 @@ enum Commands {
         input: PathBuf,
         #[arg(short, long, help = "Output .rd file path")]
         output: Option<PathBuf>,
+        #[arg(long, default_value = "0.0", help = "Laser beam kerf compensation in mm (0.0 = disabled)")]
+        kerf: f64,
     },
     /// Run toolpath simulation and estimate cycle time
     Simulate {
@@ -53,6 +59,8 @@ enum Commands {
         input: PathBuf,
         #[arg(long, default_value = "3000.0", help = "Machine acceleration in mm/s^2")]
         accel: f64,
+        #[arg(long, default_value = "0.0", help = "Laser beam kerf compensation in mm (0.0 = disabled)")]
+        kerf: f64,
     },
     /// Dither an image for laser engraving
     Dither {
@@ -119,9 +127,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     layer.cut_setting.num_passes);
             }
         }
-        Commands::Gcode { input, output, max_s, rapid } => {
+        Commands::Gcode { input, output, max_s, rapid, kerf } => {
             let doc = load_document(&input)?;
-            let optimizer = CutOptimizer::new();
+            let mut optimizer = CutOptimizer::new();
+            optimizer.default_kerf = kerf;
             let job = optimizer.optimize(&doc);
 
             let mut config = GCodeConfig::default();
@@ -137,9 +146,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✓ Exported G-Code to: {}", out_path.display());
             println!("  Paths: {}, G-Code lines: {}", job.paths.len(), gcode.lines().count());
         }
-        Commands::Ruida { input, output } => {
+        Commands::Ruida { input, output, kerf } => {
             let doc = load_document(&input)?;
-            let optimizer = CutOptimizer::new();
+            let mut optimizer = CutOptimizer::new();
+            optimizer.default_kerf = kerf;
             let job = optimizer.optimize(&doc);
 
             let generator = RuidaGenerator::new();
@@ -151,9 +161,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✓ Exported Ruida .rd to: {}", out_path.display());
             println!("  Paths: {}, File size: {} bytes", job.paths.len(), bytes.len());
         }
-        Commands::Simulate { input, accel } => {
+        Commands::Simulate { input, accel, kerf } => {
             let doc = load_document(&input)?;
-            let optimizer = CutOptimizer::new();
+            let mut optimizer = CutOptimizer::new();
+            optimizer.default_kerf = kerf;
             let job = optimizer.optimize(&doc);
 
             let mut sim = Simulator::new();

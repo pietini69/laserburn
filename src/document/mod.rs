@@ -106,6 +106,10 @@ impl Default for CutSetting {
     }
 }
 
+fn default_output() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Layer {
     pub index: usize,
@@ -114,11 +118,14 @@ pub struct Layer {
     pub priority: i32,     // lower numbers execute first
     pub visible: bool,
     pub locked: bool,
+    #[serde(default = "default_output")]
+    pub output: bool,      // whether this layer is cut / sent to laser
     pub cut_setting: CutSetting,
 }
 
 impl Layer {
     pub fn new(index: usize, name: &str, color_hex: &str) -> Self {
+        let is_tool = index >= 30 || name.starts_with('T');
         Self {
             index,
             name: name.to_string(),
@@ -126,7 +133,31 @@ impl Layer {
             priority: index as i32,
             visible: true,
             locked: false,
+            output: !is_tool,
             cut_setting: CutSetting::default(),
+        }
+    }
+
+    pub fn is_tool(&self) -> bool {
+        self.index >= 30 || self.name.starts_with('T')
+    }
+
+    pub fn display_tag(&self) -> String {
+        if self.is_tool() {
+            let t_num = if self.index >= 30 { self.index - 29 } else { self.index };
+            format!("[T{:02}]", t_num)
+        } else {
+            format!("[L{:02}]", self.index)
+        }
+    }
+
+    pub fn display_label(&self) -> String {
+        let tag = self.display_tag();
+        let raw = tag.trim_matches(|c| c == '[' || c == ']');
+        if self.name.is_empty() || self.name == tag || self.name == raw {
+            tag
+        } else {
+            format!("{} {}", tag, self.name)
         }
     }
 }
@@ -417,7 +448,127 @@ impl Shape {
                 }
                 vec![Polyline::new(pts, true)]
             }
-            Shape::Image { .. } => vec![],
+            Shape::Image { x, y, width, height, .. } => {
+                vec![Polyline::new(
+                    vec![
+                        Point2D::new(*x, *y),
+                        Point2D::new(*x + *width, *y),
+                        Point2D::new(*x + *width, *y + *height),
+                        Point2D::new(*x, *y + *height),
+                    ],
+                    true,
+                )]
+            }
+        }
+    }
+
+    /// Generates high-efficiency serpentine horizontal raster scanlines for photographic image engraving
+    pub fn to_raster_polylines(&self, dither_mode: DitherMode, line_interval_mm: f64) -> Vec<Polyline> {
+        match self {
+            Shape::Image {
+                x,
+                y,
+                width,
+                height,
+                raw_pixels,
+                raw_width,
+                raw_height,
+                image_path,
+                ..
+            } => {
+                if *width <= 0.0 || *height <= 0.0 {
+                    return vec![];
+                }
+
+                // Retrieve or load RGBA pixels
+                let (pixels, w_orig, h_orig) = if let (Some(px), w, h) = (raw_pixels, *raw_width, *raw_height) {
+                    if w > 0 && h > 0 {
+                        (px.clone(), w as usize, h as usize)
+                    } else {
+                        return vec![];
+                    }
+                } else if let Some(path) = image_path {
+                    if let Ok(dyn_img) = image::open(path) {
+                        let rgba = dyn_img.to_rgba8();
+                        let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+                        (rgba.into_raw(), w, h)
+                    } else {
+                        return vec![];
+                    }
+                } else {
+                    return vec![];
+                };
+
+                // Convert to grayscale
+                let gray = crate::dither::to_grayscale(&pixels, w_orig, h_orig, 4);
+
+                // Calculate target raster resolution based on line_interval_mm
+                let interval = if line_interval_mm > 0.005 { line_interval_mm } else { 0.08 };
+                let target_h = ((*height / interval).round() as usize).clamp(1, 2000);
+                let target_w = ((*width / interval).round() as usize).clamp(1, 2000);
+
+                let resampled = crate::dither::resample_grayscale(&gray, w_orig, h_orig, target_w, target_h);
+                let mask = crate::dither::dither(&resampled, target_w, target_h, dither_mode);
+
+                let dx = *width / target_w as f64;
+                let dy = *height / target_h as f64;
+
+                let mut polylines = Vec::new();
+
+                // Serpentine (bi-directional) horizontal scanlines
+                for py in 0..target_h {
+                    let cur_y = *y + (py as f64 + 0.5) * dy;
+                    let reverse = (py % 2) == 1;
+
+                    let row_start = py * target_w;
+                    let row_mask = &mask[row_start..row_start + target_w];
+
+                    let mut in_run = false;
+                    let mut run_start = 0;
+                    let mut segments: Vec<(f64, f64)> = Vec::new();
+
+                    for px in 0..target_w {
+                        if row_mask[px] {
+                            if !in_run {
+                                in_run = true;
+                                run_start = px;
+                            }
+                        } else if in_run {
+                            in_run = false;
+                            let x0 = *x + run_start as f64 * dx;
+                            let x1 = *x + px as f64 * dx;
+                            segments.push((x0, x1));
+                        }
+                    }
+                    if in_run {
+                        let x0 = *x + run_start as f64 * dx;
+                        let x1 = *x + *width;
+                        segments.push((x0, x1));
+                    }
+
+                    if reverse {
+                        for (x0, x1) in segments.into_iter().rev() {
+                            polylines.push(Polyline::new(
+                                vec![Point2D::new(x1, cur_y), Point2D::new(x0, cur_y)],
+                                false,
+                            ));
+                        }
+                    } else {
+                        for (x0, x1) in segments {
+                            polylines.push(Polyline::new(
+                                vec![Point2D::new(x0, cur_y), Point2D::new(x1, cur_y)],
+                                false,
+                            ));
+                        }
+                    }
+                }
+
+                polylines
+            }
+            Shape::Group { shapes, .. } => {
+                shapes.iter().flat_map(|s| s.to_raster_polylines(dither_mode, line_interval_mm)).collect()
+            }
+            _ => self.to_polylines(),
         }
     }
 
@@ -465,23 +616,81 @@ pub struct Document {
 }
 
 impl Document {
-    pub fn new(name: &str, width: f64, height: f64) -> Self {
-        let mut layers = BTreeMap::new();
-        // Standard LightBurn default color layers (C00 to C07)
-        let default_palette = [
-            (0, "C00 (Black)", "#000000"),
-            (1, "C01 (Blue)", "#0000FF"),
-            (2, "C02 (Red)", "#FF0000"),
-            (3, "C03 (Green)", "#00AA00"),
-            (4, "C04 (Yellow)", "#D4AA00"),
-            (5, "C05 (Cyan)", "#00CCCC"),
-            (6, "C06 (Magenta)", "#CC00CC"),
-            (7, "C07 (Orange)", "#FF8800"),
-        ];
+    pub fn default_layers_path() -> Option<std::path::PathBuf> {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .ok()?;
+        let dir = std::path::PathBuf::from(home).join(".config").join("laser_burn");
+        let _ = std::fs::create_dir_all(&dir);
+        Some(dir.join("default_layers.json"))
+    }
 
-        for (idx, name, hex) in default_palette {
-            layers.insert(idx, Layer::new(idx, name, hex));
+    pub fn load_default_layers() -> Option<BTreeMap<usize, Layer>> {
+        if cfg!(test) {
+            return None;
         }
+        let path = Self::default_layers_path()?;
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(layers) = serde_json::from_str::<BTreeMap<usize, Layer>>(&content) {
+                    if !layers.is_empty() {
+                        return Some(layers);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn save_default_layers(layers: &BTreeMap<usize, Layer>) -> Result<(), String> {
+        if cfg!(test) {
+            return Ok(());
+        }
+        if let Some(path) = Self::default_layers_path() {
+            let json = serde_json::to_string_pretty(layers).map_err(|e| e.to_string())?;
+            std::fs::write(&path, json).map_err(|e| e.to_string())?;
+            Ok(())
+        } else {
+            Err("Could not find configuration directory".to_string())
+        }
+    }
+
+    pub fn reset_default_layers() -> Result<(), String> {
+        if cfg!(test) {
+            return Ok(());
+        }
+        if let Some(path) = Self::default_layers_path() {
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn new(name: &str, width: f64, height: f64) -> Self {
+        let layers = if let Some(saved) = Self::load_default_layers() {
+            saved
+        } else {
+            let mut layers = BTreeMap::new();
+            // Default color layers (L00 to L07) and Tool layers (T01, T02)
+            let default_palette = [
+                (0, "L00", "#000000"),
+                (1, "L01", "#0000FF"),
+                (2, "L02", "#FF0000"),
+                (3, "L03", "#00AA00"),
+                (4, "L04", "#D4AA00"),
+                (5, "L05", "#00CCCC"),
+                (6, "L06", "#CC00CC"),
+                (7, "L07", "#FF8800"),
+                (30, "T01", "#FF6600"),
+                (31, "T02", "#00CCFF"),
+            ];
+
+            for (idx, name, hex) in default_palette {
+                layers.insert(idx, Layer::new(idx, name, hex));
+            }
+            layers
+        };
 
         Self {
             name: name.to_string(),
@@ -530,15 +739,15 @@ impl Document {
             "#FF1493", // C29 Deep Pink
         ];
         if index == 30 {
-            ("T0 (Tool 0)".to_string(), "#00FF00")
+            ("T01".to_string(), "#FF6600")
         } else if index == 31 {
-            ("T1 (Tool 1)".to_string(), "#FF6600")
+            ("T02".to_string(), "#00CCFF")
         } else if index == 32 {
-            ("T2 (Tool 2)".to_string(), "#00CCFF")
+            ("T03".to_string(), "#00FF00")
         } else if index < palette.len() {
-            (format!("C{:02}", index), palette[index])
+            (format!("L{:02}", index), palette[index])
         } else {
-            (format!("C{:02}", index), "#888888")
+            (format!("L{:02}", index), "#888888")
         }
     }
 

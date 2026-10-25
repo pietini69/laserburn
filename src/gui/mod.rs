@@ -1,5 +1,5 @@
 #[cfg(feature = "gui")]
-use crate::document::{CutMode, Document, Shape};
+use crate::document::{CutMode, DitherMode, Document, Layer, Shape};
 use crate::formats::{GCodeConfig, GCodeGenerator, Lbrn2File, RuidaGenerator, SvgFormat};
 use crate::geometry::{BoundingBox, Point2D, Polyline};
 use crate::optimizer::CutOptimizer;
@@ -15,13 +15,31 @@ pub enum ActiveTool {
     DrawText,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SettingsProfile {
+    #[serde(default = "default_profile_version")]
+    pub version: u32,
+    pub device: crate::device::DeviceSettings,
+    #[serde(default)]
+    pub camera: Option<crate::camera::CameraCalibration>,
+    #[serde(default)]
+    pub layers: Option<std::collections::BTreeMap<usize, crate::document::Layer>>,
+}
+
+fn default_profile_version() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone)]
 pub enum FileDialogAction {
     OpenProject(std::path::PathBuf),
+    ImportImage(std::path::PathBuf),
     SaveProject(std::path::PathBuf),
     ExportGCode(std::path::PathBuf),
     ExportRuida(std::path::PathBuf),
     BrowseFont(std::path::PathBuf),
+    ExportSettings(std::path::PathBuf),
+    ImportSettings(std::path::PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +143,9 @@ pub struct LaserBurnApp {
     // Non-blocking asynchronous native file dialog channel
     pub file_dialog_tx: std::sync::mpsc::Sender<FileDialogAction>,
     pub file_dialog_rx: std::sync::mpsc::Receiver<FileDialogAction>,
+
+    // GPU Texture Cache for photographic raster image shapes
+    pub image_textures: std::collections::HashMap<usize, (u64, egui::TextureHandle)>,
 }
 
 #[cfg(feature = "gui")]
@@ -132,9 +153,9 @@ impl Default for LaserBurnApp {
     fn default() -> Self {
         let (file_dialog_tx, file_dialog_rx) = std::sync::mpsc::channel();
         let mut app = Self {
-            doc: Document::new("LaserBurn_Project", 465.0, 440.0),
+            doc: Document::new("LaserBurn_Project", 400.0, 400.0),
             active_tool: ActiveTool::Select,
-            selected_shape_indices: vec![2], // Gear selected by default
+            selected_shape_indices: Vec::new(),
             selected_layer: 0,
             zoom: 1.6,
             pan: egui::Vec2::new(120.0, 80.0),
@@ -190,6 +211,7 @@ impl Default for LaserBurnApp {
             wizard_magnifier_zoom: 4.0,
             keyboard_jog_laser: true,
             oneshot_snapshot: None,
+            image_textures: std::collections::HashMap::new(),
             file_dialog_tx,
             file_dialog_rx,
         };
@@ -204,28 +226,8 @@ impl Default for LaserBurnApp {
             }
         }
 
-        app.load_sample_gear(200.0, 220.0, 12, 45.0, 55.0);
-
-        // Add sample Outline TrueType text
-        app.text_input = "LaserBurn 2026".to_string();
-        app.text_pos_x = 70.0;
-        app.text_pos_y = 50.0;
-        app.text_font_size = 18.0;
-        app.text_is_singleline = false;
-        app.selected_layer = 0;
-        app.add_text_to_document();
-
-        // Add sample Single-Line Hershey text (perfect for fast laser scoring)
-        app.text_input = "SINGLE-LINE STROKE FONT".to_string();
-        app.text_pos_x = 70.0;
-        app.text_pos_y = 80.0;
-        app.text_font_size = 9.0;
-        app.text_is_singleline = true;
-        app.selected_layer = 1;
-        app.add_text_to_document();
-
-        // Reset text input defaults
-        app.text_input = "Sample Text".to_string();
+        // Text input defaults
+        app.text_input = "Text".to_string();
         app.text_pos_x = 100.0;
         app.text_pos_y = 120.0;
         app.text_font_size = 15.0;
@@ -291,50 +293,171 @@ impl LaserBurnApp {
         });
     }
 
-    /// Loads a project file (.lbrn2, .lbrn, .svg) into the editor
+    /// Loads a project file (.lbrn2, .lbrn, .svg, .png, .jpg, .bmp) into the editor
     pub fn open_file<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<(), String> {
         let p = path.as_ref();
         let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
-        let mut doc = match ext.as_str() {
-            "lbrn2" | "lbrn" => Lbrn2File::load_from_file(p)?,
-            "svg" => SvgFormat::load_from_file(p)?,
-            _ => return Err(format!("Unsupported file format: .{}", ext)),
-        };
-        // Keep bed dimensions strictly locked to physical machine bed size!
-        doc.width = self.device.settings.bed_width;
-        doc.height = self.device.settings.bed_height;
-        self.doc = doc;
-        self.selected_shape_indices = if !self.doc.shapes.is_empty() { vec![0] } else { vec![] };
-        if let Some(first_shape) = self.doc.shapes.first() {
-            self.selected_layer = first_shape.layer_index();
-        } else if let Some(&first_layer) = self.doc.layers.keys().next() {
-            self.selected_layer = first_layer;
-        } else {
-            self.selected_layer = 0;
+        self.image_textures.clear();
+
+        match ext.as_str() {
+            "lbrn2" | "lbrn" => {
+                let mut doc = Lbrn2File::load_from_file(p)?;
+                doc.width = self.device.settings.bed_width;
+                doc.height = self.device.settings.bed_height;
+                self.doc = doc;
+                self.selected_shape_indices = if !self.doc.shapes.is_empty() { vec![0] } else { vec![] };
+                if let Some(first_shape) = self.doc.shapes.first() {
+                    self.selected_layer = first_shape.layer_index();
+                } else if let Some(&first_layer) = self.doc.layers.keys().next() {
+                    self.selected_layer = first_layer;
+                } else {
+                    self.selected_layer = 0;
+                }
+                self.zoom = 1.2;
+                self.pan = egui::Vec2::new(80.0, 60.0);
+                self.status_msg = format!(
+                    "Loaded: {} ({} shapes, {} layers)",
+                    p.file_name().unwrap_or_default().to_string_lossy(),
+                    self.doc.shapes.len(),
+                    self.doc.layers.len()
+                );
+                Ok(())
+            }
+            "svg" => {
+                let mut doc = SvgFormat::load_from_file(p)?;
+                doc.width = self.device.settings.bed_width;
+                doc.height = self.device.settings.bed_height;
+                self.doc = doc;
+                self.selected_shape_indices = if !self.doc.shapes.is_empty() { vec![0] } else { vec![] };
+                if let Some(first_shape) = self.doc.shapes.first() {
+                    self.selected_layer = first_shape.layer_index();
+                } else if let Some(&first_layer) = self.doc.layers.keys().next() {
+                    self.selected_layer = first_layer;
+                } else {
+                    self.selected_layer = 0;
+                }
+                self.zoom = 1.2;
+                self.pan = egui::Vec2::new(80.0, 60.0);
+                self.status_msg = format!(
+                    "Loaded SVG: {} ({} shapes, {} layers)",
+                    p.file_name().unwrap_or_default().to_string_lossy(),
+                    self.doc.shapes.len(),
+                    self.doc.layers.len()
+                );
+                Ok(())
+            }
+            "png" | "jpg" | "jpeg" | "bmp" => {
+                let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or("Image");
+                self.doc = Document::new(name, self.device.settings.bed_width, self.device.settings.bed_height);
+                self.import_image(p)?;
+                self.zoom = 1.2;
+                self.pan = egui::Vec2::new(80.0, 60.0);
+                Ok(())
+            }
+            _ => Err(format!("Unsupported file format: .{}", ext)),
         }
-        self.zoom = 1.2;
-        self.pan = egui::Vec2::new(80.0, 60.0);
+    }
+
+    /// Imports a raster image (PNG, JPG, BMP) as a photographic dither engraving shape into the document
+    pub fn import_image<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<(), String> {
+        let p = path.as_ref();
+        let dyn_img = image::open(p).map_err(|e| format!("Failed to open image {}: {}", p.display(), e))?;
+        let rgba = dyn_img.to_rgba8();
+        let (raw_w, raw_h) = (rgba.width(), rgba.height());
+        let raw_pixels = rgba.into_raw();
+
+        // Calculate initial physical size (default max 100mm, preserving aspect ratio)
+        let aspect = raw_h as f64 / raw_w as f64;
+        let mut width_mm = 100.0_f64.min(self.device.settings.bed_width * 0.7);
+        let mut height_mm = width_mm * aspect;
+        if height_mm > self.device.settings.bed_height * 0.7 {
+            height_mm = self.device.settings.bed_height * 0.7;
+            width_mm = height_mm / aspect;
+        }
+
+        // Center nicely on laser bed
+        let x = ((self.device.settings.bed_width - width_mm) * 0.5).max(10.0);
+        let y = ((self.device.settings.bed_height - height_mm) * 0.5).max(10.0);
+
+        // Find or create an Image layer configured for Atkinson dither engraving
+        let image_layer_idx = 1;
+        if let Some(l) = self.doc.layers.get_mut(&image_layer_idx) {
+            l.cut_setting.mode = CutMode::Image;
+            l.cut_setting.dither_mode = DitherMode::Atkinson;
+            l.cut_setting.speed = 100.0;
+            l.cut_setting.power_max = 60.0;
+            l.cut_setting.line_interval = 0.08;
+        } else {
+            let mut l = Layer::new(image_layer_idx, "Engrave Image", "#00A0FF");
+            l.cut_setting.mode = CutMode::Image;
+            l.cut_setting.dither_mode = DitherMode::Atkinson;
+            l.cut_setting.speed = 100.0;
+            l.cut_setting.power_max = 60.0;
+            l.cut_setting.line_interval = 0.08;
+            self.doc.layers.insert(image_layer_idx, l);
+        }
+
+        let shape = Shape::Image {
+            layer_index: image_layer_idx,
+            x,
+            y,
+            width: width_mm,
+            height: height_mm,
+            image_path: Some(p.to_string_lossy().to_string()),
+            raw_pixels: Some(raw_pixels),
+            raw_width: raw_w,
+            raw_height: raw_h,
+        };
+
+        self.doc.add_shape(shape);
+        let new_idx = self.doc.shapes.len() - 1;
+        self.selected_shape_indices = vec![new_idx];
+        self.selected_layer = image_layer_idx;
+        self.image_textures.remove(&new_idx);
         self.status_msg = format!(
-            "Loaded: {} ({} shapes, {} layers)",
+            "Imported image: {} ({}x{} px, {:.1}x{:.1} mm)",
             p.file_name().unwrap_or_default().to_string_lossy(),
-            self.doc.shapes.len(),
-            self.doc.layers.len()
+            raw_w,
+            raw_h,
+            width_mm,
+            height_mm
         );
         Ok(())
     }
 
-    /// Asynchronously prompts the user to open a project file without blocking the UI thread or freezing winit
+    /// Asynchronously prompts the user to open any supported project or graphic file
     pub fn prompt_open_project(&self, ctx: &egui::Context) {
         let tx = self.file_dialog_tx.clone();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             pollster::block_on(async move {
                 if let Some(handle) = rfd::AsyncFileDialog::new()
-                    .add_filter("Laser Projects (*.lbrn2, *.lbrn, *.svg)", &["lbrn2", "lbrn", "svg"])
+                    .add_filter("All Supported Files (*.lbrn2, *.lbrn, *.svg, *.png, *.jpg, *.bmp)", &["lbrn2", "lbrn", "svg", "png", "jpg", "jpeg", "bmp"])
+                    .add_filter("LightBurn Projects (*.lbrn2, *.lbrn)", &["lbrn2", "lbrn"])
+                    .add_filter("Vector SVG (*.svg)", &["svg"])
+                    .add_filter("Raster Images (*.png, *.jpg, *.jpeg, *.bmp)", &["png", "jpg", "jpeg", "bmp"])
                     .pick_file()
                     .await
                 {
                     let _ = tx.send(FileDialogAction::OpenProject(handle.path().to_path_buf()));
+                    ctx.request_repaint();
+                }
+            });
+        });
+    }
+
+    /// Asynchronously prompts the user to import an image for laser engraving
+    pub fn prompt_import_image(&self, ctx: &egui::Context) {
+        let tx = self.file_dialog_tx.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            pollster::block_on(async move {
+                if let Some(handle) = rfd::AsyncFileDialog::new()
+                    .add_filter("Raster Images (*.png, *.jpg, *.jpeg, *.bmp)", &["png", "jpg", "jpeg", "bmp"])
+                    .pick_file()
+                    .await
+                {
+                    let _ = tx.send(FileDialogAction::ImportImage(handle.path().to_path_buf()));
                     ctx.request_repaint();
                 }
             });
@@ -419,6 +542,43 @@ impl LaserBurnApp {
                     .await
                 {
                     let _ = tx.send(FileDialogAction::BrowseFont(handle.path().to_path_buf()));
+                    ctx.request_repaint();
+                }
+            });
+        });
+    }
+
+    /// Asynchronously prompts the user to export all settings, camera calibration, and layer materials into a profile file
+    pub fn prompt_export_settings(&self, ctx: &egui::Context) {
+        let tx = self.file_dialog_tx.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            pollster::block_on(async move {
+                if let Some(handle) = rfd::AsyncFileDialog::new()
+                    .add_filter("LaserBurn Settings Profile (*.json, *.lbpref)", &["json", "lbpref"])
+                    .set_file_name("LaserBurn_Profile.json")
+                    .save_file()
+                    .await
+                {
+                    let _ = tx.send(FileDialogAction::ExportSettings(handle.path().to_path_buf()));
+                    ctx.request_repaint();
+                }
+            });
+        });
+    }
+
+    /// Asynchronously prompts the user to import and restore settings from an exported profile or settings file
+    pub fn prompt_import_settings(&self, ctx: &egui::Context) {
+        let tx = self.file_dialog_tx.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            pollster::block_on(async move {
+                if let Some(handle) = rfd::AsyncFileDialog::new()
+                    .add_filter("LaserBurn Settings (*.json, *.lbpref)", &["json", "lbpref"])
+                    .pick_file()
+                    .await
+                {
+                    let _ = tx.send(FileDialogAction::ImportSettings(handle.path().to_path_buf()));
                     ctx.request_repaint();
                 }
             });
@@ -1314,7 +1474,8 @@ impl LaserBurnApp {
             return;
         }
 
-        let opt = CutOptimizer::new();
+        let mut opt = CutOptimizer::new();
+        opt.default_kerf = self.device.settings.default_kerf;
         let job = opt.optimize(&self.doc);
 
         let mut cfg = GCodeConfig::default();
@@ -1440,6 +1601,9 @@ impl eframe::App for LaserBurnApp {
                 FileDialogAction::OpenProject(path) => {
                     let _ = self.open_file(&path);
                 }
+                FileDialogAction::ImportImage(path) => {
+                    let _ = self.import_image(&path);
+                }
                 FileDialogAction::SaveProject(path) => {
                     let save_path = if path.extension().is_none() {
                         path.with_extension("lbrn2")
@@ -1459,7 +1623,8 @@ impl eframe::App for LaserBurnApp {
                     } else {
                         path
                     };
-                    let opt = CutOptimizer::new();
+                    let mut opt = CutOptimizer::new();
+                    opt.default_kerf = self.device.settings.default_kerf;
                     let job = opt.optimize(&self.doc);
                     let gen = GCodeGenerator::new(GCodeConfig::default());
                     let gcode = gen.generate(&self.doc, &job);
@@ -1475,7 +1640,8 @@ impl eframe::App for LaserBurnApp {
                     } else {
                         path
                     };
-                    let opt = CutOptimizer::new();
+                    let mut opt = CutOptimizer::new();
+                    opt.default_kerf = self.device.settings.default_kerf;
                     let job = opt.optimize(&self.doc);
                     let gen = RuidaGenerator::new();
                     let bytes = gen.generate_rd(&self.doc, &job);
@@ -1488,6 +1654,74 @@ impl eframe::App for LaserBurnApp {
                 FileDialogAction::BrowseFont(path) => {
                     self.text_font_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Custom").to_string();
                     self.text_font_path = path.to_string_lossy().to_string();
+                }
+                FileDialogAction::ExportSettings(path) => {
+                    let save_path = if path.extension().is_none() {
+                        path.with_extension("json")
+                    } else {
+                        path
+                    };
+                    let profile = SettingsProfile {
+                        version: 1,
+                        device: self.device.settings.clone(),
+                        camera: Some(self.camera_calibration.clone()),
+                        layers: Some(self.doc.layers.clone()),
+                    };
+                    match serde_json::to_string_pretty(&profile) {
+                        Ok(json) => {
+                            if let Err(e) = std::fs::write(&save_path, json) {
+                                self.status_msg = format!("Export Error: {}", e);
+                            } else {
+                                self.status_msg = format!("Settings profile exported to {}", save_path.file_name().unwrap_or_default().to_string_lossy());
+                            }
+                        }
+                        Err(e) => {
+                            self.status_msg = format!("Serialize Error: {}", e);
+                        }
+                    }
+                }
+                FileDialogAction::ImportSettings(path) => {
+                    match std::fs::read_to_string(&path) {
+                        Ok(content) => {
+                            if let Ok(profile) = serde_json::from_str::<SettingsProfile>(&content) {
+                                self.device.settings = profile.device;
+                                let _ = self.device.settings.save();
+                                self.doc.width = self.device.settings.bed_width;
+                                self.doc.height = self.device.settings.bed_height;
+
+                                if let Some(cam) = profile.camera {
+                                    self.camera_calibration = cam;
+                                    let _ = self.camera_calibration.save();
+                                    if self.camera_calibration.homography_points.len() == 4 {
+                                        for i in 0..4 {
+                                            let pt = &self.camera_calibration.homography_points[i];
+                                            self.wizard_points[i] = Some((pt.camera_u, pt.camera_v));
+                                        }
+                                    }
+                                }
+                                if let Some(layers) = profile.layers {
+                                    self.doc.layers = layers;
+                                    let _ = Document::save_default_layers(&self.doc.layers);
+                                }
+                                self.status_msg = format!("Settings profile imported from {}", path.file_name().unwrap_or_default().to_string_lossy());
+                            } else if let Ok(dev) = serde_json::from_str::<crate::device::DeviceSettings>(&content) {
+                                self.device.settings = dev;
+                                let _ = self.device.settings.save();
+                                self.doc.width = self.device.settings.bed_width;
+                                self.doc.height = self.device.settings.bed_height;
+                                self.status_msg = format!("Device settings imported from {}", path.file_name().unwrap_or_default().to_string_lossy());
+                            } else if let Ok(layers) = serde_json::from_str::<std::collections::BTreeMap<usize, crate::document::Layer>>(&content) {
+                                self.doc.layers = layers;
+                                let _ = Document::save_default_layers(&self.doc.layers);
+                                self.status_msg = format!("Material palette imported from {}", path.file_name().unwrap_or_default().to_string_lossy());
+                            } else {
+                                self.status_msg = "Error: Unrecognized settings file format".to_string();
+                            }
+                        }
+                        Err(e) => {
+                            self.status_msg = format!("Import Error: {}", e);
+                        }
+                    }
                 }
             }
         }
@@ -1507,6 +1741,11 @@ impl eframe::App for LaserBurnApp {
             // Cmd+O (Open Project)
             if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
                 self.prompt_open_project(ctx);
+            }
+
+            // Cmd+I (Import Image)
+            if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::I)) {
+                self.prompt_import_image(ctx);
             }
 
             // Cmd+S (Save Project)
@@ -1694,8 +1933,12 @@ impl eframe::App for LaserBurnApp {
                         self.selected_layer = 0;
                         ui.close_menu();
                     }
-                    if ui.button(format!("Open .lbrn2 / .lbrn / .svg... ({}+O)", cmd)).clicked() {
+                    if ui.button(format!("Open File / Project... ({}+O)", cmd)).clicked() {
                         self.prompt_open_project(ctx);
+                        ui.close_menu();
+                    }
+                    if ui.button(format!("Import Image (PNG, JPG, BMP)... ({}+I)", cmd)).clicked() {
+                        self.prompt_import_image(ctx);
                         ui.close_menu();
                     }
                     if ui.button(format!("Save Project (.lbrn2)... ({}+S)", cmd)).clicked() {
@@ -1709,6 +1952,15 @@ impl eframe::App for LaserBurnApp {
                     }
                     if ui.button("Export Ruida (.rd)...").clicked() {
                         self.prompt_export_ruida(ctx);
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("Export Settings Profile...").clicked() {
+                        self.prompt_export_settings(ctx);
+                        ui.close_menu();
+                    }
+                    if ui.button("Import Settings Profile...").clicked() {
+                        self.prompt_import_settings(ctx);
                         ui.close_menu();
                     }
                     ui.separator();
@@ -1844,7 +2096,7 @@ impl eframe::App for LaserBurnApp {
                 });
 
                 ui.separator();
-                ui.label(egui::RichText::new("LaserBurn v0.1.0").strong().color(egui::Color32::from_rgb(255, 140, 0)));
+                ui.label(egui::RichText::new(concat!("LaserBurn v", env!("CARGO_PKG_VERSION"))).strong().color(egui::Color32::from_rgb(255, 140, 0)));
                 ui.label(egui::RichText::new("(Arrow keys nudge selection)").italics().color(egui::Color32::GRAY));
             });
 
@@ -1857,6 +2109,10 @@ impl eframe::App for LaserBurnApp {
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawCircle, "Circle");
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawLine, "Line");
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawText, "Text");
+
+                if ui.button("🖼 Import Image").on_hover_text(format!("Import PNG, JPG, BMP raster image for laser engraving ({}+I)", cmd)).clicked() {
+                    self.prompt_import_image(ctx);
+                }
 
                 ui.separator();
 
@@ -2051,9 +2307,58 @@ impl eframe::App for LaserBurnApp {
         });
 
         // -------------------------------------------------------------
-        // BOTTOM STATUS BAR
+        // BOTTOM STATUS BAR & QUICK LAYER PALETTE
         // -------------------------------------------------------------
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            // Quick Color & Tool Palette (LightBurn style: L00..L07, T01, T02)
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Layer:").size(11.0).weak());
+                for (&idx, layer) in &self.doc.layers {
+                    let color = egui::Color32::from_rgb(
+                        u8::from_str_radix(&layer.color_hex[1..3], 16).unwrap_or(0),
+                        u8::from_str_radix(&layer.color_hex[3..5], 16).unwrap_or(0),
+                        u8::from_str_radix(&layer.color_hex[5..7], 16).unwrap_or(0),
+                    );
+                    let tag = layer.display_tag();
+                    let raw_tag = tag.trim_matches(|c| c == '[' || c == ']');
+                    let label = if layer.name.is_empty() || layer.name == tag || layer.name == raw_tag {
+                        raw_tag
+                    } else {
+                        layer.name.as_str()
+                    };
+                    let is_active = self.selected_layer == idx;
+                    let text_color = if color.r() as u16 + color.g() as u16 + color.b() as u16 > 400 {
+                        egui::Color32::BLACK
+                    } else {
+                        egui::Color32::WHITE
+                    };
+                    let btn = egui::Button::new(
+                        egui::RichText::new(label).size(11.0).color(text_color).strong()
+                    )
+                    .fill(color)
+                    .min_size(egui::vec2(28.0, 18.0));
+
+                    let resp = ui.add(btn).on_hover_text(format!(
+                        "{} (Click to select or assign selected shapes)",
+                        layer.display_label()
+                    ));
+                    if resp.clicked() {
+                        self.selected_layer = idx;
+                        for &s_idx in &self.selected_shape_indices {
+                            if s_idx < self.doc.shapes.len() {
+                                self.doc.shapes[s_idx].set_layer_index(idx);
+                            }
+                        }
+                    }
+                    if is_active {
+                        let r = resp.rect.expand(2.0);
+                        ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(2.0_f32, egui::Color32::WHITE), egui::StrokeKind::Outside);
+                    }
+                }
+            });
+            ui.add_space(2.0);
+            ui.separator();
+
             ui.horizontal(|ui| {
                 let is_conn = self.device.status == crate::device::ConnectionStatus::Connected;
                 let (badge_color, badge_text) = if is_conn {
@@ -2333,14 +2638,14 @@ impl eframe::App for LaserBurnApp {
                         if count >= 1 {
                             let first_idx = self.selected_shape_indices[0];
                             let cur_layer = self.doc.shapes[first_idx].layer_index();
-                            let cur_layer_name = self.doc.layers.get(&cur_layer).map(|l| l.name.as_str()).unwrap_or("");
                             ui.horizontal(|ui| {
                                 ui.label("Layer:");
+                                let cur_label = self.doc.layers.get(&cur_layer).map(|l| l.display_label()).unwrap_or_else(|| format!("[L{:02}]", cur_layer));
                                 egui::ComboBox::from_id_salt("shape_layer_combo")
-                                    .selected_text(format!("[C{:02}] {}", cur_layer, cur_layer_name))
+                                    .selected_text(cur_label)
                                     .show_ui(ui, |ui| {
                                         for (&layer_idx, layer) in &self.doc.layers {
-                                            if ui.selectable_label(cur_layer == layer_idx, format!("[C{:02}] {}", layer_idx, layer.name)).clicked() {
+                                            if ui.selectable_label(cur_layer == layer_idx, layer.display_label()).clicked() {
                                                 for &s_idx in &self.selected_shape_indices {
                                                     if s_idx < self.doc.shapes.len() {
                                                         self.doc.shapes[s_idx].set_layer_index(layer_idx);
@@ -2369,12 +2674,17 @@ impl eframe::App for LaserBurnApp {
                             let is_sel = self.selected_shape_indices.contains(&idx);
                             let b = shape.bounds();
                             let lock_str = if shape.is_locked() { " [Locked]" } else { "" };
+                            let layer_tag = if shape.layer_index() >= 30 {
+                                format!("[T{:02}]", shape.layer_index() - 29)
+                            } else {
+                                format!("[L{:02}]", shape.layer_index())
+                            };
                             let desc = match shape {
-                                Shape::Group { shapes, .. } => format!("#{}: Group ({} shapes) [C{:02}]{}", idx + 1, shapes.len(), shape.layer_index(), lock_str),
-                                Shape::Path { .. } => format!("#{}: Path ({:.1}x{:.1}mm) [C{:02}]{}", idx + 1, b.width(), b.height(), shape.layer_index(), lock_str),
-                                Shape::Rect { .. } => format!("#{}: Rect ({:.1}x{:.1}mm) [C{:02}]{}", idx + 1, b.width(), b.height(), shape.layer_index(), lock_str),
-                                Shape::Circle { radius, .. } => format!("#{}: Circle (D={:.1}mm) [C{:02}]{}", idx + 1, radius * 2.0, shape.layer_index(), lock_str),
-                                Shape::Image { .. } => format!("#{}: Image [C{:02}]{}", idx + 1, shape.layer_index(), lock_str),
+                                Shape::Group { shapes, .. } => format!("#{}: Group ({} shapes) {}{}", idx + 1, shapes.len(), layer_tag, lock_str),
+                                Shape::Path { .. } => format!("#{}: Path ({:.1}x{:.1}mm) {}{}", idx + 1, b.width(), b.height(), layer_tag, lock_str),
+                                Shape::Rect { .. } => format!("#{}: Rect ({:.1}x{:.1}mm) {}{}", idx + 1, b.width(), b.height(), layer_tag, lock_str),
+                                Shape::Circle { radius, .. } => format!("#{}: Circle (D={:.1}mm) {}{}", idx + 1, radius * 2.0, layer_tag, lock_str),
+                                Shape::Image { .. } => format!("#{}: Image {}{}", idx + 1, layer_tag, lock_str),
                             };
 
                             let shift_held = ui.input(|i| i.modifiers.shift);
@@ -2405,8 +2715,24 @@ impl eframe::App for LaserBurnApp {
                     ui.horizontal(|ui| {
                         ui.heading("Cut & Layer Settings");
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Save Palette").on_hover_text("Save current layers & materials as startup default (~/.config/laser_burn/default_layers.json)").clicked() {
+                                if let Err(e) = Document::save_default_layers(&self.doc.layers) {
+                                    self.status_msg = format!("Error saving default layers: {}", e);
+                                } else {
+                                    self.status_msg = "Layer & material palette saved as startup default!".to_string();
+                                }
+                            }
+                            if ui.button("+ Add Tool").on_hover_text("Add a guide/tool layer (T01, T02...)").clicked() {
+                                for idx in 30..33 {
+                                    if !self.doc.layers.contains_key(&idx) {
+                                        self.doc.get_or_create_layer(idx);
+                                        self.selected_layer = idx;
+                                        break;
+                                    }
+                                }
+                            }
                             if ui.button("+ Add Layer").on_hover_text("Add a new color/cut layer").clicked() {
-                                for idx in 0..32 {
+                                for idx in 0..30 {
                                     if !self.doc.layers.contains_key(&idx) {
                                         self.doc.get_or_create_layer(idx);
                                         self.selected_layer = idx;
@@ -2419,7 +2745,8 @@ impl eframe::App for LaserBurnApp {
                     egui::ScrollArea::vertical().max_height(140.0).id_salt("layers_list_scroll").show(ui, |ui| {
                         for (idx, layer) in &mut self.doc.layers {
                             let is_selected = *idx == self.selected_layer;
-                            let text = format!("[C{:02}] {}", idx, layer.name);
+                            let is_tool = layer.is_tool();
+                            let text = layer.display_label();
 
                             let color = egui::Color32::from_rgb(
                                 u8::from_str_radix(&layer.color_hex[1..3], 16).unwrap_or(0),
@@ -2435,7 +2762,13 @@ impl eframe::App for LaserBurnApp {
                                     self.selected_layer = *idx;
                                 }
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    ui.label(format!("{:.0}mm/s | {:.0}%", layer.cut_setting.speed, layer.cut_setting.power_max));
+                                    if is_tool {
+                                        ui.label(egui::RichText::new("No Output").color(egui::Color32::from_rgb(255, 140, 0)).small())
+                                            .on_hover_text("Tool layer: used for visual guides/alignment, laser will never cut");
+                                    } else {
+                                        ui.label(format!("{:.0}mm/s | {:.0}%", layer.cut_setting.speed, layer.cut_setting.power_max));
+                                        ui.checkbox(&mut layer.output, "").on_hover_text("Toggle laser output on/off for this layer");
+                                    }
                                 });
                             });
                         }
@@ -2444,16 +2777,41 @@ impl eframe::App for LaserBurnApp {
                     // Controls for currently selected layer
                     if let Some(layer) = self.doc.layers.get_mut(&self.selected_layer) {
                         ui.group(|ui| {
-                            ui.horizontal(|ui| {
-                                egui::ComboBox::from_label("Mode")
-                                    .selected_text(format!("{:?}", layer.cut_setting.mode))
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Line, "Line (Cut/Score)");
-                                        ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Fill, "Fill (Engrave)");
-                                        ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Image, "Image (Dither)");
-                                    });
-                                ui.checkbox(&mut layer.cut_setting.air_assist, "Air Assist");
-                            });
+                            if layer.is_tool() {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new("Name:").strong());
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut layer.name)
+                                            .desired_width(140.0)
+                                            .hint_text("Tool Layer name"),
+                                    );
+                                });
+                                ui.add_space(4.0);
+                                ui.label(egui::RichText::new("TOOL LAYER (Guide / Reference only)").color(egui::Color32::from_rgb(255, 140, 0)).strong());
+                                ui.label(egui::RichText::new("Shapes on this layer are used as visual alignment frames, jigs, material outlines, and notes. The laser will never cut or burn this layer.").small());
+                            } else {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new("Name:").strong());
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut layer.name)
+                                            .desired_width(140.0)
+                                            .hint_text("e.g. Vaneri, Pahvi"),
+                                    ).on_hover_text("Custom name for this layer (e.g. Vaneri, Pahvi, Leikkaus, Kaiverrus)");
+                                    ui.checkbox(&mut layer.output, "Output").on_hover_text("When unchecked, shapes on this layer will not be cut by the laser");
+                                });
+
+                                ui.add_space(2.0);
+
+                                ui.horizontal(|ui| {
+                                    egui::ComboBox::from_label("Mode")
+                                        .selected_text(format!("{:?}", layer.cut_setting.mode))
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Line, "Line (Cut/Score)");
+                                            ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Fill, "Fill (Engrave)");
+                                            ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Image, "Image (Dither)");
+                                        });
+                                    ui.checkbox(&mut layer.cut_setting.air_assist, "Air Assist");
+                                });
 
                             ui.add_space(4.0);
 
@@ -2503,7 +2861,73 @@ impl eframe::App for LaserBurnApp {
                                             .show_value(false),
                                     );
                                     ui.end_row();
+
+                                    // 4. Kerf (Full width + calculated offset)
+                                    ui.label("Kerf (Width):");
+                                    ui.add(
+                                        egui::DragValue::new(&mut layer.cut_setting.kerf)
+                                            .speed(0.005)
+                                            .max_decimals(3)
+                                            .range(0.0..=2.0)
+                                            .suffix(" mm"),
+                                    ).on_hover_text("Full beam width: outer shapes expand and inner holes shrink by half this value (kerf/2). Enter 0.0 to use global default.");
+                                    let eff = if layer.cut_setting.kerf > 0.0 {
+                                        layer.cut_setting.kerf
+                                    } else {
+                                        self.device.settings.default_kerf
+                                    };
+                                    ui.label(egui::RichText::new(format!("±{:.3} mm", eff * 0.5)).small().weak())
+                                        .on_hover_text("Actual contour offset distance (half of beam width)");
+                                    ui.end_row();
+
+                                    // 5. Dither Algorithm (Visible when Mode is Image)
+                                    if layer.cut_setting.mode == CutMode::Image {
+                                        ui.label("Dither:");
+                                        egui::ComboBox::from_id_salt("layer_dither_algo_dropdown")
+                                            .selected_text(match layer.cut_setting.dither_mode {
+                                                DitherMode::Atkinson => "Atkinson (Best Detail)",
+                                                DitherMode::FloydSteinberg => "Floyd-Steinberg",
+                                                DitherMode::Jarvis => "Jarvis-Judice-Ninke",
+                                                DitherMode::Stucki => "Stucki",
+                                                DitherMode::Halftone => "Halftone (Dots)",
+                                                DitherMode::OrderedBayer => "Ordered (Bayer 8x8)",
+                                                DitherMode::Threshold => "Threshold (B&W)",
+                                                DitherMode::GrayscalePower => "Grayscale Power (Analog)",
+                                            })
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::Atkinson, "Atkinson (Best Detail for Wood/Slate)");
+                                                ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::FloydSteinberg, "Floyd-Steinberg (Classic Smooth)");
+                                                ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::Jarvis, "Jarvis-Judice-Ninke (Clean Sharp)");
+                                                ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::Stucki, "Stucki (High Contrast)");
+                                                ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::Halftone, "Halftone (Engraving Screen Dots)");
+                                                ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::OrderedBayer, "Ordered (Bayer 8x8 Matrix)");
+                                                ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::Threshold, "Threshold (Pure Black & White)");
+                                                ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::GrayscalePower, "Grayscale Power (Variable Laser Power)");
+                                            });
+                                        ui.label(egui::RichText::new("Photo engraving algorithm").small().weak());
+                                        ui.end_row();
+                                    }
+
+                                    // 6. Line Interval / Resolution (Visible for Image & Fill modes)
+                                    if layer.cut_setting.mode == CutMode::Image || layer.cut_setting.mode == CutMode::Fill {
+                                        ui.label("Interval:");
+                                        ui.add(
+                                            egui::DragValue::new(&mut layer.cut_setting.line_interval)
+                                                .speed(0.005)
+                                                .range(0.02..=1.0)
+                                                .max_decimals(3)
+                                                .suffix(" mm"),
+                                        ).on_hover_text("Line interval / pitch between raster strokes (0.08mm = ~318 DPI)");
+                                        let dpi = if layer.cut_setting.line_interval > 0.001 {
+                                            (25.4 / layer.cut_setting.line_interval).round() as i32
+                                        } else {
+                                            318
+                                        };
+                                        ui.label(egui::RichText::new(format!("~{} DPI", dpi)).small().weak());
+                                        ui.end_row();
+                                    }
                                 });
+                            }
                         });
                     }
 
@@ -2873,7 +3297,8 @@ impl eframe::App for LaserBurnApp {
                     ui.separator();
                     ui.heading("Simulation Stats");
 
-                    let opt = CutOptimizer::new();
+                    let mut opt = CutOptimizer::new();
+                    opt.default_kerf = self.device.settings.default_kerf;
                     let job = opt.optimize(&self.doc);
                     let sim = Simulator::new();
                     let stats = sim.simulate(&self.doc, &job);
@@ -3510,18 +3935,81 @@ impl eframe::App for LaserBurnApp {
 
                 let stroke_width = if is_selected { 2.5_f32 } else { 1.5_f32 };
 
-                for poly in shape.to_polylines() {
-                    let pts: Vec<egui::Pos2> = poly
-                        .points
-                        .iter()
-                        .map(|p| self.doc_to_screen(*p, canvas_origin))
-                        .collect();
+                if let Shape::Image { x, y, width, height, raw_pixels, raw_width, raw_height, image_path, .. } = shape {
+                    let min_p = self.doc_to_screen(Point2D::new(*x, *y), canvas_origin);
+                    let max_p = self.doc_to_screen(Point2D::new(*x + *width, *y + *height), canvas_origin);
+                    let img_rect = egui::Rect::from_two_pos(min_p, max_p);
 
-                    if pts.len() >= 2 {
-                        if poly.is_closed {
-                            painter.add(egui::Shape::closed_line(pts, egui::Stroke::new(stroke_width, color)));
+                    // Ensure GPU texture is loaded
+                    let tex_id_opt = if let Some((_, tex)) = self.image_textures.get(&shape_idx) {
+                        Some(tex.id())
+                    } else if let Some(pixels) = raw_pixels {
+                        if *raw_width > 0 && *raw_height > 0 {
+                            let color_img = egui::ColorImage::from_rgba_unmultiplied(
+                                [*raw_width as usize, *raw_height as usize],
+                                pixels,
+                            );
+                            let tex = ctx.load_texture(
+                                format!("img_shape_{}", shape_idx),
+                                color_img,
+                                egui::TextureOptions::LINEAR,
+                            );
+                            let id = tex.id();
+                            self.image_textures.insert(shape_idx, (1, tex));
+                            Some(id)
                         } else {
-                            painter.add(egui::Shape::line(pts, egui::Stroke::new(stroke_width, color)));
+                            None
+                        }
+                    } else if let Some(path) = image_path {
+                        if let Ok(dyn_img) = image::open(path) {
+                            let rgba = dyn_img.to_rgba8();
+                            let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+                            let color_img = egui::ColorImage::from_rgba_unmultiplied([w, h], rgba.as_raw());
+                            let tex = ctx.load_texture(
+                                format!("img_shape_{}", shape_idx),
+                                color_img,
+                                egui::TextureOptions::LINEAR,
+                            );
+                            let id = tex.id();
+                            self.image_textures.insert(shape_idx, (1, tex));
+                            Some(id)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(tex_id) = tex_id_opt {
+                        painter.image(
+                            tex_id,
+                            img_rect,
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            egui::Color32::WHITE,
+                        );
+                    }
+
+                    // Stroke bounding outline around image
+                    painter.rect_stroke(
+                        img_rect,
+                        0.0,
+                        egui::Stroke::new(stroke_width, color),
+                        egui::StrokeKind::Outside,
+                    );
+                } else {
+                    for poly in shape.to_polylines() {
+                        let pts: Vec<egui::Pos2> = poly
+                            .points
+                            .iter()
+                            .map(|p| self.doc_to_screen(*p, canvas_origin))
+                            .collect();
+
+                        if pts.len() >= 2 {
+                            if poly.is_closed {
+                                painter.add(egui::Shape::closed_line(pts, egui::Stroke::new(stroke_width, color)));
+                            } else {
+                                painter.add(egui::Shape::line(pts, egui::Stroke::new(stroke_width, color)));
+                            }
                         }
                     }
                 }
@@ -3702,12 +4190,12 @@ impl eframe::App for LaserBurnApp {
 
                     ui.horizontal(|ui| {
                         ui.label("Layer:");
-                        let cur_layer_name = self.doc.layers.get(&self.selected_layer).map(|l| l.name.clone()).unwrap_or_default();
+                        let cur_label = self.doc.layers.get(&self.selected_layer).map(|l| l.display_label()).unwrap_or_else(|| format!("[L{:02}]", self.selected_layer));
                         egui::ComboBox::from_id_salt("text_dialog_layer_picker")
-                            .selected_text(format!("[C{:02}] {}", self.selected_layer, cur_layer_name))
+                            .selected_text(cur_label)
                             .show_ui(ui, |ui| {
                                 for (&idx, layer) in &self.doc.layers {
-                                    if ui.selectable_label(self.selected_layer == idx, format!("[C{:02}] {}", idx, layer.name)).clicked() {
+                                    if ui.selectable_label(self.selected_layer == idx, layer.display_label()).clicked() {
                                         self.selected_layer = idx;
                                     }
                                 }
@@ -4292,6 +4780,8 @@ impl eframe::App for LaserBurnApp {
         // -------------------------------------------------------------
         if self.show_settings_window {
             let mut close_settings = false;
+            let mut do_export_settings = false;
+            let mut do_import_settings = false;
 
             egui::Window::new("Device & Bed Settings")
                 .collapsible(false)
@@ -4360,6 +4850,19 @@ impl eframe::App for LaserBurnApp {
                         ui.add(egui::Slider::new(&mut self.device.settings.weak_light_percent, 0.2..=5.0).suffix(" %"));
                     });
 
+                    ui.horizontal(|ui| {
+                        ui.label("Beam Kerf (Full Width):");
+                        ui.add(
+                            egui::DragValue::new(&mut self.device.settings.default_kerf)
+                                .speed(0.005)
+                                .max_decimals(3)
+                                .range(0.0..=2.0)
+                                .suffix(" mm"),
+                        ).on_hover_text("Full laser beam width (kerf). LaserBurn automatically offsets cutlines by half this width (kerf / 2).");
+                        ui.label(egui::RichText::new(format!("-> Offset: ±{:.3} mm", self.device.settings.default_kerf * 0.5)).color(egui::Color32::from_rgb(100, 200, 255)).strong());
+                    });
+                    ui.label(egui::RichText::new("Enter the FULL beam width (e.g. 0.100 mm). LaserBurn expands outer cuts by +0.05 mm and shrinks holes by -0.05 mm. (In LightBurn this was called 'Kerf Offset' which was width/2).").small().weak());
+
                     ui.add_space(6.0);
                     ui.separator();
 
@@ -4401,19 +4904,36 @@ impl eframe::App for LaserBurnApp {
 
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Save & Close").clicked() {
+                        if ui.button(egui::RichText::new("Save & Close").strong()).clicked() {
                             if let Err(e) = self.device.settings.save() {
                                 self.status_msg = format!("Error saving settings: {}", e);
                             } else {
-                                self.status_msg = "Settings saved (~/.config/laser_burn/settings.json)".to_string();
+                                let _ = Document::save_default_layers(&self.doc.layers);
+                                self.status_msg = "Settings & material palette saved (~/.config/laser_burn/)".to_string();
                             }
                             close_settings = true;
+                        }
+
+                        ui.separator();
+
+                        if ui.button("Export Profile...").on_hover_text("Save all machine, camera, and layer settings into an exportable profile file (.json)").clicked() {
+                            do_export_settings = true;
+                        }
+
+                        if ui.button("Import Profile...").on_hover_text("Load and restore machine settings, camera calibration, and layer materials from an exported profile (.json)").clicked() {
+                            do_import_settings = true;
                         }
                     });
                 });
 
             if close_settings {
                 self.show_settings_window = false;
+            }
+            if do_export_settings {
+                self.prompt_export_settings(ctx);
+            }
+            if do_import_settings {
+                self.prompt_import_settings(ctx);
             }
         }
 
@@ -5407,5 +5927,107 @@ mod tests {
         assert!(app.camera_calibration.update_homography(&pts).is_ok());
         assert!(app.camera_calibration.use_homography);
         assert!(app.camera_calibration.inv_homography_matrix.is_some());
+    }
+
+    #[test]
+    fn test_settings_profile_export_and_import() {
+        let mut app = LaserBurnApp::default();
+        app.device.settings.bed_width = 465.0;
+        app.device.settings.bed_height = 440.0;
+        app.device.settings.origin_corner = crate::device::OriginCorner::TopRight;
+        app.device.settings.enable_limit_switches = true;
+        app.device.settings.default_kerf = 0.125;
+
+        // Custom layer name
+        if let Some(l0) = app.doc.layers.get_mut(&0) {
+            l0.name = "Custom Vaneri 4mm".to_string();
+        }
+
+        let profile = SettingsProfile {
+            version: 1,
+            device: app.device.settings.clone(),
+            camera: Some(app.camera_calibration.clone()),
+            layers: Some(app.doc.layers.clone()),
+        };
+
+        let json = serde_json::to_string_pretty(&profile).expect("Failed to serialize SettingsProfile");
+        assert!(json.contains("Custom Vaneri 4mm"));
+        assert!(json.contains("465.0"));
+        assert!(json.contains("TopRight"));
+
+        // Now create a fresh app with generic factory defaults
+        let mut fresh_app = LaserBurnApp::default();
+        assert_eq!(fresh_app.device.settings.bed_width, 400.0);
+        assert!(!fresh_app.device.settings.enable_limit_switches);
+
+        // Import the profile json
+        let parsed_profile: SettingsProfile = serde_json::from_str(&json).expect("Failed to parse SettingsProfile");
+        fresh_app.device.settings = parsed_profile.device;
+        fresh_app.doc.width = fresh_app.device.settings.bed_width;
+        fresh_app.doc.height = fresh_app.device.settings.bed_height;
+        if let Some(layers) = parsed_profile.layers {
+            fresh_app.doc.layers = layers;
+        }
+
+        // Verify restoration
+        assert_eq!(fresh_app.device.settings.bed_width, 465.0);
+        assert_eq!(fresh_app.device.settings.bed_height, 440.0);
+        assert_eq!(fresh_app.device.settings.origin_corner, crate::device::OriginCorner::TopRight);
+        assert!(fresh_app.device.settings.enable_limit_switches);
+        assert_eq!(fresh_app.device.settings.default_kerf, 0.125);
+        assert_eq!(fresh_app.doc.layers.get(&0).unwrap().name, "Custom Vaneri 4mm");
+    }
+
+    #[test]
+    fn test_image_import_and_dither_raster_scanlines() {
+        let mut app = LaserBurnApp::default();
+
+        // Create a temporary 64x64 test image with a black circle on white background
+        let mut img_buf = image::RgbaImage::new(64, 64);
+        for (x, y, pixel) in img_buf.enumerate_pixels_mut() {
+            let dx = x as f32 - 32.0;
+            let dy = y as f32 - 32.0;
+            if dx * dx + dy * dy <= 400.0 {
+                *pixel = image::Rgba([0, 0, 0, 255]); // black dot (burn)
+            } else {
+                *pixel = image::Rgba([255, 255, 255, 255]); // white (no burn)
+            }
+        }
+        let temp_path = std::env::temp_dir().join("laserburn_test_img.png");
+        img_buf.save(&temp_path).expect("Failed to save test image");
+
+        // Test import_image
+        app.import_image(&temp_path).expect("import_image failed");
+        assert_eq!(app.doc.shapes.len(), 1);
+
+        // Verify shape is Shape::Image
+        if let Shape::Image { layer_index, width, height, raw_pixels, raw_width, raw_height, .. } = &app.doc.shapes[0] {
+            assert_eq!(*layer_index, 1);
+            assert!(*width > 0.0);
+            assert!(*height > 0.0);
+            assert_eq!(*raw_width, 64);
+            assert_eq!(*raw_height, 64);
+            assert!(raw_pixels.is_some());
+        } else {
+            panic!("Expected Shape::Image");
+        }
+
+        // Verify layer 1 was configured as CutMode::Image with Atkinson dithering
+        let layer1 = app.doc.layers.get(&1).expect("Layer 1 should exist");
+        assert_eq!(layer1.cut_setting.mode, CutMode::Image);
+        assert_eq!(layer1.cut_setting.dither_mode, DitherMode::Atkinson);
+
+        // Test generating raster scanlines directly
+        let scanlines = app.doc.shapes[0].to_raster_polylines(DitherMode::Atkinson, 0.5);
+        assert!(!scanlines.is_empty(), "Should generate horizontal raster scanlines");
+        println!("Generated {} raster scanlines for Atkinson dither", scanlines.len());
+
+        // Test toolpath optimization for image
+        let opt = CutOptimizer::new();
+        let job = opt.optimize(&app.doc);
+        assert!(!job.paths.is_empty(), "Optimized job should contain raster paths for the image");
+        println!("OptimizedJob contains {} toolpath paths", job.paths.len());
+
+        let _ = std::fs::remove_file(temp_path);
     }
 }

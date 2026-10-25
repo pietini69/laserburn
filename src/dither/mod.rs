@@ -20,6 +20,51 @@ pub fn to_grayscale(rgba: &[u8], width: usize, height: usize, channels: usize) -
     gray
 }
 
+/// Resamples a grayscale image buffer to target width and height using bilinear interpolation
+pub fn resample_grayscale(
+    src: &[f32],
+    src_w: usize,
+    src_h: usize,
+    dst_w: usize,
+    dst_h: usize,
+) -> Vec<f32> {
+    if src_w == 0 || src_h == 0 || dst_w == 0 || dst_h == 0 {
+        return Vec::new();
+    }
+    if src_w == dst_w && src_h == dst_h {
+        return src.to_vec();
+    }
+    let mut dst = Vec::with_capacity(dst_w * dst_h);
+    let scale_x = src_w as f64 / dst_w as f64;
+    let scale_y = src_h as f64 / dst_h as f64;
+
+    for dy in 0..dst_h {
+        let sy = (dy as f64 + 0.5) * scale_y - 0.5;
+        let y0 = (sy.floor() as isize).clamp(0, src_h as isize - 1) as usize;
+        let y1 = (y0 + 1).min(src_h - 1);
+        let fy = (sy - y0 as f64).clamp(0.0, 1.0) as f32;
+
+        for dx in 0..dst_w {
+            let sx = (dx as f64 + 0.5) * scale_x - 0.5;
+            let x0 = (sx.floor() as isize).clamp(0, src_w as isize - 1) as usize;
+            let x1 = (x0 + 1).min(src_w - 1);
+            let fx = (sx - x0 as f64).clamp(0.0, 1.0) as f32;
+
+            let p00 = src[y0 * src_w + x0];
+            let p10 = src[y0 * src_w + x1];
+            let p01 = src[y1 * src_w + x0];
+            let p11 = src[y1 * src_w + x1];
+
+            let top = p00 * (1.0 - fx) + p10 * fx;
+            let bottom = p01 * (1.0 - fx) + p11 * fx;
+            let val = top * (1.0 - fy) + bottom * fy;
+
+            dst.push(val);
+        }
+    }
+    dst
+}
+
 /// Runs the selected dithering algorithm on a grayscale image buffer.
 /// Returns a 1-bit boolean mask where `true` means laser fires (black dot / engrave)
 /// and `false` means laser off (white dot).

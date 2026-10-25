@@ -15,6 +15,12 @@ Tämä ohjelmisto kehitettiin takaisinmallintamalla (Reverse Engineering) teolli
 
 ### 2. Älykäs leikkausradan optimointi (`CutOptimizer`)
 - **Inner-cuts-first:** Tunnistaa sisäkkäiset geometriat (reiät, kirjaimet, sisämuodot) ja leikkaa ne AINA ennen ulkoreunaa, estäen kappaleen putoamisen tai liikkumisen kesken leikkauksen.
+- **Automaattinen Kerf-kompensaatio (Säteen leveyden korjaus):**
+  - Huomioi lasersäteen polttojäljen paksuuden (beam kerf, esim. 0.10 mm) ja kompensoi leikkausradat automaattisesti:
+    - Ulkomuodot laajennetaan ulospäin $+kerf / 2$ (+0.05 mm)
+    - Sisäaukot ja kolot pienennetään sisäänpäin $-kerf / 2$ (-0.05 mm)
+  - Sormiliitokset, laatikot ja palapelit istuvat täydellisen napakasti suoraan leikkauksesta.
+  - **Määritelmä:** LaserBurniin syötetään säteen **koko polttoleveys** (esim. `0.100 mm`). Ohjelma laskee ja näyttää suoraan käyttöliittymässä todellisen työstöradan siirtymän (`±0.050 mm`). *(LightBurnissa kentän nimi oli 'Kerf Offset', johon käyttäjän piti laskea puolikas itse).*
 - **TSP (Traveling Salesperson) matkaoptimointi:** Minimoi laser sammutettuna tapahtuvat pikasiirrot (rapid travel) lähimmän naapurin algoritmilla.
 - **Suuntakääntö (Direction reversal):** Kääntää avoimet viivat tarvittaessa optimoidakseen työkalun liikkeen.
 - **Sillat ja kiinnikkeet (Tabs & Bridges):** Mahdollisuus jättää kappaleeseen ohuita mikrokiinnikkeitä, jotta irtoavat osat pysyvät kiinni materiaalilevyssä.
