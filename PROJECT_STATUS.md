@@ -2,7 +2,7 @@
 
 ## Current Status (as of October 25, 2026)
 LaserBurn is a high-performance, modern laser CAM/CNC software written in Rust (`eframe`/`egui`).
-It is fully functional, all 35 unit tests pass, and it is deployed as a native macOS app bundle (`/Applications/LaserBurn.app`) as well as a CLI binary (`~/.cargo/bin/laser_burn`).
+It is fully functional, all 37 unit tests pass, and it is deployed as a native macOS app bundle (`/Applications/LaserBurn.app`) as well as a CLI binary (`~/.cargo/bin/laser_burn`).
 
 ### Key Recent Milestones & Features Implemented:
 1. **Adaptive Grid Subdivisions & Sticky Rulers:**
@@ -26,6 +26,13 @@ It is fully functional, all 35 unit tests pass, and it is deployed as a native m
    - Stripped missing Unicode emojis/glyphs (`[ ]` / `.notdef`) across menus, buttons, and toolbars.
    - 100% English interface across all windows, menus, sliders, toolbars, and status messages.
    - Fixed camera window layout feedback loop: replaced unbounded row allocations with clamped widths and `egui::TopBottomPanel::bottom` + `egui::CentralPanel::default()` + `ScrollArea`, allowing effortless resizing smaller or larger.
+6. **4-Point Alignment Wizard & Homography Perspective Warp:**
+   - Fully automated LightBurn-style 4-point perspective homography solver (Gaussian elimination with partial pivoting & 3x3 matrix inverse).
+   - Tailored specifically for large beds: user only needs **4 small pieces of paper or cardboard** (A5/A6, Post-it notes, tape, or wood scraps).
+   - Laser jog buttons with weak light diode beam to easily place each scrap paper directly under the nozzle.
+   - 1-click G-code generation burning 4 high-contrast 10mm crosshairs with concentric bullseye rings in ~10 seconds.
+   - Interactive camera view with **Floating Zoom Loupe (Magnifier)** providing 2x–8x cursor magnification for sub-pixel centering on low-resolution cameras.
+   - Bed canvas overlay renders a 20x20 subdivided GPU mesh using the inverse homography $H^{-1}$, eliminating perspective and keystoning errors.
 
 ---
 
