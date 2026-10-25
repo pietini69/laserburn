@@ -38,6 +38,13 @@ pub enum DragHandle {
     Left,
 }
 
+#[derive(Debug, Clone)]
+pub struct OneShotSnapshot {
+    pub started_at: std::time::Instant,
+    pub was_streaming: bool,
+    pub initial_frame_number: u64,
+}
+
 #[cfg(feature = "gui")]
 pub struct LaserBurnApp {
     pub doc: Document,
@@ -112,6 +119,9 @@ pub struct LaserBurnApp {
     // Keyboard Jogging Control
     pub keyboard_jog_laser: bool,
 
+    // 1-Click Bed Overlay Snapshot Capture State
+    pub oneshot_snapshot: Option<OneShotSnapshot>,
+
     // Non-blocking asynchronous native file dialog channel
     pub file_dialog_tx: std::sync::mpsc::Sender<FileDialogAction>,
     pub file_dialog_rx: std::sync::mpsc::Receiver<FileDialogAction>,
@@ -170,7 +180,7 @@ impl Default for LaserBurnApp {
             lens_undistorter: crate::camera::LensUndistorter::default(),
             camera_texture: None,
             last_camera_frame_number: 0,
-            last_raw_frame: None,
+            last_raw_frame: Self::load_bed_snapshot_from_disk(),
             last_applied_calibration: None,
             camera_window_tab: 0,
             wizard_step: 0,
@@ -179,6 +189,7 @@ impl Default for LaserBurnApp {
             wizard_dragged_pt: None,
             wizard_magnifier_zoom: 4.0,
             keyboard_jog_laser: true,
+            oneshot_snapshot: None,
             file_dialog_tx,
             file_dialog_rx,
         };
@@ -1095,6 +1106,64 @@ impl LaserBurnApp {
         painter.add(egui::Shape::mesh(mesh));
     }
 
+    pub fn bed_snapshot_path() -> Option<std::path::PathBuf> {
+        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
+        let dir = std::path::PathBuf::from(home).join(".config").join("laser_burn");
+        let _ = std::fs::create_dir_all(&dir);
+        Some(dir.join("last_bed_snapshot.png"))
+    }
+
+    pub fn save_bed_snapshot_to_disk(&self, frame: &crate::camera::CameraFrame) {
+        if let Some(path) = Self::bed_snapshot_path() {
+            if let Some(img) = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(frame.width, frame.height, frame.rgba.clone()) {
+                let _ = img.save(&path);
+            }
+        }
+    }
+
+    pub fn load_bed_snapshot_from_disk() -> Option<crate::camera::CameraFrame> {
+        let path = Self::bed_snapshot_path()?;
+        if !path.exists() {
+            return None;
+        }
+        let img = image::open(&path).ok()?.to_rgba8();
+        let (width, height) = img.dimensions();
+        Some(crate::camera::CameraFrame {
+            width,
+            height,
+            rgba: img.into_raw(),
+            frame_number: 1,
+        })
+    }
+
+    /// Trigger 1-click bed overlay update from camera (starts stream if needed, captures snapshot, saves to disk, and stops stream)
+    pub fn trigger_update_overlay(&mut self) {
+        if self.oneshot_snapshot.is_some() {
+            return;
+        }
+
+        self.camera_calibration.show_on_canvas = true;
+        let _ = self.camera_calibration.save();
+
+        if self.camera_manager.is_streaming {
+            if let Some(f) = self.camera_manager.take_snapshot() {
+                self.save_bed_snapshot_to_disk(&f);
+                self.last_raw_frame = Some(f);
+                self.last_applied_calibration = None;
+                self.status_msg = "Bed overlay updated.".to_string();
+            }
+        } else {
+            let initial = self.camera_manager.get_latest_frame().map(|f| f.frame_number).unwrap_or(0);
+            self.camera_manager.start_stream();
+            self.oneshot_snapshot = Some(OneShotSnapshot {
+                started_at: std::time::Instant::now(),
+                was_streaming: false,
+                initial_frame_number: initial,
+            });
+            self.status_msg = "Capturing fresh bed overlay photo from camera...".to_string();
+        }
+    }
+
     /// Calculate the 4 target coordinates in document mm space:
     /// 0: Top-Left (inset, inset)
     /// 1: Top-Right (width - inset, inset)
@@ -1292,6 +1361,33 @@ impl eframe::App for LaserBurnApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(25));
         }
 
+        // Advance One-Shot Bed Snapshot capture
+        if let Some(ref snapshot_state) = self.oneshot_snapshot {
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+
+            let elapsed = snapshot_state.started_at.elapsed();
+            let latest = self.camera_manager.get_latest_frame();
+            let has_new_frame = latest.as_ref().map_or(false, |f| f.frame_number > snapshot_state.initial_frame_number + 2);
+
+            // Wait ~350ms (or 2+ new frames) for camera auto-exposure to stabilize, max 1800ms
+            if (has_new_frame && elapsed >= std::time::Duration::from_millis(350)) || elapsed >= std::time::Duration::from_millis(1800) {
+                let was_streaming = snapshot_state.was_streaming;
+                if let Some(frame) = self.camera_manager.take_snapshot() {
+                    self.save_bed_snapshot_to_disk(&frame);
+                    self.last_raw_frame = Some(frame);
+                    self.last_applied_calibration = None; // Force texture refresh
+                    self.status_msg = "Bed overlay updated from camera.".to_string();
+                } else {
+                    self.status_msg = "Could not capture camera frame.".to_string();
+                }
+
+                if !was_streaming {
+                    self.camera_manager.stop_stream();
+                }
+                self.oneshot_snapshot = None;
+            }
+        }
+
         // Fetch and undistort incoming camera frame or re-process when calibration changes
         let latest_frame = self.camera_manager.get_latest_frame();
         if let Some(ref f) = latest_frame {
@@ -1482,6 +1578,11 @@ impl eframe::App for LaserBurnApp {
                 } else {
                     "Camera background hidden".to_string()
                 };
+            }
+
+            // Cmd+U or Cmd+Shift+U (1-Click Update Bed Overlay Snapshot from Camera)
+            if ctx.input(|i| (i.modifiers.command && i.key_pressed(egui::Key::U)) || (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::U))) {
+                self.trigger_update_overlay();
             }
 
             // Keyboard Arrow Handling: Direct Laser Jogging vs Shape Nudging
@@ -1736,8 +1837,8 @@ impl eframe::App for LaserBurnApp {
                             ui.close_menu();
                         }
                     }
-                    if ui.button("Take Snapshot").clicked() {
-                        self.camera_manager.take_snapshot();
+                    if ui.button("Update Bed Overlay (Cmd+U)").clicked() {
+                        self.trigger_update_overlay();
                         ui.close_menu();
                     }
                 });
@@ -1919,6 +2020,17 @@ impl eframe::App for LaserBurnApp {
                 if ui.button(egui::RichText::new(bg_btn_text).color(bg_btn_color)).on_hover_text(format!("Toggle camera background overlay on the laser bed canvas ({}+Shift+C)", cmd)).clicked() {
                     self.camera_calibration.show_on_canvas = !self.camera_calibration.show_on_canvas;
                     let _ = self.camera_calibration.save();
+                }
+
+                let is_capturing = self.oneshot_snapshot.is_some();
+                let snap_btn = egui::Button::new(
+                    egui::RichText::new(if is_capturing { "Capturing..." } else { "Update Overlay" })
+                        .strong()
+                        .color(if is_capturing { egui::Color32::from_rgb(255, 230, 80) } else { egui::Color32::WHITE })
+                ).fill(if is_capturing { egui::Color32::from_rgb(180, 100, 20) } else { egui::Color32::from_rgb(33, 115, 185) });
+
+                if ui.add(snap_btn).on_hover_text(format!("Capture a fresh photo of the bed with your material (Cmd+U / {}+Shift+U)", cmd)).clicked() {
+                    self.trigger_update_overlay();
                 }
                 if ui.button("Settings").on_hover_text(format!("Device & bed settings ({}+,)", cmd)).clicked() {
                     self.show_settings_window = true;
@@ -2636,6 +2748,21 @@ impl eframe::App for LaserBurnApp {
                             self.start_contour_frame();
                         }
                     });
+
+                    ui.add_space(2.0);
+                    let is_capturing = self.oneshot_snapshot.is_some();
+                    let snap_btn = egui::Button::new(
+                        egui::RichText::new(if is_capturing { "Capturing Bed Photo..." } else { "Update Bed Overlay (Camera)" })
+                            .strong()
+                            .color(if is_capturing { egui::Color32::from_rgb(255, 230, 80) } else { egui::Color32::WHITE })
+                    ).fill(if is_capturing { egui::Color32::from_rgb(180, 100, 20) } else { egui::Color32::from_rgb(33, 115, 185) });
+
+                    if ui.add_sized([ui.available_width(), 25.0], snap_btn)
+                        .on_hover_text("Capture a fresh photo of the bed with your material (Cmd+U)")
+                        .clicked()
+                    {
+                        self.trigger_update_overlay();
+                    }
 
                     ui.add_space(3.0);
                     ui.collapsing("Custom Soft Limits (Corners)", |ui| {
@@ -4353,8 +4480,15 @@ impl eframe::App for LaserBurnApp {
                             }
                         }
 
-                        if ui.button("Snapshot").on_hover_text("Capture a still frame").clicked() {
-                            self.camera_manager.take_snapshot();
+                        let is_capturing = self.oneshot_snapshot.is_some();
+                        let snap_btn = egui::Button::new(
+                            egui::RichText::new(if is_capturing { "Capturing..." } else { "Update Overlay" })
+                                .strong()
+                                .color(if is_capturing { egui::Color32::from_rgb(255, 230, 80) } else { egui::Color32::WHITE })
+                        ).fill(if is_capturing { egui::Color32::from_rgb(180, 100, 20) } else { egui::Color32::from_rgb(33, 115, 185) });
+
+                        if ui.add(snap_btn).on_hover_text("Capture fresh snapshot of bed and workpiece (Cmd+U)").clicked() {
+                            self.trigger_update_overlay();
                         }
 
                         ui.separator();
