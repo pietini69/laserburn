@@ -1833,11 +1833,15 @@ mod tests {
         // Bottom-Left at (10, 10)
         dm.target_x = 10.0;
         dm.target_y = 10.0;
+        dm.work_x = 10.0;
+        dm.work_y = 10.0;
         dm.save_boundary_corner("bottom_left");
 
         // Top-Right at (200, 180)
         dm.target_x = 200.0;
         dm.target_y = 180.0;
+        dm.work_x = 200.0;
+        dm.work_y = 180.0;
         dm.save_boundary_corner("top_right");
 
         assert!(dm.settings.custom_boundaries.enabled);

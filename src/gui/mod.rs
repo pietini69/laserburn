@@ -4277,19 +4277,17 @@ impl eframe::App for LaserBurnApp {
             let mut is_open = self.show_camera_window;
             let mut need_stream_restart = false;
 
-            let max_w = (ctx.screen_rect().width() - 40.0).max(400.0);
-            let max_h = (ctx.screen_rect().height() - 40.0).max(500.0);
+            let max_w = (ctx.screen_rect().width() - 40.0).max(450.0);
+            let max_h = (ctx.screen_rect().height() - 40.0).max(520.0);
 
             egui::Window::new("Camera Feed & Alignment")
                 .open(&mut is_open)
-                .default_size([460.0, 580.0])
-                .min_size([340.0, 360.0])
+                .default_size([500.0, 640.0])
+                .min_size([400.0, 480.0])
                 .max_size([max_w, max_h])
                 .constrain(true)
                 .resizable(true)
                 .show(ctx, |ui| {
-                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-
                     // Row 1: Device Selection & Scan
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Device:").strong());
@@ -4445,19 +4443,28 @@ impl eframe::App for LaserBurnApp {
                                                     ui.add_space(6.0);
 
                                                     ui.label(egui::RichText::new("Target Locations on Laser Bed:").strong());
-                                                    egui::Grid::new("wizard_target_coords_grid").spacing([10.0, 6.0]).show(ui, |ui| {
-                                                        let corner_names = ["1: Top-Left", "2: Top-Right", "3: Bottom-Right", "4: Bottom-Left"];
-                                                        for i in 0..4 {
-                                                            let (x, y) = targets[i];
-                                                            ui.label(format!("{}: ({:.1}, {:.1}) mm", corner_names[i], x, y));
-                                                            if ui.button("📍 Move Laser Here (Weak Light)").on_hover_text("Jog laser head directly over this target with weak diode light to position your paper").clicked() {
-                                                                self.jog_to_alignment_target(i);
+                                                    egui::Frame::group(ui.style())
+                                                        .inner_margin(egui::Margin::symmetric(8, 6))
+                                                        .show(ui, |ui| {
+                                                            let corner_names = ["1. Top-Left", "2. Top-Right", "3. Bottom-Right", "4. Bottom-Left"];
+                                                            for i in 0..4 {
+                                                                let (x, y) = targets[i];
+                                                                ui.horizontal(|ui| {
+                                                                    ui.label(egui::RichText::new(corner_names[i]).strong());
+                                                                    ui.label(egui::RichText::new(format!("({:.0}, {:.0}) mm", x, y)).monospace());
+                                                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                                        if ui.button("Jog Laser Spot").on_hover_text("Move laser nozzle directly over this spot with weak beam on").clicked() {
+                                                                            self.jog_to_alignment_target(i);
+                                                                        }
+                                                                    });
+                                                                });
+                                                                if i < 3 {
+                                                                    ui.separator();
+                                                                }
                                                             }
-                                                            ui.end_row();
-                                                        }
-                                                    });
+                                                        });
                                                     ui.add_space(8.0);
-                                                    if ui.button(egui::RichText::new("Framing: Visit All 4 Spots Sequentially").color(egui::Color32::from_rgb(100, 220, 255))).on_hover_text("Laser will visit each of the 4 spots so you can verify paper placement").clicked() {
+                                                    if ui.button(egui::RichText::new("Framing: Visit All 4 Spots").color(egui::Color32::from_rgb(100, 220, 255))).on_hover_text("Laser will visit each of the 4 spots so you can verify paper placement").clicked() {
                                                         for i in 0..4 {
                                                             self.jog_to_alignment_target(i);
                                                         }
@@ -4465,10 +4472,10 @@ impl eframe::App for LaserBurnApp {
 
                                                     ui.add_space(10.0);
                                                     ui.horizontal(|ui| {
-                                                        if ui.button(egui::RichText::new("Next: Proceed to Burn Marks ➔").color(egui::Color32::from_rgb(0, 230, 0)).strong()).clicked() {
+                                                        if ui.button(egui::RichText::new("Next: Proceed to Burn Marks ->").color(egui::Color32::from_rgb(0, 230, 0)).strong()).clicked() {
                                                             self.wizard_step = 1;
                                                         }
-                                                        if ui.button("Skip Burning (Marks already placed) ➔").clicked() {
+                                                        if ui.button("Skip Burning (Marks already placed) ->").clicked() {
                                                             self.wizard_step = 2;
                                                         }
                                                     });
@@ -4499,10 +4506,10 @@ impl eframe::App for LaserBurnApp {
                                                         });
                                                     } else {
                                                         ui.horizontal(|ui| {
-                                                            if ui.button(egui::RichText::new("🔥 Burn 4 Alignment Marks").color(egui::Color32::from_rgb(255, 120, 50)).strong()).on_hover_text("Execute rapid G-code to burn 4 crosshair bullseyes").clicked() {
+                                                            if ui.button(egui::RichText::new("Burn 4 Alignment Marks").color(egui::Color32::from_rgb(255, 120, 50)).strong()).on_hover_text("Execute rapid G-code to burn 4 crosshair bullseyes").clicked() {
                                                                 self.burn_alignment_targets();
                                                             }
-                                                            if ui.button("Marks Already Burned / Skip ➔").clicked() {
+                                                            if ui.button("Marks Already Burned / Skip ->").clicked() {
                                                                 self.wizard_step = 2;
                                                             }
                                                         });
@@ -4510,10 +4517,10 @@ impl eframe::App for LaserBurnApp {
 
                                                     ui.add_space(10.0);
                                                     ui.horizontal(|ui| {
-                                                        if ui.button("⬅ Back to Paper Setup").clicked() {
+                                                        if ui.button("<- Back to Paper Setup").clicked() {
                                                             self.wizard_step = 0;
                                                         }
-                                                        if ui.button(egui::RichText::new("Next: Click Targets on Camera ➔").color(egui::Color32::from_rgb(0, 230, 0)).strong()).clicked() {
+                                                        if ui.button(egui::RichText::new("Next: Click Targets on Camera ->").color(egui::Color32::from_rgb(0, 230, 0)).strong()).clicked() {
                                                             self.wizard_step = 2;
                                                         }
                                                     });
@@ -4536,7 +4543,7 @@ impl eframe::App for LaserBurnApp {
                                                             let is_active = self.wizard_target_idx == i;
                                                             let has_val = self.wizard_points[i].is_some();
                                                             let (name, col) = target_labels[i];
-                                                            let text = if has_val { format!("✓ {}", name) } else { name.to_string() };
+                                                            let text = if has_val { format!("[OK] {}", name) } else { name.to_string() };
                                                             if ui.selectable_label(is_active, egui::RichText::new(text).color(col).strong()).clicked() {
                                                                 self.wizard_target_idx = i;
                                                             }
@@ -4658,7 +4665,7 @@ impl eframe::App for LaserBurnApp {
                                                     let all_set = self.wizard_points.iter().all(|p| p.is_some());
                                                     if all_set {
                                                         let apply_btn = egui::Button::new(
-                                                            egui::RichText::new("✨ Compute & Apply Homography Alignment")
+                                                            egui::RichText::new("Compute & Apply Homography Alignment")
                                                                 .color(egui::Color32::from_rgb(0, 240, 0))
                                                                 .strong(),
                                                         );
@@ -4688,7 +4695,7 @@ impl eframe::App for LaserBurnApp {
 
                                                     ui.add_space(8.0);
                                                     ui.horizontal(|ui| {
-                                                        if ui.button("⬅ Back to Burn").clicked() {
+                                                        if ui.button("<- Back to Burn").clicked() {
                                                             self.wizard_step = 1;
                                                         }
                                                     });
@@ -4697,7 +4704,7 @@ impl eframe::App for LaserBurnApp {
                                                     // STEP 3: COMPLETED
                                                     ui.vertical_centered(|ui| {
                                                         ui.add_space(10.0);
-                                                        ui.heading(egui::RichText::new("🎉 4-Point Alignment Complete!").color(egui::Color32::from_rgb(0, 240, 0)));
+                                                        ui.heading(egui::RichText::new("4-Point Alignment Complete!").color(egui::Color32::from_rgb(0, 240, 0)));
                                                         ui.label("The camera is now mathematically aligned to your laser bed coordinates using perspective homography.");
                                                         ui.label("The background image under the grid now exactly matches your physical workpiece.");
                                                         ui.add_space(10.0);
@@ -4720,7 +4727,7 @@ impl eframe::App for LaserBurnApp {
 
                                             if self.camera_calibration.use_homography {
                                                 ui.horizontal(|ui| {
-                                                    ui.label(egui::RichText::new("✓ 4-Point Homography Active").color(egui::Color32::from_rgb(0, 230, 0)).strong());
+                                                    ui.label(egui::RichText::new("[Active] 4-Point Homography").color(egui::Color32::from_rgb(0, 230, 0)).strong());
                                                     if ui.button("Switch to Manual Mode").clicked() {
                                                         self.camera_calibration.use_homography = false;
                                                     }
