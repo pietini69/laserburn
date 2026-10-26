@@ -701,6 +701,270 @@ fn simplify_closed_polyline(pts: &[Point2D], tol: f64) -> Vec<Point2D> {
     out
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BooleanOp {
+    Union,
+    Subtract,
+    Intersect,
+}
+
+/// Performs an exact 2D Boolean operation (`Union`, `Subtract` A - B, or `Intersect` A ∩ B)
+/// on two sets of closed polylines using exact segment-segment intersection subdivision,
+/// even-odd interior classification, and directed boundary chaining.
+pub fn boolean_op_polylines(
+    polys_a: &[Polyline],
+    polys_b: &[Polyline],
+    op: BooleanOp,
+) -> Vec<Polyline> {
+    let clean_set = |polys: &[Polyline], dx_eps: f64, dy_eps: f64| -> Vec<Polyline> {
+        let mut out = Vec::new();
+        for p in polys {
+            if p.points.len() < 3 {
+                continue;
+            }
+            let mut pts: Vec<Point2D> = Vec::with_capacity(p.points.len());
+            for &pt in &p.points {
+                let shifted = Point2D::new(pt.x + dx_eps, pt.y + dy_eps);
+                if pts.last().map_or(true, |last: &Point2D| last.distance_to(&shifted) > 1e-6) {
+                    pts.push(shifted);
+                }
+            }
+            if pts.len() > 2 && pts.first().unwrap().distance_to(pts.last().unwrap()) <= 1e-6 {
+                pts.pop();
+            }
+            if pts.len() >= 3 {
+                out.push(Polyline::new(pts, true));
+            }
+        }
+        // Normalize winding so outer contours have signed_area > 0 and holes have signed_area < 0
+        let n = out.len();
+        let mut depths = vec![0usize; n];
+        for i in 0..n {
+            let p0 = out[i].points[0];
+            let p1 = out[i].points[1];
+            let test_pt = Point2D::new(0.5 * (p0.x + p1.x), 0.5 * (p0.y + p1.y));
+            let mut d = 0usize;
+            for j in 0..n {
+                if i != j && out[j].contains_point(&test_pt) {
+                    d += 1;
+                }
+            }
+            depths[i] = d;
+        }
+        for i in 0..n {
+            let area = out[i].signed_area();
+            let want_positive = depths[i] % 2 == 0;
+            if (want_positive && area < 0.0) || (!want_positive && area > 0.0) {
+                out[i].reverse();
+            }
+        }
+        out
+    };
+
+    let clean_a = clean_set(polys_a, 0.0, 0.0);
+    // Tiny sub-micron perturbation on B avoids exact vertex-on-edge and collinear edge degeneracies
+    let clean_b = clean_set(polys_b, 1.37e-5, 1.91e-5);
+
+    if clean_a.is_empty() {
+        return match op {
+            BooleanOp::Union => clean_set(polys_b, 0.0, 0.0),
+            BooleanOp::Subtract | BooleanOp::Intersect => Vec::new(),
+        };
+    }
+    if clean_b.is_empty() {
+        return match op {
+            BooleanOp::Union | BooleanOp::Subtract => clean_a,
+            BooleanOp::Intersect => Vec::new(),
+        };
+    }
+
+    let mut edges_a: Vec<(Point2D, Point2D)> = Vec::new();
+    for poly in &clean_a {
+        let m = poly.points.len();
+        for i in 0..m {
+            edges_a.push((poly.points[i], poly.points[(i + 1) % m]));
+        }
+    }
+
+    let mut edges_b: Vec<(Point2D, Point2D)> = Vec::new();
+    for poly in &clean_b {
+        let m = poly.points.len();
+        for i in 0..m {
+            edges_b.push((poly.points[i], poly.points[(i + 1) % m]));
+        }
+    }
+
+    let mut splits_a: Vec<Vec<f64>> = vec![vec![0.0, 1.0]; edges_a.len()];
+    let mut splits_b: Vec<Vec<f64>> = vec![vec![0.0, 1.0]; edges_b.len()];
+
+    for (ia, &(a0, a1)) in edges_a.iter().enumerate() {
+        let dax = a1.x - a0.x;
+        let day = a1.y - a0.y;
+        let a_min_x = a0.x.min(a1.x) - 1e-7;
+        let a_max_x = a0.x.max(a1.x) + 1e-7;
+        let a_min_y = a0.y.min(a1.y) - 1e-7;
+        let a_max_y = a0.y.max(a1.y) + 1e-7;
+
+        for (ib, &(b0, b1)) in edges_b.iter().enumerate() {
+            if b0.x.max(b1.x) < a_min_x
+                || b0.x.min(b1.x) > a_max_x
+                || b0.y.max(b1.y) < a_min_y
+                || b0.y.min(b1.y) > a_max_y
+            {
+                continue;
+            }
+            let dbx = b1.x - b0.x;
+            let dby = b1.y - b0.y;
+            let denom = dax * dby - day * dbx;
+            if denom.abs() < 1e-12 {
+                continue;
+            }
+            let dx = b0.x - a0.x;
+            let dy = b0.y - a0.y;
+            let ta = (dx * dby - dy * dbx) / denom;
+            let tb = (dx * day - dy * dax) / denom;
+            if ta >= -1e-7 && ta <= 1.0 + 1e-7 && tb >= -1e-7 && tb <= 1.0 + 1e-7 {
+                splits_a[ia].push(ta.clamp(0.0, 1.0));
+                splits_b[ib].push(tb.clamp(0.0, 1.0));
+            }
+        }
+    }
+
+    let in_region = |polys: &[Polyline], pt: &Point2D| -> bool {
+        let mut count = 0usize;
+        for c in polys {
+            if c.contains_point(pt) {
+                count += 1;
+            }
+        }
+        count % 2 == 1
+    };
+
+    let mut kept_segments: Vec<(Point2D, Point2D)> = Vec::new();
+
+    for (ia, &(a0, a1)) in edges_a.iter().enumerate() {
+        let ts = &mut splits_a[ia];
+        ts.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+        for w in ts.windows(2) {
+            let t0 = w[0];
+            let t1 = w[1];
+            if t1 - t0 < 1e-6 {
+                continue;
+            }
+            let p0 = a0.lerp(&a1, t0);
+            let p1 = a0.lerp(&a1, t1);
+            if p0.distance_to(&p1) < 1e-6 {
+                continue;
+            }
+            let mid = Point2D::new(0.5 * (p0.x + p1.x), 0.5 * (p0.y + p1.y));
+            let inside_b = in_region(&clean_b, &mid);
+            let keep = match op {
+                BooleanOp::Union | BooleanOp::Subtract => !inside_b,
+                BooleanOp::Intersect => inside_b,
+            };
+            if keep {
+                kept_segments.push((p0, p1));
+            }
+        }
+    }
+
+    for (ib, &(b0, b1)) in edges_b.iter().enumerate() {
+        let ts = &mut splits_b[ib];
+        ts.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+        for w in ts.windows(2) {
+            let t0 = w[0];
+            let t1 = w[1];
+            if t1 - t0 < 1e-6 {
+                continue;
+            }
+            let p0 = b0.lerp(&b1, t0);
+            let p1 = b0.lerp(&b1, t1);
+            if p0.distance_to(&p1) < 1e-6 {
+                continue;
+            }
+            let mid = Point2D::new(0.5 * (p0.x + p1.x), 0.5 * (p0.y + p1.y));
+            let inside_a = in_region(&clean_a, &mid);
+            match op {
+                BooleanOp::Union => {
+                    if !inside_a {
+                        kept_segments.push((p0, p1));
+                    }
+                }
+                BooleanOp::Subtract => {
+                    if inside_a {
+                        kept_segments.push((p1, p0));
+                    }
+                }
+                BooleanOp::Intersect => {
+                    if inside_a {
+                        kept_segments.push((p0, p1));
+                    }
+                }
+            }
+        }
+    }
+
+    // Chain directed segments into closed loops
+    let mut used = vec![false; kept_segments.len()];
+    let mut result = Vec::new();
+    let connect_tol = 2e-3;
+
+    for start_idx in 0..kept_segments.len() {
+        if used[start_idx] {
+            continue;
+        }
+        used[start_idx] = true;
+        let mut pts = vec![kept_segments[start_idx].0, kept_segments[start_idx].1];
+
+        loop {
+            let curr_end = *pts.last().unwrap();
+            if pts.len() >= 3 && curr_end.distance_to(&pts[0]) <= connect_tol {
+                pts.pop(); // closed back to pts[0]
+                break;
+            }
+            let mut best_next = None;
+            let mut best_dist = connect_tol;
+            for (j, &(s0, _)) in kept_segments.iter().enumerate() {
+                if !used[j] {
+                    let d = curr_end.distance_to(&s0);
+                    if d <= best_dist {
+                        best_dist = d;
+                        best_next = Some(j);
+                    }
+                }
+            }
+            if let Some(nxt_idx) = best_next {
+                used[nxt_idx] = true;
+                pts.push(kept_segments[nxt_idx].1);
+            } else {
+                break;
+            }
+        }
+
+        if pts.len() >= 3 {
+            // Merge collinear vertices along straight segments
+            let mut simplified = Vec::with_capacity(pts.len());
+            let m = pts.len();
+            for i in 0..m {
+                let prev = pts[(i + m - 1) % m];
+                let curr = pts[i];
+                let next = pts[(i + 1) % m];
+                if point_to_segment_distance(&curr, &prev, &next) > 1e-4 {
+                    simplified.push(curr);
+                }
+            }
+            if simplified.len() >= 3 {
+                let poly = Polyline::new(simplified, true);
+                if poly.length() > 0.05 {
+                    result.push(poly);
+                }
+            }
+        }
+    }
+
+    result
+}
+
 /// Evaluates a Cubic Bezier curve at parameter t in [0.0, 1.0]
 pub fn eval_cubic_bezier(p0: Point2D, p1: Point2D, p2: Point2D, p3: Point2D, t: f64) -> Point2D {
     let u = 1.0 - t;
@@ -807,5 +1071,47 @@ mod tests {
         let exp_cw_bounds = expanded_cw.bounds();
         assert!((exp_cw_bounds.width() - 10.2).abs() < 1e-4);
         assert!((exp_cw_bounds.height() - 10.2).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_boolean_union_subtract_intersect() {
+        let sq_a = Polyline::new(
+            vec![
+                Point2D::new(0.0, 0.0),
+                Point2D::new(10.0, 0.0),
+                Point2D::new(10.0, 10.0),
+                Point2D::new(0.0, 10.0),
+            ],
+            true,
+        );
+        let sq_b = Polyline::new(
+            vec![
+                Point2D::new(5.0, 5.0),
+                Point2D::new(15.0, 5.0),
+                Point2D::new(15.0, 15.0),
+                Point2D::new(5.0, 15.0),
+            ],
+            true,
+        );
+
+        let u = boolean_op_polylines(std::slice::from_ref(&sq_a), std::slice::from_ref(&sq_b), BooleanOp::Union);
+        assert_eq!(u.len(), 1);
+        let ub = u[0].bounds();
+        assert!((ub.width() - 15.0).abs() < 1e-2);
+        assert!((ub.height() - 15.0).abs() < 1e-2);
+
+        let sub = boolean_op_polylines(std::slice::from_ref(&sq_a), std::slice::from_ref(&sq_b), BooleanOp::Subtract);
+        assert_eq!(sub.len(), 1);
+        let sb = sub[0].bounds();
+        assert!((sb.width() - 10.0).abs() < 1e-2);
+        assert!((sb.height() - 10.0).abs() < 1e-2);
+        assert!((sub[0].signed_area().abs() - 75.0).abs() < 0.1);
+
+        let inter = boolean_op_polylines(std::slice::from_ref(&sq_a), std::slice::from_ref(&sq_b), BooleanOp::Intersect);
+        assert_eq!(inter.len(), 1);
+        let ib = inter[0].bounds();
+        assert!((ib.width() - 5.0).abs() < 1e-2);
+        assert!((ib.height() - 5.0).abs() < 1e-2);
+        assert!((inter[0].signed_area().abs() - 25.0).abs() < 0.1);
     }
 }

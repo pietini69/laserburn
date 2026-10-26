@@ -1209,19 +1209,134 @@ impl LaserBurnApp {
         }
     }
 
-    /// Welds / joins selected open polylines that touch end-to-end
-    pub fn weld_selected(&mut self) {
-        if self.selected_shape_indices.len() < 2 {
-            self.status_msg = "Select multiple paths to join".to_string();
+    /// Performs a 2D Boolean operation (Union / Weld, Subtract A - B, or Intersect A ∩ B)
+    /// on the selected shapes, or joins open polylines end-to-end when Union is used on open paths.
+    pub fn boolean_selected(&mut self, op: crate::geometry::BooleanOp) {
+        let valid_indices: Vec<usize> = self
+            .selected_shape_indices
+            .iter()
+            .copied()
+            .filter(|&i| i < self.doc.shapes.len())
+            .collect();
+
+        // Allow self-union on a single Group (e.g. overlapping text / grouped shapes)
+        if valid_indices.len() == 1 && op == crate::geometry::BooleanOp::Union {
+            let idx = valid_indices[0];
+            if let Shape::Group { ref shapes, locked, layer_index } = self.doc.shapes[idx].clone() {
+                if shapes.len() >= 2 {
+                    self.push_undo();
+                    let mut acc = shapes[0].to_polylines();
+                    for s in &shapes[1..] {
+                        let b = s.to_polylines();
+                        acc = crate::geometry::boolean_op_polylines(&acc, &b, crate::geometry::BooleanOp::Union);
+                    }
+                    if !acc.is_empty() {
+                        let new_shape = if acc.len() == 1 {
+                            Shape::Path {
+                                layer_index,
+                                polyline: acc.into_iter().next().unwrap(),
+                            }
+                        } else {
+                            Shape::Group {
+                                layer_index,
+                                shapes: acc
+                                    .into_iter()
+                                    .map(|polyline| Shape::Path { layer_index, polyline })
+                                    .collect(),
+                                locked,
+                            }
+                        };
+                        self.doc.shapes[idx] = new_shape;
+                        self.doc_version = self.doc_version.wrapping_add(1);
+                        self.status_msg = "Welded group shapes into unified contour".to_string();
+                        return;
+                    }
+                }
+            }
+        }
+
+        if valid_indices.len() < 2 {
+            self.status_msg = "Select at least 2 shapes (Shift+Click) for Boolean operations".to_string();
             return;
         }
+
         self.push_undo();
 
-        let mut polylines = Vec::new();
-        let mut sorted = self.selected_shape_indices.clone();
-        sorted.sort_unstable_by(|a, b| b.cmp(a));
+        let first_idx = valid_indices[0];
+        let layer = self.doc.shapes[first_idx].layer_index();
 
-        let layer = self.doc.shapes[sorted[0]].layer_index();
+        // Check if any selected shape has closed contours
+        let any_closed = valid_indices.iter().any(|&i| {
+            self.doc.shapes[i]
+                .to_polylines()
+                .iter()
+                .any(|p| p.is_closed && p.points.len() >= 3)
+        });
+
+        if any_closed || op != crate::geometry::BooleanOp::Union {
+            let mut acc = self.doc.shapes[first_idx].to_polylines();
+            for &idx in &valid_indices[1..] {
+                let b_polys = self.doc.shapes[idx].to_polylines();
+                acc = crate::geometry::boolean_op_polylines(&acc, &b_polys, op);
+            }
+
+            // Remove original selected shapes in descending index order
+            let mut to_remove = valid_indices.clone();
+            to_remove.sort_unstable_by(|a, b| b.cmp(a));
+            to_remove.dedup();
+            for idx in to_remove {
+                if idx < self.doc.shapes.len() {
+                    self.doc.shapes.remove(idx);
+                }
+            }
+
+            if acc.is_empty() {
+                self.selected_shape_indices.clear();
+                self.doc_version = self.doc_version.wrapping_add(1);
+                self.status_msg = match op {
+                    crate::geometry::BooleanOp::Union => "Boolean Union produced empty result".to_string(),
+                    crate::geometry::BooleanOp::Subtract => "Boolean Subtract removed entire shape".to_string(),
+                    crate::geometry::BooleanOp::Intersect => "Boolean Intersect: shapes do not overlap".to_string(),
+                };
+                return;
+            }
+
+            let count = acc.len();
+            let new_shape = if count == 1 {
+                Shape::Path {
+                    layer_index: layer,
+                    polyline: acc.into_iter().next().unwrap(),
+                }
+            } else {
+                Shape::Group {
+                    layer_index: layer,
+                    shapes: acc
+                        .into_iter()
+                        .map(|polyline| Shape::Path {
+                            layer_index: layer,
+                            polyline,
+                        })
+                        .collect(),
+                    locked: false,
+                }
+            };
+
+            self.doc.shapes.push(new_shape);
+            self.selected_shape_indices = vec![self.doc.shapes.len() - 1];
+            self.doc_version = self.doc_version.wrapping_add(1);
+            self.status_msg = match op {
+                crate::geometry::BooleanOp::Union => format!("Boolean Union / Weld complete ({} contour(s))", count),
+                crate::geometry::BooleanOp::Subtract => format!("Boolean Subtract (A - B) complete ({} contour(s))", count),
+                crate::geometry::BooleanOp::Intersect => format!("Boolean Intersect (A ∩ B) complete ({} contour(s))", count),
+            };
+            return;
+        }
+
+        // Open polyline end-to-end join fallback
+        let mut polylines = Vec::new();
+        let mut sorted = valid_indices;
+        sorted.sort_unstable_by(|a, b| b.cmp(a));
+        sorted.dedup();
 
         for idx in sorted {
             if idx < self.doc.shapes.len() {
@@ -1236,9 +1351,8 @@ impl LaserBurnApp {
             return;
         }
 
-        // Connect polylines end-to-end
         let mut current = polylines.remove(0);
-        let tolerance = 1.0; // 1mm connection tolerance
+        let tolerance = 1.0;
 
         while !polylines.is_empty() {
             let last_pt = *current.points.last().unwrap();
@@ -1261,12 +1375,10 @@ impl LaserBurnApp {
                 }
                 current.points.extend_from_slice(&next_poly.points[1..]);
             } else {
-                // Cannot connect further, push whatever was built
                 break;
             }
         }
 
-        // Close if ends meet
         if current.points.len() > 2 && current.points.first().unwrap().distance_to(current.points.last().unwrap()) <= tolerance {
             current.is_closed = true;
         }
@@ -1276,7 +1388,6 @@ impl LaserBurnApp {
             polyline: current,
         });
 
-        // Add any remaining unjoined
         for p in polylines {
             self.doc.shapes.push(Shape::Path {
                 layer_index: layer,
@@ -1285,7 +1396,13 @@ impl LaserBurnApp {
         }
 
         self.selected_shape_indices = vec![self.doc.shapes.len() - 1];
-        self.status_msg = "Joined paths successfully".to_string();
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.status_msg = "Joined open paths successfully".to_string();
+    }
+
+    /// Welds / unions selected shapes or joins open polylines that touch end-to-end
+    pub fn weld_selected(&mut self) {
+        self.boolean_selected(crate::geometry::BooleanOp::Union);
     }
 
     /// Rotates currently selected shapes around their collective center by angle in degrees
@@ -2493,8 +2610,16 @@ impl eframe::App for LaserBurnApp {
                         self.toggle_lock_selected();
                         ui.close_menu();
                     }
-                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new("Join / Weld Paths")).clicked() {
-                        self.weld_selected();
+                    if ui.add_enabled(has_selection, egui::Button::new("Boolean Union / Weld")).clicked() {
+                        self.boolean_selected(crate::geometry::BooleanOp::Union);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new("Boolean Subtract (A - B)")).clicked() {
+                        self.boolean_selected(crate::geometry::BooleanOp::Subtract);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new("Boolean Intersect")).clicked() {
+                        self.boolean_selected(crate::geometry::BooleanOp::Intersect);
                         ui.close_menu();
                     }
                     if ui.button(format!("Add Text... ({}+T)", cmd)).clicked() {
@@ -2652,8 +2777,14 @@ impl eframe::App for LaserBurnApp {
                 if ui.add_enabled(has_selection, egui::Button::new("Ungroup")).on_hover_text(format!("Ungroup selected shapes into separate items ({}+U)", cmd)).clicked() {
                     self.ungroup_selected();
                 }
-                if ui.add_enabled(multi_selected, egui::Button::new("Weld")).on_hover_text("Join / weld paths into continuous geometry").clicked() {
-                    self.weld_selected();
+                if ui.add_enabled(has_selection, egui::Button::new("Weld")).on_hover_text("Boolean Union / Weld overlapping shapes into a single outline").clicked() {
+                    self.boolean_selected(crate::geometry::BooleanOp::Union);
+                }
+                if ui.add_enabled(multi_selected, egui::Button::new("Subtract")).on_hover_text("Boolean Subtract (A - B): subtract 2nd selected shape from 1st selected shape").clicked() {
+                    self.boolean_selected(crate::geometry::BooleanOp::Subtract);
+                }
+                if ui.add_enabled(multi_selected, egui::Button::new("Intersect")).on_hover_text("Boolean Intersect: keep only the overlapping region of selected shapes").clicked() {
+                    self.boolean_selected(crate::geometry::BooleanOp::Intersect);
                 }
 
                 // Lock toggle button
