@@ -458,9 +458,301 @@ impl DeviceManager {
                     let s = secs % 60;
                     let m = (secs / 60) % 60;
                     let h = (secs / 3600) % 24;
-                    let _ = writeln!(f, "[{:02}:{:02}:{:02} UTC] {}", h, m, s, line);
+                    if let Some(expl) = Self::explain_traffic_line(line) {
+                        let _ = writeln!(f, "[{:02}:{:02}:{:02} UTC] {}  ({})", h, m, s, line, expl);
+                    } else {
+                        let _ = writeln!(f, "[{:02}:{:02}:{:02} UTC] {}", h, m, s, line);
+                    }
                 }
             }
+        }
+    }
+
+    /// Returns a human-readable English explanation for a G-code command, GRBL system command,
+    /// status report, setting readout, or controller response.
+    pub fn explain_traffic_line(line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('[') {
+            return None;
+        }
+
+        let is_rx = trimmed.starts_with('<') && !trimmed.starts_with("<Idle") && !trimmed.starts_with("<Run") && !trimmed.starts_with("<Hold") && !trimmed.starts_with("<Jog") && !trimmed.starts_with("<Alarm") && !trimmed.starts_with("<Home");
+        let raw = trimmed
+            .strip_prefix("> ")
+            .or_else(|| trimmed.strip_prefix('<').map(|s| s.trim_start()))
+            .unwrap_or(trimmed)
+            .trim();
+
+        if raw.is_empty() {
+            return None;
+        }
+
+        // 1. Standard GRBL responses
+        if raw.eq_ignore_ascii_case("ok") {
+            return Some("Command accepted".to_string());
+        }
+        if raw.starts_with("Grbl ") || raw.starts_with("GrblHal") {
+            return Some("Controller firmware initialized and ready".to_string());
+        }
+        if let Some(err_num) = raw.strip_prefix("error:") {
+            let desc = match err_num.trim() {
+                "1" => "G-code words consist of a letter and a value",
+                "2" => "Numeric value format is not valid",
+                "3" => "GRBL '$' system command was not recognized",
+                "4" => "Negative value received for an expected positive value",
+                "5" => "Homing cycle is not enabled via settings ($22)",
+                "6" => "Minimum step pulse time must be greater than 3 usec",
+                "7" => "EEPROM read failed; defaults restored",
+                "8" => "GRBL '$' command cannot be used unless IDLE",
+                "9" => "G-code locked out during alarm or jog state ($X to unlock)",
+                "10" => "Soft limits cannot be enabled without homing ($22)",
+                "11" => "Max characters per line exceeded",
+                "12" => "GRBL '$' setting value exceeds maximum step rate",
+                "13" => "Safety door detected as opened",
+                "14" => "Build info or startup line exceeded EEPROM line length",
+                "15" => "Jog target exceeds machine travel",
+                "16" => "Invalid jog command",
+                "17" => "Laser mode requires PWM output",
+                "20" => "Unsupported or invalid G-code command",
+                "21" => "Multiple G-code commands from same modal group",
+                "22" => "Feed rate (F) has not been set or is undefined",
+                "23" => "G-code command requires an integer value",
+                "24" => "Two G-code commands both require XYZ words",
+                "25" => "A G-code word was repeated in the block",
+                "26" => "G-code command requires XYZ coordinates",
+                "31" => "Unused axis words in block",
+                "33" => "Motion command has an invalid target",
+                _ => "GRBL controller command error",
+            };
+            return Some(format!("Error: {}", desc));
+        }
+        if let Some(alarm_num) = raw.strip_prefix("ALARM:") {
+            let desc = match alarm_num.trim() {
+                "1" => "Hard limit triggered — position lost ($X to unlock)",
+                "2" => "Soft limit exceeded — target outside machine bed",
+                "3" => "Reset while in motion — position may be lost",
+                "4" => "Probe fail — not in expected initial state",
+                "5" => "Probe fail — did not contact workpiece",
+                "6" => "Homing fail — reset during active homing cycle",
+                "7" => "Homing fail — safety door opened during homing",
+                "8" => "Homing fail — pull-off failed to clear limit switch",
+                "9" => "Homing fail — limit switch not found within search distance",
+                _ => "Hardware alarm triggered ($X to unlock)",
+            };
+            return Some(format!("Alarm: {}", desc));
+        }
+
+        // 2. Real-time status frames (<Idle|MPos:0.000,0.000,0.000|FS:0,0>)
+        let status_candidate = if trimmed.starts_with("< ") {
+            trimmed.trim_start_matches("< ").trim()
+        } else {
+            raw
+        };
+        if status_candidate.starts_with('<') && status_candidate.ends_with('>') {
+            let inner = &status_candidate[1..status_candidate.len() - 1];
+            let mut parts = inner.split('|');
+            let state = parts.next().unwrap_or("Unknown");
+            let mut pos_str = String::new();
+            for p in parts {
+                if let Some(coords) = p.strip_prefix("MPos:").or_else(|| p.strip_prefix("WPos:")) {
+                    let mut c = coords.split(',');
+                    if let (Some(x), Some(y)) = (c.next(), c.next()) {
+                        pos_str = format!(", Pos X={} Y={} mm", x, y);
+                    }
+                }
+            }
+            return Some(format!("Status: {}{}", state, pos_str));
+        }
+        let _ = is_rx;
+
+        // 3. GRBL system commands & settings ($...)
+        if raw == "$$" {
+            return Some("Read all GRBL firmware settings".to_string());
+        }
+        if raw.eq_ignore_ascii_case("$X") {
+            return Some("Clear alarm lock ($X)".to_string());
+        }
+        if raw.eq_ignore_ascii_case("$H") {
+            return Some("Home machine to physical limit switches".to_string());
+        }
+        if raw.eq_ignore_ascii_case("$I") {
+            return Some("Query firmware build info".to_string());
+        }
+        if raw.eq_ignore_ascii_case("$G") {
+            return Some("Query active G-code parser state".to_string());
+        }
+        if raw.eq_ignore_ascii_case("$#") {
+            return Some("Query work coordinate offsets".to_string());
+        }
+        if raw == "?" {
+            return Some("Query real-time machine status".to_string());
+        }
+        if raw == "!" {
+            return Some("Feed hold (Pause motion)".to_string());
+        }
+        if raw == "~" {
+            return Some("Cycle start / Resume motion".to_string());
+        }
+        if let Some(jog_body) = raw.strip_prefix("$J=") {
+            let mut mode = "Jog";
+            let mut x_str = None;
+            let mut y_str = None;
+            let mut f_str = None;
+            for tok in jog_body.split_whitespace() {
+                let up = tok.to_uppercase();
+                if up == "G91" {
+                    mode = "Relative jog";
+                } else if up == "G90" {
+                    mode = "Absolute jog";
+                } else if let Some(v) = up.strip_prefix('X') {
+                    x_str = Some(v.to_string());
+                } else if let Some(v) = up.strip_prefix('Y') {
+                    y_str = Some(v.to_string());
+                } else if let Some(v) = up.strip_prefix('F') {
+                    if let Ok(f_val) = v.parse::<f64>() {
+                        f_str = Some(format!("{:.1} mm/s", f_val / 60.0));
+                    }
+                }
+            }
+            let mut details = Vec::new();
+            if let Some(x) = x_str {
+                details.push(format!("X={}", x));
+            }
+            if let Some(y) = y_str {
+                details.push(format!("Y={} mm", y));
+            }
+            if let Some(f) = f_str {
+                details.push(format!("at {}", f));
+            }
+            return Some(format!("{} {}", mode, details.join(" ")));
+        }
+        if let Some(rest) = raw.strip_prefix('$') {
+            if let Some((num, val)) = rest.split_once('=') {
+                let setting_name = match num.trim() {
+                    "0" => "Step pulse time (us)",
+                    "1" => "Step idle delay (ms)",
+                    "2" => "Step port invert mask",
+                    "3" => "Direction port invert mask",
+                    "4" => "Step enable invert",
+                    "5" => "Limit pins invert",
+                    "6" => "Probe pin invert",
+                    "10" => "Status report mask",
+                    "11" => "Junction deviation (mm)",
+                    "12" => "Arc tolerance (mm)",
+                    "13" => "Report inches (0=mm, 1=in)",
+                    "20" => "Soft limits (0=off, 1=on)",
+                    "21" => "Hard limits (0=off, 1=on)",
+                    "22" => "Homing cycle (0=off, 1=on)",
+                    "23" => "Homing dir invert mask",
+                    "24" => "Homing feed rate (mm/min)",
+                    "25" => "Homing seek rate (mm/min)",
+                    "26" => "Homing debounce (ms)",
+                    "27" => "Homing pull-off (mm)",
+                    "30" => "Max laser S-value (1000=100%)",
+                    "31" => "Min laser S-value",
+                    "32" => "Laser mode (1=ON, 0=CNC)",
+                    "100" => "X-axis steps/mm",
+                    "101" => "Y-axis steps/mm",
+                    "102" => "Z-axis steps/mm",
+                    "110" => "X-axis max rate (mm/min)",
+                    "111" => "Y-axis max rate (mm/min)",
+                    "112" => "Z-axis max rate (mm/min)",
+                    "120" => "X-axis acceleration (mm/s^2)",
+                    "121" => "Y-axis acceleration (mm/s^2)",
+                    "122" => "Z-axis acceleration (mm/s^2)",
+                    "130" => "X-axis max travel (mm)",
+                    "131" => "Y-axis max travel (mm)",
+                    "132" => "Z-axis max travel (mm)",
+                    _ => "GRBL firmware setting",
+                };
+                return Some(format!("Setting ${}: {} = {}", num.trim(), setting_name, val.trim()));
+            }
+        }
+
+        // 4. Standard G-code / M-code instructions
+        let code_part = raw.split(';').next().unwrap_or(raw).trim();
+        if code_part.is_empty() {
+            return None;
+        }
+
+        let mut actions: Vec<String> = Vec::new();
+        let mut x_val: Option<String> = None;
+        let mut y_val: Option<String> = None;
+        let mut f_val: Option<f64> = None;
+        let mut s_val: Option<f64> = None;
+        let mut p_val: Option<String> = None;
+
+        for token in code_part.split_whitespace() {
+            let up = token.to_uppercase();
+            match up.as_str() {
+                "G0" | "G00" => actions.push("Rapid move (Laser OFF)".to_string()),
+                "G1" | "G01" => actions.push("Laser cut/move".to_string()),
+                "G2" | "G02" => actions.push("Clockwise arc move".to_string()),
+                "G3" | "G03" => actions.push("Counter-clockwise arc move".to_string()),
+                "G4" | "G04" => actions.push("Dwell / Pause".to_string()),
+                "G20" => actions.push("Units: Inches".to_string()),
+                "G21" => actions.push("Units: Millimeters".to_string()),
+                "G28" => actions.push("Go to home position".to_string()),
+                "G53" => actions.push("Machine coordinates".to_string()),
+                "G54" => actions.push("Work coordinates G54".to_string()),
+                "G90" => actions.push("Absolute positioning".to_string()),
+                "G91" => actions.push("Relative positioning".to_string()),
+                "G92" => actions.push("Set work coordinate origin".to_string()),
+                "M3" | "M03" => actions.push("Laser ON (Constant power)".to_string()),
+                "M4" | "M04" => actions.push("Laser ON (Dynamic power)".to_string()),
+                "M5" | "M05" => actions.push("Laser OFF".to_string()),
+                "M8" | "M08" => actions.push("Air Assist ON".to_string()),
+                "M9" | "M09" => actions.push("Air Assist OFF".to_string()),
+                "M2" | "M02" | "M30" => actions.push("End of program".to_string()),
+                _ => {
+                    if let Some(v) = up.strip_prefix('X') {
+                        x_val = Some(v.to_string());
+                    } else if let Some(v) = up.strip_prefix('Y') {
+                        y_val = Some(v.to_string());
+                    } else if let Some(v) = up.strip_prefix('F') {
+                        if let Ok(fv) = v.parse::<f64>() {
+                            f_val = Some(fv);
+                        }
+                    } else if let Some(v) = up.strip_prefix('S') {
+                        if let Ok(sv) = v.parse::<f64>() {
+                            s_val = Some(sv);
+                        }
+                    } else if let Some(v) = up.strip_prefix('P') {
+                        p_val = Some(v.to_string());
+                    }
+                }
+            }
+        }
+
+        if actions.is_empty() && (x_val.is_some() || y_val.is_some()) {
+            actions.push("Move".to_string());
+        }
+
+        let mut parts = Vec::new();
+        if !actions.is_empty() {
+            parts.push(actions.join(", "));
+        }
+        match (&x_val, &y_val) {
+            (Some(x), Some(y)) => parts.push(format!("to X={} Y={} mm", x, y)),
+            (Some(x), None) => parts.push(format!("to X={} mm", x)),
+            (None, Some(y)) => parts.push(format!("to Y={} mm", y)),
+            (None, None) => {}
+        }
+        if let Some(f) = f_val {
+            parts.push(format!("Speed {:.1} mm/s", f / 60.0));
+        }
+        if let Some(s) = s_val {
+            let pct = (s / 10.0).clamp(0.0, 100.0);
+            parts.push(format!("Power {:.1}%", pct));
+        }
+        if let Some(p) = p_val {
+            parts.push(format!("Wait {} s", p));
+        }
+
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(", "))
         }
     }
 
@@ -1627,7 +1919,7 @@ impl DeviceManager {
                 } else {
                     String::new()
                 };
-                self.log(&format!("[JOB] ✅ Job completed successfully{}!", dur_str));
+                self.log(&format!("[JOB] Job completed successfully{}!", dur_str));
                 return false;
             }
         }

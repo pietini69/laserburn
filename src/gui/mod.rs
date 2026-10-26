@@ -176,6 +176,7 @@ pub struct LaserBurnApp {
     // Serial Traffic Panel State
     pub show_traffic_panel: bool,
     pub hide_ok_in_traffic_log: bool,
+    pub explain_traffic_codes: bool,
 }
 
 #[cfg(feature = "gui")]
@@ -263,6 +264,7 @@ impl Default for LaserBurnApp {
             mat_test_is_engrave: true,
             show_traffic_panel: true,
             hide_ok_in_traffic_log: false,
+            explain_traffic_codes: true,
             file_dialog_tx,
             file_dialog_rx,
         };
@@ -4308,8 +4310,10 @@ impl eframe::App for LaserBurnApp {
                     });
 
                     // Filter options
-                    ui.horizontal(|ui| {
-                        if ui.checkbox(&mut self.device.settings.log_status_polls, "Show <Status>")
+                    ui.horizontal_wrapped(|ui| {
+                        ui.checkbox(&mut self.explain_traffic_codes, "Explain")
+                            .on_hover_text("Append human-readable English descriptions after G-code and GRBL commands/responses");
+                        if ui.checkbox(&mut self.device.settings.log_status_polls, "<Status>")
                             .on_hover_text("Include periodic GRBL status frames (<Idle|MPos:...>) in log")
                             .changed()
                         {
@@ -4411,6 +4415,31 @@ impl eframe::App for LaserBurnApp {
                                         } else {
                                             egui::Color32::from_rgb(205, 205, 205)
                                         };
+                                        if self.explain_traffic_codes {
+                                            if let Some(expl) = crate::device::DeviceManager::explain_traffic_line(line) {
+                                                let mut job = egui::text::LayoutJob::default();
+                                                job.append(
+                                                    line,
+                                                    0.0,
+                                                    egui::TextFormat {
+                                                        font_id: egui::FontId::monospace(11.5),
+                                                        color,
+                                                        ..Default::default()
+                                                    },
+                                                );
+                                                job.append(
+                                                    &format!("  ({})", expl),
+                                                    0.0,
+                                                    egui::TextFormat {
+                                                        font_id: egui::FontId::proportional(11.0),
+                                                        color: egui::Color32::from_rgb(160, 175, 195),
+                                                        ..Default::default()
+                                                    },
+                                                );
+                                                ui.label(job);
+                                                continue;
+                                            }
+                                        }
                                         ui.label(
                                             egui::RichText::new(line)
                                                 .monospace()
