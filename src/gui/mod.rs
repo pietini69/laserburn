@@ -4056,20 +4056,13 @@ impl eframe::App for LaserBurnApp {
                 }
 
                 ui.separator();
-                let lang_label = match self.device.settings.language {
-                    crate::i18n::Language::Finnish => "🌐 Suomi",
-                    crate::i18n::Language::English => "🌐 English",
-                };
-                ui.menu_button(egui::RichText::new(lang_label).strong(), |ui| {
-                    if ui.selectable_label(self.device.settings.language == crate::i18n::Language::Finnish, "Suomi (FI)").clicked() {
-                        self.device.settings.language = crate::i18n::Language::Finnish;
-                        let _ = self.device.settings.save();
-                        ui.close_menu();
-                    }
-                    if ui.selectable_label(self.device.settings.language == crate::i18n::Language::English, "English (EN)").clicked() {
-                        self.device.settings.language = crate::i18n::Language::English;
-                        let _ = self.device.settings.save();
-                        ui.close_menu();
+                ui.menu_button(egui::RichText::new(self.device.settings.language.short_label()).strong(), |ui| {
+                    for &lang in crate::i18n::Language::ALL {
+                        if ui.selectable_label(self.device.settings.language == lang, lang.label()).clicked() {
+                            self.device.settings.language = lang;
+                            let _ = self.device.settings.save();
+                            ui.close_menu();
+                        }
                     }
                 });
                 ui.separator();
@@ -8407,13 +8400,11 @@ impl eframe::App for LaserBurnApp {
                         egui::ComboBox::from_id_salt("settings_language_combo")
                             .selected_text(self.device.settings.language.label())
                             .show_ui(ui, |ui| {
-                                if ui.selectable_label(self.device.settings.language == crate::i18n::Language::Finnish, "Suomi (FI)").clicked() {
-                                    self.device.settings.language = crate::i18n::Language::Finnish;
-                                    let _ = self.device.settings.save();
-                                }
-                                if ui.selectable_label(self.device.settings.language == crate::i18n::Language::English, "English (EN)").clicked() {
-                                    self.device.settings.language = crate::i18n::Language::English;
-                                    let _ = self.device.settings.save();
+                                for &lang in crate::i18n::Language::ALL {
+                                    if ui.selectable_label(self.device.settings.language == lang, lang.label()).clicked() {
+                                        self.device.settings.language = lang;
+                                        let _ = self.device.settings.save();
+                                    }
                                 }
                             });
                     });
