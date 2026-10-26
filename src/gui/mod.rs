@@ -3433,7 +3433,9 @@ impl eframe::App for LaserBurnApp {
                     // -------------------------------------------------
                     // 3. CUT & LAYER SETTINGS
                     // -------------------------------------------------
-                    ui.horizontal(|ui| {
+                    let mut layer_to_remove: Option<usize> = None;
+                    let can_remove_layer = self.doc.layers.len() > 1;
+                    ui.horizontal_wrapped(|ui| {
                         ui.heading("Cut & Layer Settings");
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("Save Palette").on_hover_text("Save current layers & materials as startup default (~/.config/laser_burn/default_layers.json)").clicked() {
@@ -3443,7 +3445,10 @@ impl eframe::App for LaserBurnApp {
                                     self.status_msg = "Layer & material palette saved as startup default!".to_string();
                                 }
                             }
-                            if ui.button("+ Add Tool").on_hover_text("Add a guide/tool layer (T01, T02...)").clicked() {
+                            if ui.add_enabled(can_remove_layer, egui::Button::new("- Remove")).on_hover_text("Remove currently selected layer").clicked() {
+                                layer_to_remove = Some(self.selected_layer);
+                            }
+                            if ui.button("+ Tool").on_hover_text("Add a guide/tool layer (T01, T02...)").clicked() {
                                 for idx in 30..33 {
                                     if !self.doc.layers.contains_key(&idx) {
                                         self.doc.get_or_create_layer(idx);
@@ -3452,7 +3457,7 @@ impl eframe::App for LaserBurnApp {
                                     }
                                 }
                             }
-                            if ui.button("+ Add Layer").on_hover_text("Add a new color/cut layer").clicked() {
+                            if ui.button("+ Layer").on_hover_text("Add a new color/cut layer").clicked() {
                                 for idx in 0..30 {
                                     if !self.doc.layers.contains_key(&idx) {
                                         self.doc.get_or_create_layer(idx);
@@ -3483,6 +3488,11 @@ impl eframe::App for LaserBurnApp {
                                     self.selected_layer = *idx;
                                 }
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if can_remove_layer {
+                                        if ui.small_button("✖").on_hover_text("Remove this layer").clicked() {
+                                            layer_to_remove = Some(*idx);
+                                        }
+                                    }
                                     if is_tool {
                                         ui.label(egui::RichText::new("No Output").color(egui::Color32::from_rgb(255, 140, 0)).small())
                                             .on_hover_text("Tool layer: used for visual guides/alignment, laser will never cut");
@@ -3494,6 +3504,22 @@ impl eframe::App for LaserBurnApp {
                             });
                         }
                     });
+                    if let Some(rem_idx) = layer_to_remove {
+                        if self.doc.layers.len() > 1 && self.doc.layers.remove(&rem_idx).is_some() {
+                            let fallback_layer = *self.doc.layers.keys().next().unwrap_or(&0);
+                            for shape in &mut self.doc.shapes {
+                                if shape.layer_index() == rem_idx {
+                                    shape.set_layer_index(fallback_layer);
+                                }
+                            }
+                            if self.selected_layer == rem_idx || !self.doc.layers.contains_key(&self.selected_layer) {
+                                self.selected_layer = fallback_layer;
+                            }
+                            self.image_textures.clear();
+                            self.doc_version = self.doc_version.wrapping_add(1);
+                            self.status_msg = format!("Removed layer L{:02}", rem_idx);
+                        }
+                    }
 
                     // Controls for currently selected layer
                     let mut invalidate_img_preview = false;
