@@ -282,15 +282,15 @@ impl Polyline {
             return self.clone();
         }
 
-        // Deduplicate consecutive identical points
+        // Deduplicate consecutive identical or sub-micron points
         let mut pts: Vec<Point2D> = Vec::with_capacity(self.points.len());
         for &p in &self.points {
-            if pts.last().map_or(true, |last: &Point2D| last.distance_to(&p) > 1e-6) {
+            if pts.last().map_or(true, |last: &Point2D| last.distance_to(&p) > 1e-3) {
                 pts.push(p);
             }
         }
         if self.is_closed && pts.len() > 1 {
-            if pts.first().unwrap().distance_to(pts.last().unwrap()) < 1e-6 {
+            if pts.first().unwrap().distance_to(pts.last().unwrap()) < 1e-3 {
                 pts.pop();
             }
         }
@@ -320,14 +320,11 @@ impl Polyline {
             let dx = p2.x - p1.x;
             let dy = p2.y - p1.y;
             let len = (dx * dx + dy * dy).sqrt();
-            if len < 1e-12 {
+            if len < 1e-9 {
                 normals.push(Vector2D::new(0.0, 0.0));
             } else {
                 let tx = dx / len;
                 let ty = dy / len;
-                // Outward normal:
-                // CCW: outward normal is (ty, -tx)
-                // CW: outward normal is (-ty, tx)
                 if is_ccw {
                     normals.push(Vector2D::new(ty, -tx));
                 } else {
@@ -336,30 +333,36 @@ impl Polyline {
             }
         }
 
-        let miter_limit = 3.0 * distance.abs();
+        let miter_limit = 2.0 * distance.abs();
         let mut offset_pts: Vec<Point2D> = Vec::with_capacity(n);
 
         for i in 0..n {
             let (n1, n2) = if self.is_closed {
                 let prev_idx = if i == 0 { n - 1 } else { i - 1 };
                 (normals[prev_idx], normals[i])
+            } else if i == 0 {
+                (normals[0], normals[0])
+            } else if i == n - 1 {
+                (normals[n - 2], normals[n - 2])
             } else {
-                if i == 0 {
-                    (normals[0], normals[0])
-                } else if i == n - 1 {
-                    (normals[n - 2], normals[n - 2])
-                } else {
-                    (normals[i - 1], normals[i])
-                }
+                (normals[i - 1], normals[i])
             };
 
-            let det = n1.dx * n2.dy - n1.dy * n2.dx;
-            let (vx, vy) = if det.abs() < 1e-5 {
-                // Nearly parallel lines
-                (distance * n2.dx, distance * n2.dy)
+            let dot = n1.dx * n2.dx + n1.dy * n2.dy;
+            let denom = 1.0 + dot;
+            let (vx, vy) = if denom < 0.15 {
+                // Sharp hairpin corner: use average normal capped at distance
+                let bx = n1.dx + n2.dx;
+                let by = n1.dy + n2.dy;
+                let blen = (bx * bx + by * by).sqrt();
+                if blen > 1e-6 {
+                    (distance * bx / blen, distance * by / blen)
+                } else {
+                    (distance * n2.dx, distance * n2.dy)
+                }
             } else {
-                let raw_vx = distance * (n2.dy - n1.dy) / det;
-                let raw_vy = distance * (n1.dx - n2.dx) / det;
+                let raw_vx = distance * (n1.dx + n2.dx) / denom;
+                let raw_vy = distance * (n1.dy + n2.dy) / denom;
                 let v_len = (raw_vx * raw_vx + raw_vy * raw_vy).sqrt();
                 if v_len > miter_limit && miter_limit > 0.0 {
                     let scale = miter_limit / v_len;
@@ -376,14 +379,326 @@ impl Polyline {
     }
 }
 
-pub fn point_to_segment_distance(p: &Point2D, a: &Point2D, b: &Point2D) -> f64 {
+pub fn point_to_segment_distance_sq(p: &Point2D, a: &Point2D, b: &Point2D) -> f64 {
     let l2 = a.distance_squared_to(b);
-    if l2 < 1e-9 {
-        return p.distance_to(a);
+    if l2 < 1e-12 {
+        return p.distance_squared_to(a);
     }
     let t = (((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2).clamp(0.0, 1.0);
-    let proj = Point2D::new(a.x + t * (b.x - a.x), a.y + t * (b.y - a.y));
-    p.distance_to(&proj)
+    let proj_x = a.x + t * (b.x - a.x);
+    let proj_y = a.y + t * (b.y - a.y);
+    let dx = p.x - proj_x;
+    let dy = p.y - proj_y;
+    dx * dx + dy * dy
+}
+
+pub fn point_to_segment_distance(p: &Point2D, a: &Point2D, b: &Point2D) -> f64 {
+    point_to_segment_distance_sq(p, a, b).sqrt()
+}
+
+/// Computes clean, smooth, merged, self-intersection-free offset contours around a set of polylines
+/// (such as TrueType text, Hershey single-line text, welded shapes, or complex SVG paths)
+/// using a high-resolution Signed Distance Field (SDF) and Marching Squares iso-contouring.
+pub fn offset_polylines_sdf(polylines: &[Polyline], distance: f64) -> Vec<Polyline> {
+    if polylines.is_empty() || distance.abs() < 1e-5 {
+        return polylines.to_vec();
+    }
+
+    let mut bb = BoundingBox::empty();
+    let mut has_closed = false;
+    let mut segments: Vec<(Point2D, Point2D, bool)> = Vec::new();
+
+    for poly in polylines {
+        if poly.points.len() < 2 {
+            continue;
+        }
+        bb = bb.union(&poly.bounds());
+        if poly.is_closed && poly.points.len() >= 3 {
+            has_closed = true;
+        }
+        let n = poly.points.len();
+        let edge_count = if poly.is_closed { n } else { n - 1 };
+        for i in 0..edge_count {
+            let a = poly.points[i];
+            let b = poly.points[(i + 1) % n];
+            if a.distance_squared_to(&b) > 1e-10 {
+                segments.push((a, b, poly.is_closed && n >= 3));
+            }
+        }
+    }
+
+    if segments.is_empty() || bb.width() <= 0.0 && bb.height() <= 0.0 {
+        return Vec::new();
+    }
+    // Inward offset on purely open strokes disappears
+    if !has_closed && distance < 0.0 {
+        return Vec::new();
+    }
+
+    let abs_d = distance.abs();
+    let pad = abs_d + 2.5;
+    let min_x = bb.min_x - pad;
+    let min_y = bb.min_y - pad;
+    let max_x = bb.max_x + pad;
+    let max_y = bb.max_y + pad;
+
+    let span_x = (max_x - min_x).max(1.0);
+    let span_y = (max_y - min_y).max(1.0);
+
+    // Choose sub-millimeter grid step balanced for crisp corners and instant interactive response
+    let mut cell = (span_x.max(span_y) / 300.0)
+        .clamp(0.08, 0.45)
+        .min((abs_d * 0.22).clamp(0.08, 0.45));
+    let est_cells = (span_x / cell) * (span_y / cell);
+    if est_cells > 200_000.0 {
+        cell = ((span_x * span_y) / 200_000.0).sqrt();
+    }
+
+    let gw = ((span_x / cell).ceil() as usize + 2).max(4);
+    let gh = ((span_y / cell).ceil() as usize + 2).max(4);
+    let total_pts = gw * gh;
+
+    // 1. Inside/outside classification via fast scanline even-odd rule on closed contours
+    let mut inside = vec![false; total_pts];
+    if has_closed {
+        let mut x_ints = Vec::with_capacity(32);
+        for iy in 0..gh {
+            let y = min_y + (iy as f64) * cell + 1.3e-6;
+            x_ints.clear();
+            for &(a, b, is_closed_seg) in &segments {
+                if !is_closed_seg {
+                    continue;
+                }
+                if (a.y > y) != (b.y > y) {
+                    let x = a.x + (y - a.y) * (b.x - a.x) / (b.y - a.y);
+                    x_ints.push(x);
+                }
+            }
+            if x_ints.len() >= 2 {
+                x_ints.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let row_off = iy * gw;
+                for pair in x_ints.chunks_exact(2) {
+                    let x0 = pair[0];
+                    let x1 = pair[1];
+                    let ix_start = (((x0 - min_x) / cell).ceil().max(0.0) as usize).min(gw);
+                    let ix_end = (((x1 - min_x) / cell).floor() as isize).min((gw as isize) - 1);
+                    if ix_end >= ix_start as isize {
+                        for ix in ix_start..=(ix_end as usize) {
+                            inside[row_off + ix] = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Narrow-band Euclidean distance splatting around all segments
+    let band_r = abs_d + 2.5 * cell;
+    let max_d2 = (band_r + cell) * (band_r + cell);
+    let mut min_dist_sq = vec![max_d2; total_pts];
+
+    for &(a, b, _) in &segments {
+        let seg_min_x = a.x.min(b.x) - band_r;
+        let seg_max_x = a.x.max(b.x) + band_r;
+        let seg_min_y = a.y.min(b.y) - band_r;
+        let seg_max_y = a.y.max(b.y) + band_r;
+
+        let ix0 = (((seg_min_x - min_x) / cell).floor().max(0.0) as usize).min(gw - 1);
+        let ix1 = (((seg_max_x - min_x) / cell).ceil().max(0.0) as usize).min(gw - 1);
+        let iy0 = (((seg_min_y - min_y) / cell).floor().max(0.0) as usize).min(gh - 1);
+        let iy1 = (((seg_max_y - min_y) / cell).ceil().max(0.0) as usize).min(gh - 1);
+
+        for iy in iy0..=iy1 {
+            let gy = min_y + (iy as f64) * cell;
+            let row_off = iy * gw;
+            for ix in ix0..=ix1 {
+                let gx = min_x + (ix as f64) * cell;
+                let d2 = point_to_segment_distance_sq(&Point2D::new(gx, gy), &a, &b);
+                if d2 < min_dist_sq[row_off + ix] {
+                    min_dist_sq[row_off + ix] = d2;
+                }
+            }
+        }
+    }
+
+    // 3. Build shifted signed distance field where field <= 0.0 is inside the offset region
+    let mut field = vec![0.0f64; total_pts];
+    for idx in 0..total_pts {
+        let d = min_dist_sq[idx].sqrt();
+        let sdf = if inside[idx] { -d } else { d };
+        field[idx] = sdf - distance;
+    }
+
+    // 4. Marching Squares directed edge extraction (CCW around inside region field <= 0)
+    // Unique Edge IDs:
+    // Horizontal edge (ix, iy) -> between (ix, iy) and (ix+1, iy): id = (iy * gw + ix) * 2
+    // Vertical edge   (ix, iy) -> between (ix, iy) and (ix, iy+1): id = (iy * gw + ix) * 2 + 1
+    let mut edge_pos: std::collections::HashMap<usize, Point2D> = std::collections::HashMap::new();
+    let mut next_edge: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+
+    let interp = |v1: f64, v2: f64| -> f64 {
+        let denom = v1 - v2;
+        if denom.abs() < 1e-12 {
+            0.5
+        } else {
+            (v1 / denom).clamp(0.0, 1.0)
+        }
+    };
+
+    for iy in 0..(gh - 1) {
+        let y0 = min_y + (iy as f64) * cell;
+        let y1 = y0 + cell;
+        for ix in 0..(gw - 1) {
+            let x0 = min_x + (ix as f64) * cell;
+            let x1 = x0 + cell;
+
+            let v00 = field[iy * gw + ix];
+            let v10 = field[iy * gw + ix + 1];
+            let v11 = field[(iy + 1) * gw + ix + 1];
+            let v01 = field[(iy + 1) * gw + ix];
+
+            let mut mask = 0u8;
+            if v00 <= 0.0 { mask |= 1; } // TL
+            if v10 <= 0.0 { mask |= 2; } // TR
+            if v11 <= 0.0 { mask |= 4; } // BR
+            if v01 <= 0.0 { mask |= 8; } // BL
+
+            if mask == 0 || mask == 15 {
+                continue;
+            }
+
+            // Edge IDs for Top, Right, Bottom, Left of this cell
+            let e_top = (iy * gw + ix) * 2;
+            let e_right = (iy * gw + (ix + 1)) * 2 + 1;
+            let e_bottom = ((iy + 1) * gw + ix) * 2;
+            let e_left = (iy * gw + ix) * 2 + 1;
+
+            // Lazily compute interpolated edge coordinates
+            if (mask & 1 != 0) != (mask & 2 != 0) {
+                edge_pos.entry(e_top).or_insert_with(|| Point2D::new(x0 + interp(v00, v10) * cell, y0));
+            }
+            if (mask & 2 != 0) != (mask & 4 != 0) {
+                edge_pos.entry(e_right).or_insert_with(|| Point2D::new(x1, y0 + interp(v10, v11) * cell));
+            }
+            if (mask & 8 != 0) != (mask & 4 != 0) {
+                edge_pos.entry(e_bottom).or_insert_with(|| Point2D::new(x0 + interp(v01, v11) * cell, y1));
+            }
+            if (mask & 1 != 0) != (mask & 8 != 0) {
+                edge_pos.entry(e_left).or_insert_with(|| Point2D::new(x0, y0 + interp(v00, v01) * cell));
+            }
+
+            // Connect directed segments keeping inside (<= 0) on the left
+            match mask {
+                1 => { next_edge.insert(e_top, e_left); }
+                2 => { next_edge.insert(e_right, e_top); }
+                3 => { next_edge.insert(e_right, e_left); }
+                4 => { next_edge.insert(e_bottom, e_right); }
+                5 => {
+                    let center = 0.25 * (v00 + v10 + v11 + v01);
+                    if center <= 0.0 {
+                        next_edge.insert(e_top, e_right);
+                        next_edge.insert(e_bottom, e_left);
+                    } else {
+                        next_edge.insert(e_top, e_left);
+                        next_edge.insert(e_bottom, e_right);
+                    }
+                }
+                6 => { next_edge.insert(e_bottom, e_top); }
+                7 => { next_edge.insert(e_bottom, e_left); }
+                8 => { next_edge.insert(e_left, e_bottom); }
+                9 => { next_edge.insert(e_top, e_bottom); }
+                10 => {
+                    let center = 0.25 * (v00 + v10 + v11 + v01);
+                    if center <= 0.0 {
+                        next_edge.insert(e_right, e_top);
+                        next_edge.insert(e_left, e_bottom);
+                    } else {
+                        next_edge.insert(e_right, e_bottom);
+                        next_edge.insert(e_left, e_top);
+                    }
+                }
+                11 => { next_edge.insert(e_right, e_bottom); }
+                12 => { next_edge.insert(e_left, e_right); }
+                13 => { next_edge.insert(e_top, e_right); }
+                14 => { next_edge.insert(e_left, e_top); }
+                _ => {}
+            }
+        }
+    }
+
+    // 5. Trace closed loops from directed edges
+    let mut visited: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut start_keys: Vec<usize> = next_edge.keys().copied().collect();
+    start_keys.sort_unstable();
+
+    let mut result_polylines = Vec::new();
+    for start_e in start_keys {
+        if visited.contains(&start_e) {
+            continue;
+        }
+        let mut loop_pts = Vec::new();
+        let mut curr = start_e;
+        while !visited.contains(&curr) {
+            visited.insert(curr);
+            if let Some(&pt) = edge_pos.get(&curr) {
+                loop_pts.push(pt);
+            }
+            if let Some(&nxt) = next_edge.get(&curr) {
+                curr = nxt;
+            } else {
+                break;
+            }
+        }
+
+        if loop_pts.len() >= 4 {
+            // 2 passes of gentle Laplacian curve fairing to remove marching-squares grid staircase
+            let mut smoothed = loop_pts;
+            for _ in 0..2 {
+                let m = smoothed.len();
+                let mut next_pass = Vec::with_capacity(m);
+                for i in 0..m {
+                    let prev = smoothed[(i + m - 1) % m];
+                    let cur = smoothed[i];
+                    let nxt = smoothed[(i + 1) % m];
+                    next_pass.push(Point2D::new(
+                        0.22 * prev.x + 0.56 * cur.x + 0.22 * nxt.x,
+                        0.22 * prev.y + 0.56 * cur.y + 0.22 * nxt.y,
+                    ));
+                }
+                smoothed = next_pass;
+            }
+
+            // Simplify nearly-collinear vertices
+            let tol = (cell * 0.16).clamp(0.015, 0.06);
+            let simplified = simplify_closed_polyline(&smoothed, tol);
+            if simplified.len() >= 3 {
+                let poly = Polyline::new(simplified, true);
+                if poly.length() > cell * 3.0 {
+                    result_polylines.push(poly);
+                }
+            }
+        }
+    }
+
+    result_polylines
+}
+
+fn simplify_closed_polyline(pts: &[Point2D], tol: f64) -> Vec<Point2D> {
+    if pts.len() <= 4 {
+        return pts.to_vec();
+    }
+    let mut out = Vec::with_capacity(pts.len());
+    out.push(pts[0]);
+    for i in 1..pts.len() {
+        let prev = *out.last().unwrap();
+        let curr = pts[i];
+        let next = pts[(i + 1) % pts.len()];
+        let d = point_to_segment_distance(&curr, &prev, &next);
+        if d > tol || prev.distance_to(&curr) > tol * 12.0 {
+            out.push(curr);
+        }
+    }
+    out
 }
 
 /// Evaluates a Cubic Bezier curve at parameter t in [0.0, 1.0]

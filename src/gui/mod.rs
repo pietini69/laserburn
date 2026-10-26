@@ -4959,18 +4959,17 @@ impl eframe::App for LaserBurnApp {
                         egui::StrokeKind::Outside,
                     );
                 } else {
+                    let stroke = egui::Stroke::new(stroke_width, color);
                     for poly in shape.to_polylines() {
-                        let pts: Vec<egui::Pos2> = poly
-                            .points
-                            .iter()
-                            .map(|p| self.doc_to_screen(*p, canvas_origin))
-                            .collect();
-
-                        if pts.len() >= 2 {
-                            if poly.is_closed {
-                                painter.add(egui::Shape::closed_line(pts, egui::Stroke::new(stroke_width, color)));
-                            } else {
-                                painter.add(egui::Shape::line(pts, egui::Stroke::new(stroke_width, color)));
+                        if poly.points.len() >= 2 {
+                            let n = poly.points.len();
+                            let seg_count = if poly.is_closed { n } else { n - 1 };
+                            for i in 0..seg_count {
+                                let p1 = self.doc_to_screen(poly.points[i], canvas_origin);
+                                let p2 = self.doc_to_screen(poly.points[(i + 1) % n], canvas_origin);
+                                if p1.distance_sq(p2) > 0.01 {
+                                    painter.line_segment([p1, p2], stroke);
+                                }
                             }
                         }
                     }

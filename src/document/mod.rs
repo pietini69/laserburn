@@ -897,23 +897,43 @@ impl Shape {
                 }
             }
             Shape::Path { polyline, .. } => {
-                let off = polyline.offset(distance);
-                if off.points.len() >= 2 {
+                let off_polys = crate::geometry::offset_polylines_sdf(std::slice::from_ref(polyline), distance);
+                if off_polys.len() == 1 {
                     vec![Shape::Path {
                         layer_index,
-                        polyline: off,
+                        polyline: off_polys.into_iter().next().unwrap(),
+                    }]
+                } else if off_polys.len() > 1 {
+                    let shapes = off_polys
+                        .into_iter()
+                        .map(|p| Shape::Path {
+                            layer_index,
+                            polyline: p,
+                        })
+                        .collect();
+                    vec![Shape::Group {
+                        layer_index,
+                        shapes,
+                        locked: false,
                     }]
                 } else {
                     vec![]
                 }
             }
-            Shape::Group { shapes, locked, .. } => {
-                let child_offsets: Vec<Shape> = shapes
-                    .iter()
-                    .flat_map(|s| s.offset_shape(distance, target_layer))
+            Shape::Group { locked, .. } => {
+                let polys = self.to_polylines();
+                let off_polys = crate::geometry::offset_polylines_sdf(&polys, distance);
+                let child_offsets: Vec<Shape> = off_polys
+                    .into_iter()
+                    .map(|p| Shape::Path {
+                        layer_index,
+                        polyline: p,
+                    })
                     .collect();
                 if child_offsets.is_empty() {
                     vec![]
+                } else if child_offsets.len() == 1 {
+                    child_offsets
                 } else {
                     vec![Shape::Group {
                         layer_index,
