@@ -1,50 +1,55 @@
 # 🔥 LaserBurn – Gumroad Product Listing & Multi-Platform Launch Guide
 
 > **Tuote:** LaserBurn – Modern Laser CAM & CNC Software  
-> **Versio:** v1.0.0-beta.1  
+> **Versio:** v1.0.0 (Virallinen julkaisuversio)  
 > **Kauppapaikka:** Gumroad (`shop.pietiniart.com / nikopietinen.gumroad.com`)  
 > **Kohdeosoite:** `https://shop.pietiniart.com/l/laserburn`  
-> **Hinnoittelumalli:** Pay What You Want (0 €+ suositus 15 €) tai kiinteä beta-lanseeraushinta (esim. 19 €)
+> **Hinnoittelumalli:** Pay What You Want (`0 €+`, suositushinta kahvikupin verran: **4 €** tai **5 €**)
 
 ---
 
-## 1. Saako kaikki käyttöjärjestelmät samalle sivulle?
+## 1. Miksi "Kahvikupin suositushinta" (3 € – 5 €) toimii parhaiten 0 €+ -mallissa?
 
-**KYLLÄ! Juuri näin kannattaakin tehdä.**  
-Gumroad tukee useita rinnakkaisia ladattavia tiedostoja samalla tuotesivulla. Kun ostaja hankkii LaserBurnin, hänen lataussivulleen ilmestyvät selkeät latauspainikkeet:
+Kun tuotteen perushinta on **0 €+ (Maksa mitä haluat / Pay What You Want)**, liian korkea suositushinta (kuten 14 € tai 15 €) luo psykologisen kynnyksen: moni lataaja ajattelee *"En halua maksaa 14 euroa tuntemattomasta ohjelmasta, joten kirjoitan kenttään 0 €"*.
+
+Kun taas suositushinnaksi asetetaan **kahvikupin hinta (esim. 4 € tai 5 €)**:
+- **Impulssikynnys katoaa:** 3 € – 5 € tuntuu pieneltä, reilulta "tarjoa kehittäjälle kahvit" -kiitokselta, jonka moni maksaa mielellään heti ladatessaan.
+- **Konversio maksaviin lataajiin nousee merkittävästi:** Useampi lataaja jättää suositellun 4 € tai 5 € summan kenttään sen sijaan, että nollaisi sen.
+- **Silti 100 % saavutettava:** Jokainen harrastaja pääsee lataamaan ja kokeilemaan ohjelmaa myös 0 eurolla.
+
+---
+
+## 2. Ladattavat paketit samalla tuotesivulla (`dist/`)
 
 | Tiedosto | Koko | Alusta / Arkkitehtuuri | Kuvaus lataajalle |
 | :--- | :--- | :--- | :--- |
-| `LaserBurn-1.0.0-beta.1-universal.dmg` | 11 Mt | **macOS Universal 2** | Kaikki Macit (Apple Silicon M1/M2/M3/M4 & Intel Core i5/i7/i9/Xeon). macOS 11.0+. |
-| `LaserBurn-1.0.0-beta.1-windows-x64.zip` | 3,4 Mt | **Windows 10 / 11** | Kannettava (portable) 64-bittinen standalone `.exe`. Ei asennusta. |
-| `LaserBurn-1.0.0-beta.1-linux-x86_64.tar.gz` | 7,1 Mt | **Linux 64-bit** | Natiivi ELF-binääri, `.desktop`-pikakuvake ja 512px ikoni (Ubuntu, Debian, Fedora, Arch, Mint). |
-
-Ostaja voi ladata suoraan oman koneensa version tai vaikka kaikki kolme (esimerkiksi jos suunnittelee Macilla toimistossa ja käyttää Windows-minipöytäkonetta verstaan laserleikkurilla).
+| `LaserBurn-1.0.0-universal.dmg` | ~11 Mt | **macOS Universal 2** | Kaikki Macit (Apple Silicon M1/M2/M3/M4 & Intel Core i5/i7/i9/Xeon). macOS 11.0+. |
+| `LaserBurn-1.0.0-windows-x64.zip` | ~3,5 Mt | **Windows 10 / 11** | Kannettava (portable) 64-bittinen standalone `.exe`. Ei raskasta asennusta. |
+| `LaserBurn-1.0.0-linux-x86_64.tar.gz` | ~7,2 Mt | **Linux 64-bit** | Natiivi ELF-binääri, `.desktop`-pikakuvake ja 512px ikoni (Ubuntu, Debian, Fedora, Arch, Mint). |
 
 ---
 
-## 2. Kuvat ja visuaaliset materiaalit
+## 3. Kuvat ja visuaaliset materiaalit
 
-Kuvat on generoitu valmiiksi kansioon:  
+Kuvat sijaitsevat kansiossa:  
 👉 [`dist/gumroad_assets/`](file:///Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn/dist/gumroad_assets)
 
 1. **Cover-kuva (1280 × 720 px, 16:9):**  
-   [`dist/gumroad_assets/gumroad_cover.jpg`](file:///Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn/dist/gumroad_assets/gumroad_cover.jpg)  
-   *Tumma moderni terästeema, hehkuva laser-suutinkuvake, arkkitehtuuribadget (macOS, Windows, Linux) ja keskeiset ominaisuudet lueteltuna.*
+   [`dist/gumroad_assets/gumroad_cover.jpg`](file:///Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn/dist/gumroad_assets/gumroad_cover.jpg)
 2. **Neliöikoni / Thumbnail (1000 × 1000 px, 1:1):**  
-   [`dist/gumroad_assets/gumroad_thumb_square.jpg`](file:///Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn/dist/gumroad_assets/gumroad_thumb_square.jpg)  
-   *Selkeä, katseen vangitseva sovellusikoni Gumroad-kauppasi ja profiilisi tuoteristikkoon.*
+   [`dist/gumroad_assets/gumroad_thumb_square.jpg`](file:///Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn/dist/gumroad_assets/gumroad_thumb_square.jpg)
 
 ---
 
-## 3. Tuotesivun tekstit ja esittely (Sales Copy)
+## 4. Tuotesivun tekstit ja esittely (Sales Copy – v1.0.0)
 
 ### Otsikko & Lyhytkuvaus
 * **Product Title:**  
   `LaserBurn – Modern Laser CAM & CNC Software (macOS, Windows, Linux)`
 * **Short Summary (Korttikuvaus):**  
-  `High-performance, modern laser cutting & engraving CAM software built in Rust. LightBurn .lbrn2 compatible, advanced dithering, camera overlay & path optimizer for macOS, Windows, and Linux.`
+  `High-performance, modern laser cutting & engraving CAM software built in Rust. LightBurn .lbrn2 compatible, true grayscale power modulation, ceramic paint layer simulator, live camera auto-fit & path optimizer for macOS, Windows, and Linux.`
 * **Custom URL Slug:** `laserburn` ➔ `https://shop.pietiniart.com/l/laserburn`
+* **Price:** `0` (Allow customers to pay what they want: **ON**, Minimum: `0`, Suggested amount: **`5`**)
 * **Avainsanat (Tags):** `laser cutting`, `laser engraving`, `cam software`, `lightburn`, `grbl`, `ruida`, `cnc`, `macos`, `windows`, `linux`
 
 ---
@@ -52,26 +57,29 @@ Kuvat on generoitu valmiiksi kansioon:
 ### Tuotesivun leipäteksti (HTML / Gumroad Description)
 
 ```html
-<h2>🔥 Meet LaserBurn: High-Performance Laser CAM & CNC Software</h2>
+<h2>🔥 Meet LaserBurn v1.0.0: High-Performance Laser CAM & CNC Software</h2>
 <p>
-LaserBurn is a brand-new, modern laser cutting and engraving CAM application engineered from the ground up in <strong>Rust</strong>. Designed for hobbyists, craft businesses, and high-precision fabrication workshops, LaserBurn delivers blazing-fast vector path optimization, instant project loading, and multi-controller hardware control without subscriptions or bloat.
+LaserBurn is a modern, blazing-fast laser cutting and engraving CAM application engineered from the ground up in <strong>Rust</strong>. Designed for hobbyists, craft businesses, ceramic tile engravers, and high-precision fabrication workshops, LaserBurn delivers sub-second vector path optimization, instant project loading, and full multi-controller hardware control — with <strong>no subscriptions and no bloat</strong>.
 </p>
 <p>
-<strong>One purchase gives you full access to all three desktop operating systems:</strong> macOS (Universal 2 for Apple Silicon & Intel), Windows 10/11 (64-bit), and Linux (x86_64).
+<strong>Free / Pay What You Want (0 €+):</strong> Download and use LaserBurn completely free, or support independent development with the price of a cup of coffee (3 € – 5 €)!<br>
+<strong>All 3 Desktop Platforms Included:</strong> macOS (Universal 2 for Apple Silicon &amp; Intel), Windows 10/11 (64-bit), and Linux (x86_64).
 </p>
 
 <hr>
 
-<h3>⚡ Key Features</h3>
+<h3>⚡ Key Features in v1.0.0</h3>
 <ul>
-  <li><strong>📂 LightBurn .lbrn2 Project Compatibility:</strong> Open and save modern LightBurn project files directly, including vector paths, layer assignments, cut speeds, power settings, and multi-pass rules.</li>
-  <li><strong>🚀 Ultra-Fast Rust Engine:</strong> Sub-second calculations even on massive vectors with millions of points. Instant 60 FPS pan, zoom, and transform response.</li>
-  <li><strong>🧠 Smart Path Optimizer:</strong> Traveling Salesperson Problem (TSP) solver and directional sort algorithms minimize rapid travel time and prevent material burning.</li>
-  <li><strong>🎚️ Multi-Layer Presets & Materials:</strong> Assign custom names, colors, speeds (mm/min), power (%), and kerf offset compensation (inner/outer contour expansion).</li>
-  <li><strong>📷 Live Camera Bed Overlay:</strong> Connect any USB webcam or overhead machine camera. Perspective undistortion and 4-point calibration allow you to align designs directly over scraps and wood blanks with millimeter precision.</li>
-  <li><strong>🖼️ Studio-Grade Image Dithering:</strong> 8 advanced dithering algorithms for photorealistic wood, acrylic, slate, and leather engraving (Atkinson, Floyd-Steinberg, Jarvis-Judice-Ninke, Stucki, Burkes, Sierra3, and Halftone).</li>
-  <li><strong>🖨️ Multi-Controller Support:</strong> Direct USB serial communication with <strong>GRBL</strong> (1.1+) diodes/CO2 lasers (Ortur, xTool, Sculpfun, Atomstack, Creality, Two Trees, Neje, generic 3018) and network/USB support for <strong>Ruida</strong> DSP controllers.</li>
-  <li><strong>⚙️ Hardware Safety & Limit Switches:</strong> Mechanical limit switches, soft limits, custom learned boundaries, and emergency stop protection.</li>
+  <li><strong>📂 LightBurn .lbrn2 &amp; SVG Compatibility:</strong> Open and save modern LightBurn project files directly, including vector paths, layer assignments (C00–C29), cut speeds, power settings, and multi-pass rules.</li>
+  <li><strong>🎨 True Analog Grayscale Power Modulation &amp; Ceramic Paint Layer Simulator:</strong> Real dynamic PWM power modulation (<code>M4 S...</code>) between Min % and Max % power with automatic overscan lead-in/lead-out and negative inversion. Includes a specialized <strong>Multi-Color Ceramic Tile Paint Layer Simulator</strong> to preview how different laser power levels burn through stacked spray-paint layers.</li>
+  <li><strong>📷 Live Camera Bed Overlay &amp; 1-Click Workpiece Auto-Fit:</strong> Connect any USB webcam or overhead camera with 4-point homography perspective calibration and sub-pixel zoom loupe. Automatically detect rectangular material blanks (tiles, coasters, plywood scraps) on the bed and center/fit your artwork with a single click.</li>
+  <li><strong>🛠️ Vector CAD, 2D Boolean Tools &amp; SDF Contour Offset:</strong> Built-in vector drawing, multi-step Undo/Redo (<code>Cmd+Z</code>), 2D Boolean operations (Weld/Union, Subtract, Intersect), true Signed Distance Field (SDF) inner/outer contour offsetting, and automatic beam kerf compensation.</li>
+  <li><strong>🧪 Built-in Material Speed × Power Test Matrix Generator:</strong> Generate ready-to-burn calibration grids with automatic vector labels in one click to find the sweet spot for any wood, acrylic, leather, slate, or painted ceramic tile.</li>
+  <li><strong>🖼️ Studio-Grade Image Dithering (9 Modes):</strong> Atkinson, Floyd-Steinberg, Jarvis-Judice-Ninke, Stucki, Burkes, Sierra3, Ordered Bayer 8x8, Halftone, and True Grayscale Power Modulation.</li>
+  <li><strong>📡 Real-Time Data Traffic Log (TX / RX) with Plain-English Explanations:</strong> Dedicated live G-code and GRBL serial inspector that explains every transmitted command and controller response in plain English, with optional real-time file logging.</li>
+  <li><strong>🌗 Dark &amp; Light Workspace Themes + Dynamic Origin Jogging:</strong> Switch seamlessly between crisp Dark Mode and high-contrast Light Mode. Jog D-pad directions (<code>X+</code>/<code>X-</code>/<code>Y+</code>/<code>Y-</code>) dynamically adapt to your machine's configured <code>0,0</code> origin corner.</li>
+  <li><strong>🍎 macOS Apple Shortcuts Automation:</strong> Trigger macOS Shortcuts automatically when a burn job starts or finishes (e.g., turn on workshop exhaust fans or smart lights, and send an iPhone/Apple Watch notification when cutting completes).</li>
+  <li><strong>🖨️ Multi-Controller Support:</strong> Direct USB serial communication with <strong>GRBL</strong> (1.1+) diode/CO2 lasers (Ortur, xTool, Sculpfun, Atomstack, Creality, Two Trees, Neje, generic 3018) and network/USB support for <strong>Ruida</strong> DSP controllers.</li>
 </ul>
 
 <hr>
@@ -79,10 +87,9 @@ LaserBurn is a brand-new, modern laser cutting and engraving CAM application eng
 <h3>📦 What’s Included in Your Download</h3>
 <p>When you download LaserBurn, you receive immediate access to all three platform builds:</p>
 <ol>
-  <li><strong>macOS Universal 2 Installer (LaserBurn-1.0.0-beta.1-universal.dmg):</strong> Native performance on all Macs — Apple Silicon (M1/M2/M3/M4) and Intel (x86_64). Code-signed with Apple Developer certificate.</li>
-  <li><strong>Windows 64-bit Standalone (LaserBurn-1.0.0-beta.1-windows-x64.zip):</strong> Portable standalone executable for Windows 10 & Windows 11. No complex installation or registry keys required.</li>
-  <li><strong>Linux 64-bit Package (LaserBurn-1.0.0-beta.1-linux-x86_64.tar.gz):</strong> Native 64-bit ELF binary, system icon, and .desktop launcher for Ubuntu, Debian, Fedora, Arch, and Linux Mint.</li>
-  <li><strong>Documentation & Quick Start Guide:</strong> Setup and controller connection guide.</li>
+  <li><strong>macOS Universal 2 Installer (<code>LaserBurn-1.0.0-universal.dmg</code>):</strong> Native performance on all Macs — Apple Silicon (M1/M2/M3/M4) and Intel (x86_64). Code-signed with Apple Developer certificate.</li>
+  <li><strong>Windows 64-bit Standalone (<code>LaserBurn-1.0.0-windows-x64.zip</code>):</strong> Portable standalone executable for Windows 10 &amp; Windows 11. No complex installation or registry keys required.</li>
+  <li><strong>Linux 64-bit Package (<code>LaserBurn-1.0.0-linux-x86_64.tar.gz</code>):</strong> Native 64-bit ELF binary, system icon, and <code>.desktop</code> launcher for Ubuntu, Debian, Fedora, Arch, and Linux Mint.</li>
 </ol>
 
 <hr>
@@ -90,10 +97,10 @@ LaserBurn is a brand-new, modern laser cutting and engraving CAM application eng
 <h3>🚀 Quick Start Guide</h3>
 <ol>
   <li><strong>Launch LaserBurn</strong> on your machine (macOS, Windows, or Linux).</li>
-  <li><strong>Connect your Laser:</strong> Connect the USB cable from your laser cutter to your computer. In LaserBurn, open the <em>Device</em> panel, select your serial COM / tty port, and click <strong>Connect</strong>.</li>
-  <li><strong>Import or Draw:</strong> Use <strong>File → Open</strong> to load a <code>.lbrn2</code>, <code>.svg</code>, or image file (PNG/JPG), or use the built-in shape and text tools.</li>
-  <li><strong>Configure Layers:</strong> Select your vectors and assign them to cut or engrave layers. Set your speed, laser power %, and number of passes.</li>
-  <li><strong>Frame & Run:</strong> Use the <strong>Frame (Bounding Box)</strong> tool with weak laser light enabled to verify placement on your material blank, then press <strong>Start Job</strong>.</li>
+  <li><strong>Connect your Laser:</strong> Connect the USB cable from your laser cutter to your computer. In LaserBurn, select your serial COM / tty port and click <strong>Connect</strong>.</li>
+  <li><strong>Import or Draw:</strong> Use <strong>File → Open</strong> to load a <code>.lbrn2</code>, <code>.svg</code>, or image file (PNG/JPG/BMP), or use the built-in shape, text, boolean, and Material Test Grid tools.</li>
+  <li><strong>Configure Layers:</strong> Assign shapes to layers (C00–C29), and set speed (mm/min), laser power %, dither mode, and number of passes.</li>
+  <li><strong>Frame &amp; Run:</strong> Use the <strong>Frame (Bounding Box)</strong> tool with Weak Beam enabled to verify placement on your material blank, then press <strong>Start Job (Cut)</strong>.</li>
 </ol>
 
 <hr>
@@ -131,16 +138,16 @@ LaserBurn is a brand-new, modern laser cutting and engraving CAM application eng
 
 <h4>🍎 macOS:</h4>
 <p>
-1. Open <code>LaserBurn-1.0.0-beta.1-universal.dmg</code> and drag the <strong>LaserBurn</strong> icon into your <em>Applications</em> folder.<br>
+1. Open <code>LaserBurn-1.0.0-universal.dmg</code> and drag the <strong>LaserBurn</strong> icon into your <em>Applications</em> folder.<br>
 2. <strong>First Launch (Gatekeeper Security):</strong><br>
-Because LaserBurn is freshly packaged, macOS may show a standard security prompt on first launch. To open it smoothly:<br>
+Because LaserBurn is distributed directly outside the Mac App Store, macOS may show a standard security prompt on first launch. To open it smoothly:<br>
 • <strong>Right-click (or Control-click)</strong> <code>LaserBurn.app</code> in your Applications folder and select <strong>Open</strong>, then click <strong>Open</strong> in the prompt.<br>
-• <em>Alternatively:</em> Open <strong>System Settings → Privacy & Security</strong>, scroll down to the Security section, and click <strong>"Open Anyway"</strong>.
+• <em>Alternatively:</em> Open <strong>System Settings → Privacy &amp; Security</strong>, scroll down to the Security section, and click <strong>"Open Anyway"</strong>.
 </p>
 
 <h4>🪟 Windows:</h4>
 <p>
-1. Extract <code>LaserBurn-1.0.0-beta.1-windows-x64.zip</code> into any folder (e.g. <code>C:\\LaserBurn</code>).<br>
+1. Extract <code>LaserBurn-1.0.0-windows-x64.zip</code> into any folder (e.g. <code>C:\\LaserBurn</code>).<br>
 2. Double-click <code>LaserBurn.exe</code> to launch.<br>
 3. <strong>First Launch (Windows Defender SmartScreen):</strong><br>
 If the blue <em>"Windows protected your PC"</em> screen appears:<br>
@@ -151,8 +158,8 @@ If the blue <em>"Windows protected your PC"</em> screen appears:<br>
 
 <h4>🐧 Linux:</h4>
 <p>
-1. Extract <code>LaserBurn-1.0.0-beta.1-linux-x86_64.tar.gz</code> and run <code>./LaserBurn</code>.<br>
-2. <strong>USB Serial Port Permissions (GRBL & Ruida):</strong> To allow LaserBurn to communicate with your laser via USB, ensure your user belongs to the serial group:<br>
+1. Extract <code>LaserBurn-1.0.0-linux-x86_64.tar.gz</code> and run <code>./LaserBurn</code>.<br>
+2. <strong>USB Serial Port Permissions (GRBL &amp; Ruida):</strong> To allow LaserBurn to communicate with your laser via USB, ensure your user belongs to the serial group:<br>
 • Ubuntu / Debian / Linux Mint: <code>sudo usermod -aG dialout $USER</code><br>
 • Arch Linux / Manjaro / Fedora: <code>sudo usermod -aG uucp $USER</code><br>
 <em>(Log out and back in once for the group permission to take effect).</em><br>
@@ -161,30 +168,5 @@ If the blue <em>"Windows protected your PC"</em> screen appears:<br>
 
 <hr>
 
-<p><em>LaserBurn v1.0.0 Beta. Developed by Niko Pietinen. Free updates and continuous improvements included.</em></p>
+<p><em>LaserBurn v1.0.0. Developed by Niko Pietinen. Free updates and continuous improvements included.</em></p>
 ```
-
----
-
-## 4. Huomisaamun julkaisusuunnitelma (10 tuotteen erä)
-
-Huomenna maanantaina 26.10. klo **08:00** ajetaan 10 tuotteen erä, josta napsaistaan #58 pois ja otetaan LaserBurn tilalle:
-
-1. **#49:** Victorian Pastoral Manor Wall Art Set
-2. **#50:** Provence Lavender Fields Wall Art Set
-3. **#51:** Japandi Neutral Arches Wall Art Set
-4. **#52:** Minimalist Botanical Shapes Wall Art Set
-5. **#53:** Bauhaus Geometric Balance Wall Art Set
-6. **#54:** Zen Sumi-E Ink Wash Wall Art Set
-7. **#55:** Textured Plaster Relief Wall Art Set
-8. **#56:** Terracotta Sunburst Boho Wall Art Set
-9. **#57:** Mid Century Retro Palms Wall Art Set
-10. 🎯 **LaserBurn – Modern Laser CAM & CNC Software (macOS, Windows, Linux)**
-
-*(#58 Scandinavian Abstract siirtyy automaattisesti seuraavan erän ensimmäiseksi).*
-
-LaserBurn voidaan julkaista huomenna aamulla yhdellä komennolla:
-```bash
-python3 /Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn/scripts/publish_to_gumroad.py
-```
-*(Tai `--draft`-valitsimella, jos haluat ensin esikatsella sivua Gumroadin hallintapaneelissa ennen julkistamista).*

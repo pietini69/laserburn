@@ -1,106 +1,69 @@
-# LaserBurn 🦀⚡
+# LaserBurn v1.0.0 🦀⚡
 
-Moderni, huippunopea ja kevyt avoimen lähdekoodin laserleikkaus- ja kaiverrus-CAM-ohjelmisto (Rust). 
+Moderni, huippunopea ja kevyt monialustainen (macOS, Windows, Linux) laserleikkaus- ja kaiverrus-CAM-ohjelmisto (Rust / `eframe` / `egui`).
 
-Tämä ohjelmisto kehitettiin takaisinmallintamalla (Reverse Engineering) teollisuusstandardi **LightBurn (v2.0.02)** käyttäen REA- ja Mach-O -analyysityökaluja. Se tarjoaa suoran `.lbrn2`-projektitiedostojen yhteensopivuuden, edistyneen CAM-radanoptimoinnin, kuvan rasterikaiverrus-ditheröinnin sekä tuki useille laserohjaimille (GRBL, Smoothie, Marlin, Ruida DSP).
+Ohjelmisto tarjoaa suoran LightBurn `.lbrn2`- ja `.svg`-projektitiedostojen yhteensopivuuden, edistyneen CAM-radanoptimoinnin, todellisen analogisen harmaasävy-tehomodulaation (`GrayscalePower`), keramiikkalaattojen maalikerrossimulaattorin, kamerakohdistuksen automaattisella aihion tunnistuksella sekä suoran tuen useille laserohjaimille (GRBL 1.1+, Smoothie, Marlin, Ruida DSP).
 
 ---
 
-## 🎯 Pääominaisuudet
+## 🎯 Pääominaisuudet (v1.0.0)
 
 ### 1. Täysi LightBurn `.lbrn2` & `.svg` -yhteensopivuus
-- Lukee ja kirjoittaa LightBurnin natiivia `.lbrn2` JSON -tiedostomuotoa.
-- Tukee monitasoisia leikkauskerroksia (C00–C29) omine nopeus-, teho-, toisto- ja ilmansyöttöasetuksineen.
-- Tukee standardia SVG-vektoritiedostojen tuontia ja vientiä.
+- Lukee ja kirjoittaa LightBurnin `.lbrn2`-projektitiedostoja.
+- Tukee monitasoisia leikkauskerroksia (C00–C29) omine nopeus-, teho-, toisto-, ditheröinti- ja ilmansyöttöasetuksineen.
+- Täysi SVG-vektoritiedostojen tuonti ja vienti 2D-affiinimatriisimuunnoksilla (`matrix`, `translate`, `scale`, `rotate`, `<use>`).
 
-### 2. Älykäs leikkausradan optimointi (`CutOptimizer`)
-- **Inner-cuts-first:** Tunnistaa sisäkkäiset geometriat (reiät, kirjaimet, sisämuodot) ja leikkaa ne AINA ennen ulkoreunaa, estäen kappaleen putoamisen tai liikkumisen kesken leikkauksen.
-- **Automaattinen Kerf-kompensaatio (Säteen leveyden korjaus):**
-  - Huomioi lasersäteen polttojäljen paksuuden (beam kerf, esim. 0.10 mm) ja kompensoi leikkausradat automaattisesti:
-    - Ulkomuodot laajennetaan ulospäin $+kerf / 2$ (+0.05 mm)
-    - Sisäaukot ja kolot pienennetään sisäänpäin $-kerf / 2$ (-0.05 mm)
-  - Sormiliitokset, laatikot ja palapelit istuvat täydellisen napakasti suoraan leikkauksesta.
-  - **Määritelmä:** LaserBurniin syötetään säteen **koko polttoleveys** (esim. `0.100 mm`). Ohjelma laskee ja näyttää suoraan käyttöliittymässä todellisen työstöradan siirtymän (`±0.050 mm`). *(LightBurnissa kentän nimi oli 'Kerf Offset', johon käyttäjän piti laskea puolikas itse).*
-- **TSP (Traveling Salesperson) matkaoptimointi:** Minimoi laser sammutettuna tapahtuvat pikasiirrot (rapid travel) lähimmän naapurin algoritmilla.
-- **Suuntakääntö (Direction reversal):** Kääntää avoimet viivat tarvittaessa optimoidakseen työkalun liikkeen.
-- **Sillat ja kiinnikkeet (Tabs & Bridges):** Mahdollisuus jättää kappaleeseen ohuita mikrokiinnikkeitä, jotta irtoavat osat pysyvät kiinni materiaalilevyssä.
+### 2. True Analog Grayscale Power Modulation & Keramiikkalaattojen Maalikerrossimulaattori
+- **Grayscale Power Modulation (`M4 S...`):** Säätelee dynaamisesti laserin PWM-tehoa lineaarisesti pikselin tummuuden mukaan välillä `Min Power %` – `Max Power %`.
+- **Overscan (Lead-in / Lead-out):** Kiihdyttää ja jarruttaa laserpään varsinaisen polttoalueen ulkopuolella 0 % teholla, jolloin laatan tai puun reunat eivät pala tummiksi.
+- **Negative / Invert:** Kääntää harmaasävyt tummaksi maalatuille keramiikkalaatoille, joissa laser paljastaa alla olevan vaalean/värillisen kerroksen.
+- **Ceramic Tile Paint Layer Simulator:** Simuloi ja esikatselee suoraan työalueella, miten eri lasertehot polttavat päällekkäisten spraymaalikerrosten läpi aina pohjalaattaan saakka.
 
-### 3. Vektoritäyttö ja taskutus (`Hatch Engine`)
-- Automaattinen rasteritaskutus (Fill mode) mielivaltaisella skannauskulmalla (0°–360°) ja viivavälillä (esim. 0.08 mm = ~318 DPI).
-- Jatkuva serpentiinirata (zigzag) vierekkäisten viivojen välillä ilman turhia lasersammutuksia.
-- Ristiintäyttö (Cross-hatch) kahdessa toisiaan vastaan kohtisuorassa kulmassa.
+### 3. Vektori-CAD, 2D Boolean -työkalut, SDF Contour Offset & Undo/Redo
+- **Monivaiheinen Undo / Redo (`Cmd+Z` / `Cmd+Shift+Z`):** Täydellinen muokkaushistoria kaikille piirto-, siirto-, skaalaus- ja boolean-toiminnoille.
+- **2D Boolean -operaatiot:** Yhdistä (`Weld / Union`), vähennä (`Subtract A - B`) ja leikkaa (`Intersect`) päällekkäisiä vektorimuotoja ja tekstiä.
+- **True SDF Contour Offset:** Luo tarkat ulko- tai sisäpuoliset ääriviivasiirtymät (esim. tarrojen leikkausreunat tai korujen kehykset) Signed Distance Field -laskennalla.
+- **Automaattinen Kerf-kompensaatio:** Huomioi säteen polttoleveyden (`kerf`) laajentaen ulkoreunoja $+kerf/2$ ja pienentäen sisäreikiä $-kerf/2$.
 
-### 4. Teollisuustason kuvan ditheröinti (8 algoritmia)
-Ultra-nopea monisäikeinen rasterikuvien ditheröinti laserkaiverrusta varten:
-1. **Atkinson** (Macintosh-klassikko, tuottaa erittäin puhtaat ja terävät rasteripisteet ilman suttua)
+### 4. Sisäänrakennettu Materiaalin Testimatriisi (Speed × Power Grid Generator)
+- Generoi yhdellä klikkauksella valmiin `Nopeus × Teho` -kalibrointiruudukon automaattisilla vektoriteksteillä (C00 tekstit, C01–C29 testiruudut) mille tahansa materiaalille.
+
+### 5. Teollisuustason kuvan ditheröinti (9 tilaa)
+1. **Atkinson** (Erittäin terävät ja puhtaat rasteripisteet)
 2. **Floyd-Steinberg** (Klassinen virheenlevitys)
 3. **Jarvis-Judice-Ninke** (Korkea dynamiikka)
-4. **Stucki** (Pehmeä ja tarkka sävyala)
-5. **Ordered Bayer 8x8** (Säännöllinen matriisiditheröinti)
-6. **Halftone** (Sanomalehti / pyöreät rasteripisteet)
-7. **Threshold & SmartThreshold** (Mustavalko-rajaus)
-8. **Grayscale Power Modulation** (3D-relief / tehomoduloitu kaiverrus)
+4. **Stucki** (Pehmeä sävyala)
+5. **Burkes & Sierra3** (Nopea ja tasainen virheenlevitys)
+6. **Ordered Bayer 8x8** (Säännöllinen matriisiditheröinti)
+7. **Halftone** (Sanomalehtirasteri)
+8. **Threshold & SmartThreshold** (Mustavalko-rajaus)
+9. **Grayscale Power Modulation** (Analoginen PWM-tehomodulaatio)
 
-### 5. Moniohjaintuki
-- **GRBL / Smoothie / Marlin (G-Code):**
-  - Dynaaminen laserteho (`M4` GRBL 1.1f+ -tilassa estää palamisen nurkissa).
-  - Vakio laserteho (`M3`).
-  - Automaattinen ilmansyöttö (`M8` päälle / `M9` pois).
-  - Kappaleen kohdistuskehys (`Framing` matalatehoisella lasertähdäyksellä).
-- **Ruida DSP Controllers (RDC6442G, RDC6445G jne.):**
-  - Suora binäärinen `.rd`-työtiedostojen generointi.
-  - UDP-verkkoprotokolla portissa 50200.
+### 6. Kamerakohdistus & 1-Click Workpiece Auto-Fit
+- **4 pisteen perspektiivikalibrointi (Homography $H$ ja $H^{-1}$)** sekä kelluva **2x–8x Zoom Loupe** tarkkaan kohdistukseen.
+- **1-Click Detect & Center on Workpiece:** Tunnistaa kamerakuvasta alustalla olevan suorakaiteen muotoisen aihion (esim. keraaminen laatta tai vanerinpala) ja keskittää/sovittaa valitut kuviot automaattisesti sen päälle.
 
-### 6. Leikkaussimulaattori ja aika-arvio (`Simulator`)
-- Laskee todellisen leikkausmatkan, pikasiirtomatkan sekä laserin käyttöasteen (duty cycle).
-- Huomioi koneen kiihtyvyyden ($mm/s^2$) ja maksiminopeuden puolisuunnikas- (trapezoidal) ja kolmioprofiililla.
+### 7. Reaaliaikainen Data Traffic Log (TX / RX) & Selkokielinen G-kooditulkki
+- Oma rinnakkainen **Data Traffic (TX / RX)** -paneeli näyttää jokaisen lähetetyn G-koodin ja GRBL-vastauksen reaaliajassa.
+- **`[✓] Explain`:** Kääntää jokaisen G-koodin, M-koodin, GRBL-asetuksen (`$`), tilaviestin (`<Idle|MPos:...>`) ja virheen/hälytyksen suoraan selkokieliseksi englanniksi.
+- **`[✓] Save to Log File`:** Tallentaa kaiken sarjaliikenteen aikaleimoilla suoraan tiedostoon `~/Documents/LaserBurn_traffic.log`.
+
+### 8. Tumma & Vaalea tila, Dynaaminen 0,0-Jog-ohjaus & macOS Apple Shortcuts
+- **Theme: Dark / Light:** Korkean kontrastin tumma ja vaalea käyttöliittymäteema.
+- **Origin-Aware Jog D-Pad:** `X+`/`X-`/`Y+`/`Y-`-jog-painikkeet mukautuvat automaattisesti sen mukaan, missä kulmassa koneen `0,0`-origo sijaitsee.
+- **macOS Apple Shortcuts -automaatio (`#[cfg(target_os = "macos")]`):** Käynnistä valittu macOS-pikakomento automaattisesti, kun poltto alkaa (`On Job Start`) tai valmistuu (`On Job Complete`).
 
 ---
 
-## 🚀 Asennus ja kääntäminen
-
-Rust on asennettuna ja ohjelma kääntyy suoraan:
+## 🚀 Kääntäminen ja jakelupaketit
 
 ```bash
 cd /Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn
 
-# Käännä julkaisuversio (CLI)
-cargo build --release --no-default-features
+# Suorita yksikkötestit:
+cargo test --features gui
 
-# Käännä graafisella käyttöliittymällä (GUI)
-cargo build --release
-```
-
----
-
-## 🛠️ Käyttöesimerkkejä CLI:stä
-
-### 1. Tarkastele LightBurn `.lbrn2`- tai `.svg`-projektia
-```bash
-./target/release/laser_burn info gear_demo.lbrn2
-```
-
-### 2. Generoi optimoitu GRBL G-koodi
-```bash
-./target/release/laser_burn gcode gear_demo.lbrn2 -o leikkaus.gcode --rapid 6000 --max-s 1000
-```
-
-### 3. Generoi Ruida DSP `.rd` -binääritiedosto
-```bash
-./target/release/laser_burn ruida gear_demo.lbrn2 -o tyotiedosto.rd
-```
-
-### 4. Simuloi leikkausaika
-```bash
-./target/release/laser_burn simulate gear_demo.lbrn2 --accel 3000
-```
-
-### 5. Ditheroi valokuva laserkaiverrusta varten
-```bash
-./target/release/laser_burn dither kuva.png -o dither_atkinson.png --algorithm atkinson
-```
-
-### 6. Luo testiprojekti (hammasratas kiinnitysreikineen)
-```bash
-./target/release/laser_burn demo --output uusi_ratas.lbrn2
+# Rakenna kaikki jakelupaketit (macOS Universal 2 DMG/ZIP, Windows x64 ZIP, Linux x86_64 tar.gz)
+# ja päivitä /Applications/LaserBurn.app:
+./scripts/build_all.sh
 ```

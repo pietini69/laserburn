@@ -39,9 +39,9 @@ Type=Application
 Categories=Graphics;Engineering;Development;
 EOF
 
-cat << 'EOF' > "$STAGE_DIR/README.txt"
-LaserBurn v1.0.0-beta.1 (Linux x86_64)
-======================================
+cat << EOF > "$STAGE_DIR/README.txt"
+LaserBurn v${VERSION} (Linux x86_64)
+====================================
 Modern, high-performance laser cutting & engraving CAM software.
 
 Running LaserBurn:
@@ -53,8 +53,8 @@ Running LaserBurn:
 USB Serial Port Permissions (GRBL & Ruida):
   To allow LaserBurn to communicate with USB serial ports (/dev/ttyUSB0, /dev/ttyACM0),
   ensure your user belongs to the 'dialout' (Ubuntu/Debian) or 'uucp' (Arch/Fedora) group:
-     sudo usermod -aG dialout $USER   # Ubuntu / Debian / Linux Mint
-     sudo usermod -aG uucp $USER      # Arch Linux / Manjaro / Fedora
+     sudo usermod -aG dialout \$USER   # Ubuntu / Debian / Linux Mint
+     sudo usermod -aG uucp \$USER      # Arch Linux / Manjaro / Fedora
   (Log out and back in once for permissions to take effect).
 
 File Dialogs on Linux:

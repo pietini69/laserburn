@@ -23,9 +23,9 @@ mkdir -p "$STAGE_DIR"
 
 cp "$PROJECT_DIR/target/x86_64-pc-windows-msvc/release/laser_burn.exe" "$STAGE_DIR/LaserBurn.exe"
 
-cat << 'EOF' > "$STAGE_DIR/README.txt"
-LaserBurn v1.0.0-beta.1 (Windows x64)
-=====================================
+cat << EOF > "$STAGE_DIR/README.txt"
+LaserBurn v${VERSION} (Windows x64)
+===================================
 Modern, high-performance laser cutting & engraving CAM software.
 
 Usage:
