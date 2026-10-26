@@ -2,10 +2,18 @@
 
 ## Current Status (v1.0.0 Official Release — October 26, 2026)
 LaserBurn is a high-performance, modern laser CAM/CNC software written in Rust (`eframe`/`egui`).
-It is at official version **v1.0.0**, all 55 unit tests pass, and it is deployed as a native signed macOS app bundle (`/Applications/LaserBurn.app`), as well as multi-platform distribution packages in `dist/` (macOS Universal 2 DMG/ZIP, macOS arm64 DMG, macOS Intel DMG, Windows x64 ZIP, and Linux x86_64 tar.gz).
+It is at official version **v1.0.0**, all 61 unit tests pass, and it is deployed as a native signed macOS app bundle (`/Applications/LaserBurn.app`), as well as multi-platform distribution packages in `dist/` (macOS Universal 2 DMG/ZIP, macOS arm64 DMG, macOS Intel DMG, Windows x64 ZIP, and Linux x86_64 tar.gz).
 
 ### Key Milestones & Features Implemented in v1.0.0:
-1. **True Analog Grayscale Power Modulation & Ceramic Paint Layer Simulator:**
+1. **Material Library & Preset Database with LightBurn (.clb) Compatibility:**
+   - 3-tier hierarchical material database: Category -> Material -> Thickness/Variant -> Operation (`Cut`, `Score`, `Engrave`, `Photo Engrave`, `Offset Fill`).
+   - Auto-saved and loaded from `~/Documents/LaserBurn_materials.json`.
+   - Factory calibrated presets for 10W–20W diode lasers: Birch Plywood (3mm/4mm), Ceramic Tiles (TiO2 Norton white tile method), Cardboard & Kraft Paper, Cast Acrylic (Dark/Black), Slate Stone Coasters, and Veg-Tan Leather.
+   - Built-in LightBurn `.clb` XML parser (`import_from_clb_str` & `load_from_any_path`) allowing instant drop-in import of LightBurn material libraries.
+   - Smart library merge functionality (`merge`) preventing duplicates and updating matching operations cleanly.
+   - Full GUI integration: 2-column Material Library window (`show_material_library_window`) with real-time text search, category filtering, parameters card (speed mm/s & mm/min, power, passes, air assist, kerf, interval/DPI, notes), `[ ⬇ Apply to Active Layer ]`, `[ 🧪 Generate Test Grid Around Settings ]`, and `[ ➕ Save Layer to Library ]` modal dialog.
+
+2. **True Analog Grayscale Power Modulation & Ceramic Paint Layer Simulator:**
    - Real analog variable laser power engraving (`DitherMode::GrayscalePower`) modulating dynamic PWM power (`M4 S...`) between `CutSetting.power_min` and `CutSetting.power_max`.
    - **Overscan margin (lead-in & lead-out):** Accelerates/decelerates outside the active burn zone at 0% power to prevent burned edges.
    - **Negative / Invert toggle:** Inverts grayscale mapping for dark-coated ceramic tiles.
