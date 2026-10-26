@@ -3615,7 +3615,8 @@ impl eframe::App for LaserBurnApp {
                                                     band.color_hex = format!("#{:02X}{:02X}{:02X}", srgb[0], srgb[1], srgb[2]);
                                                     invalidate_img_preview = true;
                                                 }
-                                                if ui.add(egui::TextEdit::singleline(&mut band.label).desired_width(110.0)).changed() {
+                                                let text_w = (ui.available_width() - 102.0).max(155.0);
+                                                if ui.add(egui::TextEdit::singleline(&mut band.label).desired_width(text_w)).changed() {
                                                     invalidate_img_preview = true;
                                                 }
                                                 ui.label("≤");
