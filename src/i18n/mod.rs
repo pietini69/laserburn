@@ -117,6 +117,19 @@ mod tests {
         assert_eq!(t("Undo", Language::French), "Annuler");
         assert_eq!(t("Undo", Language::Italian), "Annulla");
         assert_eq!(t("Undo", Language::Spanish), "Deshacer");
+
+        // Connection window
+        assert_eq!(t("Controller Type:", Language::Finnish), "Ohjaimen tyyppi:");
+        assert_eq!(t("Controller Type:", Language::German), "Controller-Typ:");
+        assert_eq!(t("Controller Type:", Language::French), "Type de contrôleur :");
+        assert_eq!(t("Controller Type:", Language::Italian), "Tipo di controller:");
+        assert_eq!(t("Controller Type:", Language::Spanish), "Tipo de controlador:");
+
+        assert_eq!(t("Scan Ports", Language::Finnish), "Etsi portteja");
+        assert_eq!(t("Scan Ports", Language::German), "Ports suchen");
+        assert_eq!(t("Scan Ports", Language::French), "Scanner les ports");
+        assert_eq!(t("Scan Ports", Language::Italian), "Cerca porte");
+        assert_eq!(t("Scan Ports", Language::Spanish), "Escanear puertos");
     }
 
     #[test]

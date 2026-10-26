@@ -411,6 +411,41 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Sent $10=19 and $21=1 to GRBL" => "Enviado $10=19 y $21=1 a GRBL",
         "Homography alignment solved & saved! Bed overlay is now active." => "¡Alineación calculada y guardada! Fondo activo.",
 
+        // Connection & Console Window
+        "Controller Type:" => "Tipo de controlador:",
+        "Port:" => "Puerto:",
+        "Select port..." => "Seleccionar puerto...",
+        "Scan Ports" => "Escanear puertos",
+        "Refresh connected USB serial ports" => "Actualizar puertos serie USB conectados",
+        "Baud Rate:" => "Velocidad en baudios:",
+        "115200 (GRBL standard)" => "115200 (Estándar GRBL)",
+        "Auto-connect to this port on startup" => "Conectar automáticamente a este puerto al iniciar",
+        "CONNECTED (USB)" => "CONECTADO (USB)",
+        "SIMULATOR (DEMO)" => "SIMULADOR (DEMO)",
+        "NOT CONNECTED" => "NO CONECTADO",
+        " Connect to Device " => " Conectar al dispositivo ",
+        "Save Connection" => "Guardar conexión",
+        "Save this port as default for startup" => "Guardar este puerto como predeterminado al iniciar",
+        "G-Code Console & Log Terminal:" => "Consola G-Code y terminal de registro:",
+        "Clear Log" => "Borrar registro",
+        "Quick Commands:" => "Comandos rápidos:",
+        "Show GRBL settings" => "Mostrar configuración de GRBL",
+        "Query device status and coordinates" => "Consultar estado y coordenadas del dispositivo",
+        "Enable pin reporting ($10=19)" => "Habilitar informe de pines ($10=19)",
+        "Enable hard limit protection ($21=1)" => "Habilitar protección de límites físicos ($21=1)",
+        "Connect laser first (Connection Settings)!" => "¡Conecte el láser primero (Configuración de conexión)!",
+        "Device connection & serial console" => "Conexión de dispositivo y consola serie",
+        "Open device connection & console window" => "Abrir ventana de conexión y consola",
+        "Toggle live Serial / G-code Data Traffic Log panel" => "Activar/desactivar panel de tráfico serie",
+        "Home laser machine to physical switches ($H)" => "Ir a origen en finales de carrera físicos ($H)",
+        "Virtual Device (Simulator)" => "Dispositivo virtual (Simulador)",
+
+        // Machine Profiles Window
+        "Save and switch between different laser cutters and engravers with distinct bed sizes, origins, and laser types." => "Guarde y cambie entre diferentes cortadoras y grabadoras láser con distintas dimensiones, orígenes y tipos de láser.",
+        "Save Current Settings as New Profile:" => "Guardar configuración actual como nuevo perfil:",
+        "Save as New Profile" => "Guardar como nuevo perfil",
+        "● ACTIVE" => "● ACTIVO",
+
         // Fallback: return original key
         _ => key,
     }

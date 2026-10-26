@@ -2702,7 +2702,7 @@ impl LaserBurnApp {
         }
 
         if self.device.status != crate::device::ConnectionStatus::Connected {
-            self.status_msg = "Connect laser first (Connection Settings)!".to_string();
+            self.status_msg = self.tr("Connect laser first (Connection Settings)!").to_string();
             self.show_connection_window = true;
             return;
         }
@@ -4267,13 +4267,13 @@ impl eframe::App for LaserBurnApp {
                 }
 
                 if self.device.settings.enable_limit_switches {
-                    if ui.button(tr("Home")).on_hover_text("Home laser machine to physical switches ($H)").clicked() {
+                    if ui.button(tr("Home")).on_hover_text(tr("Home laser machine to physical switches ($H)")).clicked() {
                         self.device.home();
                     }
                 }
 
                 ui.separator();
-                if ui.button(tr("Connection")).on_hover_text("Device connection & serial console").clicked() {
+                if ui.button(tr("Connection")).on_hover_text(tr("Device connection & serial console")).clicked() {
                     self.show_connection_window = true;
                 }
                 let c_blue = self.color_blue();
@@ -4282,7 +4282,7 @@ impl eframe::App for LaserBurnApp {
                 } else {
                     egui::Color32::GRAY
                 };
-                if ui.button(egui::RichText::new(tr("Traffic Log")).strong().color(traffic_color)).on_hover_text("Toggle live Serial / G-code Data Traffic Log panel").clicked() {
+                if ui.button(egui::RichText::new(tr("Traffic Log")).strong().color(traffic_color)).on_hover_text(tr("Toggle live Serial / G-code Data Traffic Log panel")).clicked() {
                     self.show_traffic_panel = !self.show_traffic_panel;
                 }
                 if ui.button(tr("Camera")).on_hover_text(format!("Open Camera Feed & Alignment window ({}+K)", cmd)).clicked() {
@@ -4426,7 +4426,7 @@ impl eframe::App for LaserBurnApp {
                     (c_red, tr("Disconnected"))
                 };
 
-                if ui.button(egui::RichText::new(badge_text).strong().color(badge_color)).on_hover_text("Open device connection & console window").clicked() {
+                if ui.button(egui::RichText::new(badge_text).strong().color(badge_color)).on_hover_text(tr("Open device connection & console window")).clicked() {
                     self.show_connection_window = true;
                 }
                 ui.label(format!("{} {}", tr("Controller:"), self.device.controller_type.name()));
@@ -7636,8 +7636,8 @@ impl eframe::App for LaserBurnApp {
                 .default_width(460.0)
                 .open(&mut is_open)
                 .show(ctx, |ui| {
-                    ui.heading("Laser Machine Profiles");
-                    ui.label(egui::RichText::new("Save and switch between different laser cutters and engravers with distinct bed sizes, origins, and laser types.").small().weak());
+                    ui.heading(tr("Laser Machine Profiles"));
+                    ui.label(egui::RichText::new(tr("Save and switch between different laser cutters and engravers with distinct bed sizes, origins, and laser types.")).small().weak());
                     ui.add_space(8.0);
 
                     let cur_name = self.device.settings.current_profile_name.clone();
@@ -7650,25 +7650,25 @@ impl eframe::App for LaserBurnApp {
                             ui.group(|ui| {
                                 ui.horizontal(|ui| {
                                     if is_active {
-                                        ui.label(egui::RichText::new("● ACTIVE").color(egui::Color32::from_rgb(50, 205, 50)).strong());
+                                        ui.label(egui::RichText::new(tr("● ACTIVE")).color(egui::Color32::from_rgb(50, 205, 50)).strong());
                                     }
                                     ui.label(egui::RichText::new(&prof.name).strong());
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                         if !is_active {
                                             if self.device.settings.profiles.len() > 1 {
-                                                if ui.button("Delete").clicked() {
+                                                if ui.button(tr("Delete")).clicked() {
                                                     delete_name = Some(prof.name.clone());
                                                 }
                                             }
-                                            if ui.button("Activate").clicked() {
+                                            if ui.button(tr("Activate")).clicked() {
                                                 switch_to = Some(prof.name.clone());
                                             }
                                         }
                                     });
                                 });
                                 ui.label(egui::RichText::new(format!(
-                                    "Bed: {:.0} x {:.0} mm | Laser: {:?} | Origin: {:?}",
-                                    prof.bed_width, prof.bed_height, prof.laser_type, prof.origin_corner
+                                    "{} {:.0} x {:.0} mm | Laser: {:?} | Origin: {:?}",
+                                    tr("Bed:"), prof.bed_width, prof.bed_height, prof.laser_type, prof.origin_corner
                                 )).small().weak());
                             });
                             ui.add_space(2.0);
@@ -7691,11 +7691,11 @@ impl eframe::App for LaserBurnApp {
 
                     ui.add_space(8.0);
                     ui.separator();
-                    ui.label(egui::RichText::new("Save Current Settings as New Profile:").strong());
+                    ui.label(egui::RichText::new(tr("Save Current Settings as New Profile:")).strong());
                     ui.horizontal(|ui| {
                         ui.text_edit_singleline(&mut self.profile_new_name);
                         let can_save = !self.profile_new_name.trim().is_empty();
-                        if ui.add_enabled(can_save, egui::Button::new("Save as New Profile")).clicked() {
+                        if ui.add_enabled(can_save, egui::Button::new(tr("Save as New Profile"))).clicked() {
                             let trimmed = self.profile_new_name.trim().to_string();
                             self.device.settings.save_current_as_profile(&trimmed);
                             let _ = self.device.settings.save();
@@ -7706,7 +7706,7 @@ impl eframe::App for LaserBurnApp {
 
                     ui.add_space(8.0);
                     ui.separator();
-                    if ui.button("Close").clicked() {
+                    if ui.button(tr("Close")).clicked() {
                         close_profiles = true;
                     }
                 });
@@ -7828,19 +7828,19 @@ impl eframe::App for LaserBurnApp {
                     ui.add_space(4.0);
 
                     ui.horizontal(|ui| {
-                        ui.label("Controller Type:");
+                        ui.label(tr("Controller Type:"));
                         egui::ComboBox::from_id_salt("conn_controller_picker")
-                            .selected_text(self.device.controller_type.name())
+                            .selected_text(tr(self.device.controller_type.name()))
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.device.controller_type, crate::device::ControllerType::Grbl, crate::device::ControllerType::Grbl.name());
-                                ui.selectable_value(&mut self.device.controller_type, crate::device::ControllerType::Smoothieware, crate::device::ControllerType::Smoothieware.name());
-                                ui.selectable_value(&mut self.device.controller_type, crate::device::ControllerType::RuidaUdp, crate::device::ControllerType::RuidaUdp.name());
-                                ui.selectable_value(&mut self.device.controller_type, crate::device::ControllerType::VirtualDemo, crate::device::ControllerType::VirtualDemo.name());
+                                ui.selectable_value(&mut self.device.controller_type, crate::device::ControllerType::Grbl, tr(crate::device::ControllerType::Grbl.name()));
+                                ui.selectable_value(&mut self.device.controller_type, crate::device::ControllerType::Smoothieware, tr(crate::device::ControllerType::Smoothieware.name()));
+                                ui.selectable_value(&mut self.device.controller_type, crate::device::ControllerType::RuidaUdp, tr(crate::device::ControllerType::RuidaUdp.name()));
+                                ui.selectable_value(&mut self.device.controller_type, crate::device::ControllerType::VirtualDemo, tr(crate::device::ControllerType::VirtualDemo.name()));
                             });
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Port:");
+                        ui.label(tr("Port:"));
                         if self.available_ports.is_empty() {
                             self.available_ports = crate::device::DeviceManager::scan_available_ports();
                         }
@@ -7850,14 +7850,14 @@ impl eframe::App for LaserBurnApp {
                         }
 
                         egui::ComboBox::from_id_salt("conn_port_picker")
-                            .selected_text(if self.device.selected_port.is_empty() { "Select port..." } else { &self.device.selected_port })
+                            .selected_text(if self.device.selected_port.is_empty() { tr("Select port...") } else { &self.device.selected_port })
                             .show_ui(ui, |ui| {
                                 for p in &self.available_ports {
                                     ui.selectable_value(&mut self.device.selected_port, p.clone(), p);
                                 }
                             });
 
-                        if ui.button("Scan Ports").on_hover_text("Refresh connected USB serial ports").clicked() {
+                        if ui.button(tr("Scan Ports")).on_hover_text(tr("Refresh connected USB serial ports")).clicked() {
                             self.available_ports = crate::device::DeviceManager::scan_available_ports();
                             if !self.available_ports.is_empty() {
                                 self.device.selected_port = self.available_ports[0].clone();
@@ -7866,11 +7866,11 @@ impl eframe::App for LaserBurnApp {
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Baud Rate:");
+                        ui.label(tr("Baud Rate:"));
                         egui::ComboBox::from_id_salt("conn_baud_picker")
                             .selected_text(format!("{}", self.device.selected_baud))
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.device.selected_baud, 115200, "115200 (GRBL standard)");
+                                ui.selectable_value(&mut self.device.selected_baud, 115200, tr("115200 (GRBL standard)"));
                                 ui.selectable_value(&mut self.device.selected_baud, 250000, "250000");
                                 ui.selectable_value(&mut self.device.selected_baud, 9600, "9600");
                                 ui.selectable_value(&mut self.device.selected_baud, 57600, "57600");
@@ -7878,24 +7878,24 @@ impl eframe::App for LaserBurnApp {
                     });
 
                     ui.add_space(4.0);
-                    ui.checkbox(&mut self.device.settings.auto_connect, "Auto-connect to this port on startup");
+                    ui.checkbox(&mut self.device.settings.auto_connect, tr("Auto-connect to this port on startup"));
 
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         let is_conn = self.device.status == crate::device::ConnectionStatus::Connected;
                         if is_conn {
                             if self.device.is_physically_connected() {
-                                ui.label(egui::RichText::new("CONNECTED (USB)").strong().color(c_green));
+                                ui.label(egui::RichText::new(tr("CONNECTED (USB)")).strong().color(c_green));
                             } else {
-                                ui.label(egui::RichText::new("SIMULATOR (DEMO)").strong().color(c_orange));
+                                ui.label(egui::RichText::new(tr("SIMULATOR (DEMO)")).strong().color(c_orange));
                             }
-                            if ui.button("Disconnect").clicked() {
+                            if ui.button(tr("Disconnect")).clicked() {
                                 self.device.disconnect();
                             }
                         } else {
-                            ui.colored_label(egui::Color32::RED, "NOT CONNECTED");
+                            ui.colored_label(egui::Color32::RED, tr("NOT CONNECTED"));
                             let conn_btn = egui::Button::new(
-                                egui::RichText::new(" Connect to Device ").strong().color(egui::Color32::WHITE),
+                                egui::RichText::new(tr(" Connect to Device ")).strong().color(egui::Color32::WHITE),
                             ).fill(egui::Color32::from_rgb(0, 140, 255));
                             if ui.add(conn_btn).clicked() {
                                 let port = self.device.selected_port.clone();
@@ -7904,17 +7904,17 @@ impl eframe::App for LaserBurnApp {
                             }
                         }
 
-                        if ui.button("Save Connection").on_hover_text("Save this port as default for startup").clicked() {
+                        if ui.button(tr("Save Connection")).on_hover_text(tr("Save this port as default for startup")).clicked() {
                             self.device.settings.default_port = self.device.selected_port.clone();
                             self.device.settings.default_baud = self.device.selected_baud;
                             let _ = self.device.settings.save();
-                            self.status_msg = "Connection settings saved (~/.config/laser_burn/settings.json)".to_string();
+                            self.status_msg = tr("Connection settings saved (~/.config/laser_burn/settings.json)").to_string();
                         }
                     });
 
                     ui.add_space(6.0);
                     ui.separator();
-                    ui.label(egui::RichText::new("G-Code Console & Log Terminal:").strong());
+                    ui.label(egui::RichText::new(tr("G-Code Console & Log Terminal:")).strong());
 
                     egui::ScrollArea::vertical()
                         .max_height(200.0)
@@ -7938,7 +7938,7 @@ impl eframe::App for LaserBurnApp {
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         let text_edit = ui.text_edit_singleline(&mut self.command_input);
-                        let send_pressed = ui.button("Send").clicked() || (text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                        let send_pressed = ui.button(tr("Send")).clicked() || (text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
                         if send_pressed && !self.command_input.trim().is_empty() {
                             let cmd = self.command_input.trim().to_string();
                             self.device.send_raw(&cmd);
@@ -7946,32 +7946,32 @@ impl eframe::App for LaserBurnApp {
                             text_edit.request_focus();
                         }
 
-                        if ui.button("Clear Log").clicked() {
+                        if ui.button(tr("Clear Log")).clicked() {
                             self.device.console_history.clear();
                         }
                     });
 
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        ui.label("Quick Commands:");
-                        if ui.button("$$").on_hover_text("Show GRBL settings").clicked() {
+                        ui.label(tr("Quick Commands:"));
+                        if ui.button("$$").on_hover_text(tr("Show GRBL settings")).clicked() {
                             self.device.send_raw("$$");
                         }
-                        if ui.button("?").on_hover_text("Query device status and coordinates").clicked() {
+                        if ui.button("?").on_hover_text(tr("Query device status and coordinates")).clicked() {
                             self.device.send_raw("?");
                         }
-                        if ui.button("$10=19").on_hover_text("Enable pin reporting ($10=19)").clicked() {
+                        if ui.button("$10=19").on_hover_text(tr("Enable pin reporting ($10=19)")).clicked() {
                             self.device.send_raw("$10=19");
                         }
-                        if ui.button("$21=1").on_hover_text("Enable hard limit protection ($21=1)").clicked() {
+                        if ui.button("$21=1").on_hover_text(tr("Enable hard limit protection ($21=1)")).clicked() {
                             self.device.send_raw("$21=1");
                         }
                         if self.device.settings.enable_limit_switches {
-                            if ui.button("$H").on_hover_text("Home machine ($H)").clicked() {
+                            if ui.button("$H").on_hover_text(tr("Home machine ($H)")).clicked() {
                                 self.device.home();
                             }
                         }
-                        if ui.button("$X").on_hover_text("Unlock alarm ($X)").clicked() {
+                        if ui.button("$X").on_hover_text(tr("Unlock alarm ($X)")).clicked() {
                             self.device.send_raw("$X");
                             self.device.send_raw("$21=1");
                         }

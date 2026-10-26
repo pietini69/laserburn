@@ -411,6 +411,41 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Sent $10=19 and $21=1 to GRBL" => "Lähetetty $10=19 ja $21=1 GRBL:lle",
         "Homography alignment solved & saved! Bed overlay is now active." => "Kameran kohdistus laskettu ja tallennettu! Taustakuva on aktiivinen.",
 
+        // Connection & Console Window
+        "Controller Type:" => "Ohjaimen tyyppi:",
+        "Port:" => "Portti:",
+        "Select port..." => "Valitse portti...",
+        "Scan Ports" => "Etsi portteja",
+        "Refresh connected USB serial ports" => "Päivitä liitetyt USB-sarjaportit",
+        "Baud Rate:" => "Tiedonsiirtonopeus:",
+        "115200 (GRBL standard)" => "115200 (GRBL-standardi)",
+        "Auto-connect to this port on startup" => "Yhdistä automaattisesti tähän porttiin käynnistettäessä",
+        "CONNECTED (USB)" => "YHDISTETTY (USB)",
+        "SIMULATOR (DEMO)" => "SIMULAATTORI (DEMO)",
+        "NOT CONNECTED" => "EI YHTEYTTÄ",
+        " Connect to Device " => " Yhdistä laitteeseen ",
+        "Save Connection" => "Tallenna yhteys",
+        "Save this port as default for startup" => "Tallenna tämä portti käynnistysoletukseksi",
+        "G-Code Console & Log Terminal:" => "G-koodikonsoli ja lokipääte:",
+        "Clear Log" => "Tyhjennä loki",
+        "Quick Commands:" => "Pikakomennot:",
+        "Show GRBL settings" => "Näytä GRBL-asetukset",
+        "Query device status and coordinates" => "Kysy laitteen tila ja koordinaatit",
+        "Enable pin reporting ($10=19)" => "Ota pinnitilaraportointi käyttöön ($10=19)",
+        "Enable hard limit protection ($21=1)" => "Ota fyysiset rajat käyttöön ($21=1)",
+        "Connect laser first (Connection Settings)!" => "Yhdistä laser ensin (Yhteysasetukset)!",
+        "Device connection & serial console" => "Laiteyhteys ja sarjakonsoli",
+        "Open device connection & console window" => "Avaa laiteyhteys- ja konsoli-ikkuna",
+        "Toggle live Serial / G-code Data Traffic Log panel" => "Avaa/sulje sarjaliikenneloki",
+        "Home laser machine to physical switches ($H)" => "Aja laser kotiin fyysisiin rajakytkimiin ($H)",
+        "Virtual Device (Simulator)" => "Virtuaalilaite (Simulaattori)",
+
+        // Machine Profiles Window
+        "Save and switch between different laser cutters and engravers with distinct bed sizes, origins, and laser types." => "Tallenna ja vaihda eri laserleikkurien ja -kaivertimien välillä (työalueen koko, origo ja lasertyyppi).",
+        "Save Current Settings as New Profile:" => "Tallenna nykyiset asetukset uutena profiilina:",
+        "Save as New Profile" => "Tallenna uutena profiilina",
+        "● ACTIVE" => "● AKTIIVINEN",
+
         // Fallback: return original key
         _ => key,
     }
