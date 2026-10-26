@@ -39,6 +39,8 @@ pub enum FileDialogAction {
     BrowseFont(std::path::PathBuf),
     ExportSettings(std::path::PathBuf),
     ImportSettings(std::path::PathBuf),
+    ExportMaterialLibrary(std::path::PathBuf),
+    ImportMaterialLibrary(std::path::PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,6 +183,24 @@ pub struct LaserBurnApp {
     // macOS Apple Shortcuts list
     #[cfg(target_os = "macos")]
     pub available_shortcuts: Vec<String>,
+
+    // Material Library & Database State
+    pub material_lib: crate::material::MaterialLibrary,
+    pub show_material_library: bool,
+    pub mat_lib_search: String,
+    pub mat_lib_category_filter: String,
+    pub mat_lib_selected_material: Option<String>,
+    pub mat_lib_selected_thickness: Option<f64>,
+    pub mat_lib_selected_op: Option<String>,
+
+    // Save Layer to Library Modal Dialog State
+    pub show_save_material_dialog: bool,
+    pub save_mat_category: String,
+    pub save_mat_name: String,
+    pub save_mat_thickness_mm: f64,
+    pub save_mat_thickness_label: String,
+    pub save_mat_op_name: String,
+    pub save_mat_notes: String,
 }
 
 #[cfg(feature = "gui")]
@@ -271,6 +291,20 @@ impl Default for LaserBurnApp {
             explain_traffic_codes: true,
             #[cfg(target_os = "macos")]
             available_shortcuts: Vec::new(),
+            material_lib: crate::material::MaterialLibrary::load_or_default(),
+            show_material_library: false,
+            mat_lib_search: String::new(),
+            mat_lib_category_filter: "All Categories".to_string(),
+            mat_lib_selected_material: None,
+            mat_lib_selected_thickness: None,
+            mat_lib_selected_op: None,
+            show_save_material_dialog: false,
+            save_mat_category: "Wood & Plywood".to_string(),
+            save_mat_name: "Birch Plywood".to_string(),
+            save_mat_thickness_mm: 3.0,
+            save_mat_thickness_label: "3.0 mm".to_string(),
+            save_mat_op_name: "Clean Cut".to_string(),
+            save_mat_notes: String::new(),
             file_dialog_tx,
             file_dialog_rx,
         };
@@ -1022,6 +1056,43 @@ impl LaserBurnApp {
                     .await
                 {
                     let _ = tx.send(FileDialogAction::ImportSettings(handle.path().to_path_buf()));
+                    ctx.request_repaint();
+                }
+            });
+        });
+    }
+
+    /// Asynchronously prompts the user to export the Material Library to a JSON file
+    pub fn prompt_export_material_library(&self, ctx: &egui::Context) {
+        let tx = self.file_dialog_tx.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            pollster::block_on(async move {
+                if let Some(handle) = rfd::AsyncFileDialog::new()
+                    .add_filter("LaserBurn Material Library (*.json)", &["json"])
+                    .set_file_name("LaserBurn_materials.json")
+                    .save_file()
+                    .await
+                {
+                    let _ = tx.send(FileDialogAction::ExportMaterialLibrary(handle.path().to_path_buf()));
+                    ctx.request_repaint();
+                }
+            });
+        });
+    }
+
+    /// Asynchronously prompts the user to import a Material Library from JSON or LightBurn .clb
+    pub fn prompt_import_material_library(&self, ctx: &egui::Context) {
+        let tx = self.file_dialog_tx.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            pollster::block_on(async move {
+                if let Some(handle) = rfd::AsyncFileDialog::new()
+                    .add_filter("Material Libraries (*.json, *.clb)", &["json", "clb"])
+                    .pick_file()
+                    .await
+                {
+                    let _ = tx.send(FileDialogAction::ImportMaterialLibrary(handle.path().to_path_buf()));
                     ctx.request_repaint();
                 }
             });
@@ -2114,6 +2185,497 @@ impl LaserBurnApp {
             egui::Color32::from_rgb(200, 25, 25)
         }
     }
+
+    /// Opens the Save Preset dialog, pre-populating fields with active layer info
+    pub fn open_save_layer_dialog(&mut self) {
+        if let Some(layer) = self.doc.layers.get(&self.selected_layer) {
+            if !layer.name.is_empty() && layer.name != format!("L{:02}", self.selected_layer) {
+                self.save_mat_name = layer.name.clone();
+            } else {
+                self.save_mat_name = "Custom Material".to_string();
+            }
+            self.save_mat_op_name = match layer.cut_setting.mode {
+                crate::document::CutMode::Line => "Cut".to_string(),
+                crate::document::CutMode::Fill => "Engrave".to_string(),
+                crate::document::CutMode::OffsetFill => "Offset Fill Engrave".to_string(),
+                crate::document::CutMode::Image => "Photo Engrave".to_string(),
+            };
+        }
+        self.show_save_material_dialog = true;
+    }
+
+    /// Renders the Material Library & Database window
+    pub fn show_material_library_window(&mut self, ctx: &egui::Context) {
+        if !self.show_material_library {
+            return;
+        }
+
+        let mut is_open = true;
+        let mut op_to_apply: Option<crate::material::MaterialOperation> = None;
+        let mut op_to_delete: Option<(String, f64, String)> = None;
+        let mut test_grid_params: Option<(f64, f64, bool)> = None;
+        let mut open_save_dialog = false;
+        let mut do_reset_defaults = false;
+        let mut new_selection: Option<(String, f64, String)> = None;
+        let mut do_prompt_export = false;
+        let mut do_prompt_import = false;
+
+        let mut search = std::mem::take(&mut self.mat_lib_search);
+        let mut cat_filter = std::mem::take(&mut self.mat_lib_category_filter);
+        let selected_mat = self.mat_lib_selected_material.clone();
+        let selected_thick = self.mat_lib_selected_thickness;
+        let selected_op = self.mat_lib_selected_op.clone();
+
+        let active_layer_label = if let Some(layer) = self.doc.layers.get(&self.selected_layer) {
+            layer.display_label()
+        } else {
+            format!("Layer L{:02}", self.selected_layer)
+        };
+
+        let color_blue = self.color_blue();
+
+        egui::Window::new("📚 Material Library & Database")
+            .open(&mut is_open)
+            .default_size([760.0, 520.0])
+            .min_width(620.0)
+            .min_height(400.0)
+            .resizable(true)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                // Top Bar: Search, Category Filter, and Action Buttons
+                ui.horizontal(|ui| {
+                    ui.label("🔍");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut search)
+                            .hint_text("Search materials, operations...")
+                            .desired_width(170.0),
+                    );
+                    if !search.is_empty() {
+                        if ui.small_button("✖").clicked() {
+                            search.clear();
+                        }
+                    }
+
+                    ui.separator();
+
+                    let categories = self.material_lib.categories();
+                    egui::ComboBox::from_id_salt("mat_lib_cat_filter_cb")
+                        .selected_text(&cat_filter)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut cat_filter, "All Categories".to_string(), "All Categories");
+                            for cat in &categories {
+                                ui.selectable_value(&mut cat_filter, cat.clone(), cat);
+                            }
+                        });
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("↺ Reset Defaults").on_hover_text("Restore factory default materials (Plywood, Tiles, Acrylic, Slate, etc.)").clicked() {
+                            do_reset_defaults = true;
+                        }
+                        if ui.button("📤 Export JSON").on_hover_text("Export this material database to a .json file").clicked() {
+                            do_prompt_export = true;
+                        }
+                        if ui.button("📥 Import (.json / .clb)").on_hover_text("Import materials from LaserBurn JSON or LightBurn .clb library").clicked() {
+                            do_prompt_import = true;
+                        }
+                        if ui.button("➕ Save Active Layer").on_hover_text("Save current selected layer's cut settings as a new preset").clicked() {
+                            open_save_dialog = true;
+                        }
+                    });
+                });
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                let search_term = search.trim().to_lowercase();
+
+                // 2-Panel Layout: Left Tree List, Right Detail & Actions
+                ui.horizontal(|ui| {
+                    // LEFT COLUMN
+                    ui.allocate_ui_with_layout(egui::Vec2::new(280.0, ui.available_height()), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        ui.heading("Materials");
+                        egui::ScrollArea::vertical()
+                            .id_salt("mat_lib_tree_scroll")
+                            .max_height(420.0)
+                            .show(ui, |ui| {
+                                if self.material_lib.materials.is_empty() {
+                                    ui.label("No materials in database.");
+                                    return;
+                                }
+
+                                if !search_term.is_empty() {
+                                    // Flattened search result list
+                                    let mut match_count = 0;
+                                    for mat in &self.material_lib.materials {
+                                        if cat_filter != "All Categories" && !mat.category.eq_ignore_ascii_case(&cat_filter) {
+                                            continue;
+                                        }
+                                        for thick in &mat.thicknesses {
+                                            for op in &thick.operations {
+                                                let text = format!("{} {} {} {}", mat.name, mat.category, thick.label, op.name).to_lowercase();
+                                                if text.contains(&search_term) {
+                                                    match_count += 1;
+                                                    let is_sel = selected_mat.as_deref() == Some(&mat.name)
+                                                        && selected_thick == Some(thick.thickness_mm)
+                                                        && selected_op.as_deref() == Some(&op.name);
+
+                                                    let icon = match op.cut_setting.mode {
+                                                        crate::document::CutMode::Line => "✂",
+                                                        crate::document::CutMode::Fill => "⬛",
+                                                        crate::document::CutMode::OffsetFill => "🔲",
+                                                        crate::document::CutMode::Image => "🖼",
+                                                    };
+
+                                                    if ui.selectable_label(is_sel, format!("{} {}", icon, op.name)).clicked() {
+                                                        new_selection = Some((mat.name.clone(), thick.thickness_mm, op.name.clone()));
+                                                    }
+                                                    ui.label(egui::RichText::new(format!("  {} • {}", mat.name, thick.label)).small().weak());
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if match_count == 0 {
+                                        ui.label(egui::RichText::new("No matching presets found.").weak());
+                                    }
+                                } else {
+                                    // Categorized hierarchy tree
+                                    let mut categories_map: std::collections::BTreeMap<String, Vec<&crate::material::MaterialEntry>> = std::collections::BTreeMap::new();
+                                    for mat in &self.material_lib.materials {
+                                        if cat_filter != "All Categories" && !mat.category.eq_ignore_ascii_case(&cat_filter) {
+                                            continue;
+                                        }
+                                        categories_map.entry(mat.category.clone()).or_default().push(mat);
+                                    }
+
+                                    for (category, mats) in categories_map {
+                                        ui.collapsing(egui::RichText::new(&category).strong().color(color_blue), |ui| {
+                                            for mat in mats {
+                                                ui.collapsing(egui::RichText::new(&mat.name).strong(), |ui| {
+                                                    for thick in &mat.thicknesses {
+                                                        ui.horizontal(|ui| {
+                                                            ui.add_space(4.0);
+                                                            ui.label(egui::RichText::new(&thick.label).small().weak());
+                                                        });
+                                                        for op in &thick.operations {
+                                                            let is_sel = selected_mat.as_deref() == Some(&mat.name)
+                                                                && selected_thick == Some(thick.thickness_mm)
+                                                                && selected_op.as_deref() == Some(&op.name);
+
+                                                            ui.horizontal(|ui| {
+                                                                ui.add_space(12.0);
+                                                                let icon = match op.cut_setting.mode {
+                                                                    crate::document::CutMode::Line => "✂",
+                                                                    crate::document::CutMode::Fill => "⬛",
+                                                                    crate::document::CutMode::OffsetFill => "🔲",
+                                                                    crate::document::CutMode::Image => "🖼",
+                                                                };
+                                                                if ui.selectable_label(is_sel, format!("{} {}", icon, op.name)).clicked() {
+                                                                    new_selection = Some((mat.name.clone(), thick.thickness_mm, op.name.clone()));
+                                                                }
+                                                            });
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                        });
+                                    }
+                                }
+                            });
+                    });
+
+                    ui.separator();
+
+                    // RIGHT COLUMN
+                    ui.allocate_ui_with_layout(egui::Vec2::new(ui.available_width(), ui.available_height()), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        let selected_data = if let (Some(ref mat_name), Some(thick_mm), Some(ref op_name)) = (
+                            &selected_mat,
+                            selected_thick,
+                            &selected_op,
+                        ) {
+                            if let Some(mat) = self.material_lib.find_material(mat_name) {
+                                if let Some(thick) = mat.find_thickness(thick_mm) {
+                                    if let Some(op) = thick.find_operation(op_name) {
+                                        Some((mat.clone(), thick.clone(), op.clone()))
+                                    } else { None }
+                                } else { None }
+                            } else { None }
+                        } else {
+                            None
+                        };
+
+                        if let Some((mat, thick, op)) = selected_data {
+                            ui.horizontal(|ui| {
+                                ui.heading(&op.name);
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.small_button("🗑 Delete Preset").on_hover_text("Delete this preset from library").clicked() {
+                                        op_to_delete = Some((mat.name.clone(), thick.thickness_mm, op.name.clone()));
+                                    }
+                                });
+                            });
+                            ui.label(egui::RichText::new(format!("{} • {} ({})", mat.name, thick.label, mat.category)).small().weak());
+
+                            ui.add_space(6.0);
+                            ui.separator();
+                            ui.add_space(4.0);
+
+                            // Cut Parameters Grid
+                            egui::Grid::new("mat_lib_detail_grid")
+                                .num_columns(2)
+                                .spacing([12.0, 6.0])
+                                .show(ui, |ui| {
+                                    ui.label(egui::RichText::new("Cut Mode:").strong());
+                                    let mode_desc = match op.cut_setting.mode {
+                                        crate::document::CutMode::Line => "Line (Vector Cut / Outline Score)",
+                                        crate::document::CutMode::Fill => "Fill (Vector Raster Engrave)",
+                                        crate::document::CutMode::OffsetFill => "Offset Fill (Concentric Contour Engrave)",
+                                        crate::document::CutMode::Image => "Image (Dithered Photographic Burn)",
+                                    };
+                                    ui.label(mode_desc);
+                                    ui.end_row();
+
+                                    ui.label(egui::RichText::new("Laser Speed:").strong());
+                                    ui.label(format!("{:.1} mm/s  ({:.0} mm/min)", op.cut_setting.speed, op.cut_setting.speed * 60.0));
+                                    ui.end_row();
+
+                                    ui.label(egui::RichText::new("Laser Power:").strong());
+                                    if (op.cut_setting.power_max - op.cut_setting.power_min).abs() > 0.01 && op.cut_setting.mode == crate::document::CutMode::Image {
+                                        ui.label(format!("{:.1}% - {:.1}% (Grayscale PWM)", op.cut_setting.power_min, op.cut_setting.power_max));
+                                    } else {
+                                        ui.label(format!("{:.1}%", op.cut_setting.power_max));
+                                    }
+                                    ui.end_row();
+
+                                    ui.label(egui::RichText::new("Passes:").strong());
+                                    ui.label(format!("{}", op.cut_setting.num_passes));
+                                    ui.end_row();
+
+                                    ui.label(egui::RichText::new("Air Assist:").strong());
+                                    if op.cut_setting.air_assist {
+                                        ui.label(egui::RichText::new("Enabled (ON)").color(egui::Color32::from_rgb(100, 220, 100)));
+                                    } else {
+                                        ui.label(egui::RichText::new("Disabled (OFF)").weak());
+                                    }
+                                    ui.end_row();
+
+                                    if op.cut_setting.kerf > 0.0 {
+                                        ui.label(egui::RichText::new("Kerf Compensation:").strong());
+                                        ui.label(format!("{:.3} mm (±{:.3} mm offset)", op.cut_setting.kerf, op.cut_setting.kerf * 0.5));
+                                        ui.end_row();
+                                    }
+
+                                    if op.cut_setting.mode == crate::document::CutMode::Fill || op.cut_setting.mode == crate::document::CutMode::Image {
+                                        ui.label(egui::RichText::new("Line Interval:").strong());
+                                        let dpi = if op.cut_setting.line_interval > 0.001 { (25.4 / op.cut_setting.line_interval).round() as i32 } else { 318 };
+                                        ui.label(format!("{:.3} mm (~{} DPI)", op.cut_setting.line_interval, dpi));
+                                        ui.end_row();
+                                    }
+
+                                    if op.cut_setting.mode == crate::document::CutMode::Image {
+                                        ui.label(egui::RichText::new("Dither Algorithm:").strong());
+                                        ui.label(format!("{:?}", op.cut_setting.dither_mode));
+                                        ui.end_row();
+                                    }
+                                });
+
+                            if !op.notes.is_empty() {
+                                ui.add_space(8.0);
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new("💡 Tips & Operator Notes:").strong());
+                                    ui.label(egui::RichText::new(&op.notes).small());
+                                });
+                            }
+
+                            ui.add_space(14.0);
+                            ui.separator();
+                            ui.add_space(6.0);
+
+                            // Action Buttons
+                            let apply_btn = egui::Button::new(
+                                egui::RichText::new(format!(" ⬇ Apply to Active Layer ({}) ", active_layer_label))
+                                    .strong()
+                                    .color(egui::Color32::WHITE),
+                            ).fill(egui::Color32::from_rgb(34, 139, 34));
+
+                            if ui.add(apply_btn).on_hover_text("Copy these speed, power, pass, and kerf settings to your currently active layer").clicked() {
+                                op_to_apply = Some(op.clone());
+                            }
+
+                            ui.add_space(6.0);
+
+                            if ui.button("🧪 Generate Material Test Grid Around Settings")
+                                .on_hover_text("Open Material Test Generator prepopulated with speed and power centered around this preset")
+                                .clicked()
+                            {
+                                test_grid_params = Some((op.cut_setting.speed, op.cut_setting.power_max, op.cut_setting.mode != crate::document::CutMode::Line));
+                            }
+                        } else {
+                            ui.vertical_centered(|ui| {
+                                ui.add_space(80.0);
+                                ui.heading("Select a Preset");
+                                ui.label("Click on any material operation on the left to preview its cut settings, apply it to your layer, or calibrate with a test grid.");
+                                ui.add_space(20.0);
+                                let total_mats = self.material_lib.materials.len();
+                                let total_ops: usize = self.material_lib.materials.iter().map(|m| m.thicknesses.iter().map(|t| t.operations.len()).sum::<usize>()).sum();
+                                ui.label(egui::RichText::new(format!("Current database: {} materials, {} calibrated presets", total_mats, total_ops)).weak().small());
+                            });
+                        }
+                    });
+                });
+            });
+
+        self.mat_lib_search = search;
+        self.mat_lib_category_filter = cat_filter;
+        self.show_material_library = is_open;
+
+        if let Some((mat, thick, op)) = new_selection {
+            self.mat_lib_selected_material = Some(mat);
+            self.mat_lib_selected_thickness = Some(thick);
+            self.mat_lib_selected_op = Some(op);
+        }
+
+        if let Some(op) = op_to_apply {
+            if let Some(layer) = self.doc.layers.get_mut(&self.selected_layer) {
+                op.apply_to_layer(layer);
+                self.doc_version = self.doc_version.wrapping_add(1);
+                self.image_textures.clear();
+                self.status_msg = format!("Applied preset \"{}\" to Layer L{:02}", op.name, self.selected_layer);
+            }
+        }
+
+        if let Some((mat, thick, op)) = op_to_delete {
+            self.material_lib.delete_operation(&mat, thick, &op);
+            let _ = self.material_lib.save();
+            self.mat_lib_selected_op = None;
+            self.status_msg = format!("Deleted preset \"{}\" from Material Library", op);
+        }
+
+        if let Some((spd, pwr, is_engrave)) = test_grid_params {
+            self.mat_test_min_speed = (spd * 0.5).max(1.0).round();
+            self.mat_test_max_speed = (spd * 1.5).round();
+            self.mat_test_min_power = (pwr * 0.5).max(10.0).round();
+            self.mat_test_max_power = (pwr * 1.25).min(100.0).round();
+            self.mat_test_is_engrave = is_engrave;
+            self.show_material_test_window = true;
+            self.status_msg = "Configured Material Test Grid centered around preset settings".to_string();
+        }
+
+        if open_save_dialog {
+            self.open_save_layer_dialog();
+        }
+
+        if do_reset_defaults {
+            self.material_lib = crate::material::MaterialLibrary::default_library();
+            let _ = self.material_lib.save();
+            self.status_msg = "Material library reset to factory defaults".to_string();
+        }
+
+        if do_prompt_export {
+            self.prompt_export_material_library(ctx);
+        }
+
+        if do_prompt_import {
+            self.prompt_import_material_library(ctx);
+        }
+    }
+
+    /// Renders the Save Layer to Material Library modal dialog
+    pub fn show_save_material_dialog_window(&mut self, ctx: &egui::Context) {
+        if !self.show_save_material_dialog {
+            return;
+        }
+
+        let mut is_open = true;
+        let mut do_save = false;
+        let mut cancel_clicked = false;
+
+        let layer_info = if let Some(layer) = self.doc.layers.get(&self.selected_layer) {
+            format!("Layer L{:02} ({:.1} mm/s, {:.0}% Power, {} Passes)", self.selected_layer, layer.cut_setting.speed, layer.cut_setting.power_max, layer.cut_setting.num_passes)
+        } else {
+            "No active layer".to_string()
+        };
+
+        egui::Window::new("Save Layer to Material Library")
+            .open(&mut is_open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(380.0)
+            .show(ctx, |ui| {
+                ui.heading("Save Preset to Library");
+                ui.label(egui::RichText::new("Saves the active layer's cut speed, power, passes, and air assist into your material database.").small().weak());
+                ui.add_space(6.0);
+
+                ui.label(egui::RichText::new(layer_info).strong().color(egui::Color32::from_rgb(100, 200, 255)));
+                ui.add_space(6.0);
+
+                egui::Grid::new("save_mat_grid")
+                    .num_columns(2)
+                    .spacing([10.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label("Category:");
+                        ui.add(egui::TextEdit::singleline(&mut self.save_mat_category).desired_width(180.0));
+                        ui.end_row();
+
+                        ui.label("Material Name:");
+                        ui.add(egui::TextEdit::singleline(&mut self.save_mat_name).desired_width(180.0));
+                        ui.end_row();
+
+                        ui.label("Thickness (mm):");
+                        ui.add(egui::DragValue::new(&mut self.save_mat_thickness_mm).speed(0.1).range(0.0..=50.0).suffix(" mm"));
+                        ui.end_row();
+
+                        ui.label("Thickness Label:");
+                        ui.add(egui::TextEdit::singleline(&mut self.save_mat_thickness_label).desired_width(180.0));
+                        ui.end_row();
+
+                        ui.label("Operation Name:");
+                        ui.add(egui::TextEdit::singleline(&mut self.save_mat_op_name).desired_width(180.0));
+                        ui.end_row();
+
+                        ui.label("Notes / Tips:");
+                        ui.add(egui::TextEdit::multiline(&mut self.save_mat_notes).desired_rows(3).desired_width(180.0));
+                        ui.end_row();
+                    });
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    let save_btn = egui::Button::new(egui::RichText::new(" Save Preset ").strong().color(egui::Color32::WHITE))
+                        .fill(egui::Color32::from_rgb(34, 139, 34));
+                    if ui.add(save_btn).clicked() {
+                        do_save = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel_clicked = true;
+                    }
+                });
+            });
+
+        if cancel_clicked {
+            is_open = false;
+        }
+
+        if do_save {
+            if let Some(layer) = self.doc.layers.get(&self.selected_layer) {
+                let op = crate::material::MaterialOperation::from_layer(&self.save_mat_op_name, layer, &self.save_mat_notes);
+                self.material_lib.add_or_update_operation(
+                    &self.save_mat_category,
+                    &self.save_mat_name,
+                    self.save_mat_thickness_mm,
+                    &self.save_mat_thickness_label,
+                    op,
+                );
+                let _ = self.material_lib.save();
+                self.status_msg = format!("Saved preset \"{}\" to Material Library!", self.save_mat_op_name);
+                self.mat_lib_selected_material = Some(self.save_mat_name.clone());
+                self.mat_lib_selected_thickness = Some(self.save_mat_thickness_mm);
+                self.mat_lib_selected_op = Some(self.save_mat_op_name.clone());
+                is_open = false;
+            }
+        }
+
+        self.show_save_material_dialog = is_open;
+    }
 }
 
 #[cfg(feature = "gui")]
@@ -2347,6 +2909,29 @@ impl eframe::App for LaserBurnApp {
                             } else {
                                 self.status_msg = "Error: Unrecognized settings file format".to_string();
                             }
+                        }
+                        Err(e) => {
+                            self.status_msg = format!("Import Error: {}", e);
+                        }
+                    }
+                }
+                FileDialogAction::ExportMaterialLibrary(path) => {
+                    match self.material_lib.save_to_path(&path) {
+                        Ok(_) => {
+                            self.status_msg = format!("Material library exported to {}", path.file_name().unwrap_or_default().to_string_lossy());
+                        }
+                        Err(e) => {
+                            self.status_msg = format!("Export Error: {}", e);
+                        }
+                    }
+                }
+                FileDialogAction::ImportMaterialLibrary(path) => {
+                    match crate::material::MaterialLibrary::load_from_any_path(&path) {
+                        Ok(imported) => {
+                            let count = imported.materials.len();
+                            self.material_lib.merge(imported);
+                            let _ = self.material_lib.save();
+                            self.status_msg = format!("Imported & merged {} materials from {}", count, path.file_name().unwrap_or_default().to_string_lossy());
                         }
                         Err(e) => {
                             self.status_msg = format!("Import Error: {}", e);
@@ -2699,6 +3284,10 @@ impl eframe::App for LaserBurnApp {
                 });
 
                 ui.menu_button("Laser", |ui| {
+                    if ui.button("Material Library (Presets)...").clicked() {
+                        self.show_material_library = true;
+                        ui.close_menu();
+                    }
                     if ui.button("Material Test Generator (Power vs. Speed)...").clicked() {
                         self.show_material_test_window = true;
                         ui.close_menu();
@@ -2871,6 +3460,10 @@ impl eframe::App for LaserBurnApp {
                 }
 
                 ui.separator();
+
+                if ui.button("Material Library").on_hover_text("Open Material Library presets (Cut, Engrave, Score for Wood, Tiles, Acrylic, etc.)").clicked() {
+                    self.show_material_library = true;
+                }
 
                 if ui.button("Material Test").on_hover_text("Generate calibrated Power vs. Speed test matrix for tiles or cutting").clicked() {
                     self.show_material_test_window = true;
@@ -3541,6 +4134,9 @@ impl eframe::App for LaserBurnApp {
                     ui.horizontal_wrapped(|ui| {
                         ui.heading("Cut & Layer Settings");
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Library").on_hover_text("Open Material Library presets to apply to this layer or save new presets").clicked() {
+                                self.show_material_library = true;
+                            }
                             if ui.button("Save Palette").on_hover_text("Save current layers & materials as startup default (~/.config/laser_burn/default_layers.json)").clicked() {
                                 if let Err(e) = Document::save_default_layers(&self.doc.layers) {
                                     self.status_msg = format!("Error saving default layers: {}", e);
@@ -3626,6 +4222,8 @@ impl eframe::App for LaserBurnApp {
 
                     // Controls for currently selected layer
                     let mut invalidate_img_preview = false;
+                    let mut open_mat_lib = false;
+                    let mut open_save_mat_dialog = false;
                     if let Some(layer) = self.doc.layers.get_mut(&self.selected_layer) {
                         ui.group(|ui| {
                             if layer.is_tool() {
@@ -3920,8 +4518,24 @@ impl eframe::App for LaserBurnApp {
                                         }
                                     }
                                 }
+
+                                ui.add_space(6.0);
+                                ui.horizontal(|ui| {
+                                    if ui.button("⬇ Assign from Library").on_hover_text("Open Material Library to apply a calibrated preset to this layer").clicked() {
+                                        open_mat_lib = true;
+                                    }
+                                    if ui.button("⬆ Save to Library").on_hover_text("Save this layer's speed, power, and passes into the Material Library").clicked() {
+                                        open_save_mat_dialog = true;
+                                    }
+                                });
                             }
                         });
+                    }
+                    if open_mat_lib {
+                        self.show_material_library = true;
+                    }
+                    if open_save_mat_dialog {
+                        self.open_save_layer_dialog();
                     }
                     if invalidate_img_preview {
                         self.image_textures.clear();
@@ -5918,6 +6532,12 @@ impl eframe::App for LaserBurnApp {
         }
 
         // -------------------------------------------------------------
+        // MATERIAL LIBRARY & PRESET DATABASE WINDOWS
+        // -------------------------------------------------------------
+        self.show_material_library_window(ctx);
+        self.show_save_material_dialog_window(ctx);
+
+        // -------------------------------------------------------------
         // 1. DEVICE CONNECTION & CONSOLE WINDOW
         // -------------------------------------------------------------
         if self.show_connection_window {
@@ -7892,5 +8512,97 @@ mod tests {
         let wp = crate::camera::detect_workpiece_on_bed(&frame, &cal, 400.0, 400.0)
             .expect("Should detect bright ceramic tile on dark bed");
         assert!(wp.width > 50.0 && wp.height > 50.0);
+    }
+
+    #[test]
+    fn test_material_library_gui_apply_and_save() {
+        let mut app = LaserBurnApp::default();
+        assert!(!app.material_lib.materials.is_empty(), "Material library should load factory presets");
+
+        // 1. Verify and apply factory preset to layer 0
+        let birch = app.material_lib.find_material("Birch Plywood (Koivuvaneri)").expect("Must have Birch Plywood");
+        let thick_3 = birch.find_thickness(3.0).expect("Must have 3.0mm thickness");
+        let clean_cut = thick_3.find_operation("Clean Cut").expect("Must have Clean Cut operation");
+
+        if let Some(layer) = app.doc.layers.get_mut(&0) {
+            clean_cut.apply_to_layer(layer);
+            assert_eq!(layer.cut_setting.speed, 3.0);
+            assert_eq!(layer.cut_setting.power_max, 100.0);
+            assert_eq!(layer.cut_setting.num_passes, 2);
+            assert_eq!(layer.cut_setting.air_assist, true);
+        } else {
+            panic!("Layer 0 should exist");
+        }
+
+        // 2. Modify layer 0 and save as new preset via dialog state
+        if let Some(layer) = app.doc.layers.get_mut(&0) {
+            layer.cut_setting.speed = 18.5;
+            layer.cut_setting.power_max = 75.0;
+            layer.name = "Custom Foam".to_string();
+        }
+
+        app.open_save_layer_dialog();
+        assert!(app.show_save_material_dialog);
+        assert_eq!(app.save_mat_name, "Custom Foam");
+
+        app.save_mat_category = "Foam & Sponge".to_string();
+        app.save_mat_thickness_mm = 10.0;
+        app.save_mat_thickness_label = "10.0 mm High Density".to_string();
+        app.save_mat_op_name = "Fast Cut".to_string();
+        app.save_mat_notes = "High air assist required to prevent flame".to_string();
+
+        let layer = app.doc.layers.get(&0).unwrap();
+        let op = crate::material::MaterialOperation::from_layer(&app.save_mat_op_name, layer, &app.save_mat_notes);
+        app.material_lib.add_or_update_operation(
+            &app.save_mat_category,
+            &app.save_mat_name,
+            app.save_mat_thickness_mm,
+            &app.save_mat_thickness_label,
+            op,
+        );
+
+        // Verify newly added preset in library
+        let foam = app.material_lib.find_material("Custom Foam").expect("Custom Foam should exist in library");
+        assert_eq!(foam.category, "Foam & Sponge");
+        let thick_10 = foam.find_thickness(10.0).expect("10mm should exist");
+        let fast_cut = thick_10.find_operation("Fast Cut").expect("Fast Cut operation should exist");
+        assert_eq!(fast_cut.cut_setting.speed, 18.5);
+        assert_eq!(fast_cut.cut_setting.power_max, 75.0);
+    }
+
+    #[test]
+    fn test_material_library_file_dialog_actions() {
+        let mut app = LaserBurnApp::default();
+        let tmp_dir = std::env::temp_dir();
+        let export_target = tmp_dir.join("test_export_materials.json");
+
+        // Send export action
+        app.file_dialog_tx
+            .send(FileDialogAction::ExportMaterialLibrary(export_target.clone()))
+            .unwrap();
+
+        if let Ok(FileDialogAction::ExportMaterialLibrary(path)) = app.file_dialog_rx.try_recv() {
+            assert!(app.material_lib.save_to_path(&path).is_ok());
+            assert!(path.exists());
+
+            // Modify library in memory
+            app.material_lib.materials.clear();
+            assert_eq!(app.material_lib.materials.len(), 0);
+
+            // Send import action
+            app.file_dialog_tx
+                .send(FileDialogAction::ImportMaterialLibrary(path.clone()))
+                .unwrap();
+
+            if let Ok(FileDialogAction::ImportMaterialLibrary(import_path)) = app.file_dialog_rx.try_recv() {
+                let imported = crate::material::MaterialLibrary::load_from_any_path(&import_path).unwrap();
+                app.material_lib.merge(imported);
+                assert!(!app.material_lib.materials.is_empty(), "Library should be restored from imported JSON");
+            }
+
+            let _ = std::fs::remove_file(&path);
+        } else {
+            panic!("Expected ExportMaterialLibrary action from rx");
+        }
     }
 }

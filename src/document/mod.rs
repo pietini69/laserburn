@@ -34,7 +34,7 @@ impl Default for DitherMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GalvoTiming {
     pub laser_on_tc: i32,    // microseconds delay when turning laser on
     pub laser_off_tc: i32,   // microseconds delay when turning laser off
@@ -103,7 +103,7 @@ pub fn default_ceramic_bands() -> Vec<CeramicColorBand> {
     ]
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CutSetting {
     pub name: String,
     pub mode: CutMode,
