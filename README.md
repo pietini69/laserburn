@@ -6,7 +6,7 @@
 [![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-dea584.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)]()
 [![Free Download on Gumroad](https://img.shields.io/badge/Gumroad-Free%20Download-orange.svg)](https://shop.pietiniart.com/l/laserburn)
-[![Buy Me A Coffee](https://img.shields.io/badge/☕%20Buy%20Me%20A%20Coffee-Donate-yellow.svg)](https://shop.pietiniart.com/l/laserburn)
+[![Buy Me A Coffee](https://img.shields.io/badge/☕%20Buy%20Me%20A%20Coffee-Donate-yellow.svg)](https://buymeacoffee.com/pnp69)
 
 **LaserBurn** is an open-source, ultra-lightweight, and fully-featured laser CAM & controller application written from scratch in pure **Rust** (`eframe` / `egui`). 
 
@@ -81,9 +81,11 @@ Pre-built binaries are available for every major platform from [GitHub Releases]
 
 ## ☕ Support the Project
 
-LaserBurn is free and open-source software under the GPLv3 license. If LaserBurn saves you time, money on commercial licenses, or makes your laser workflow smoother, you can support future development by buying a coffee or leaving a tip on Gumroad:
+LaserBurn is free and open-source software under the GPLv3 license. If LaserBurn saves you time, money on commercial licenses, or makes your laser workflow smoother, you can support future development:
 
-👉 **[https://shop.pietiniart.com/l/laserburn](https://shop.pietiniart.com/l/laserburn)**
+☕ **[Buy Me a Coffee (buymeacoffee.com/pnp69)](https://buymeacoffee.com/pnp69)** (Quick tip via Apple Pay, Google Pay, Card or PayPal)
+
+🛒 **[Gumroad Store (shop.pietiniart.com/l/laserburn)](https://shop.pietiniart.com/l/laserburn)**
 
 ---
 
