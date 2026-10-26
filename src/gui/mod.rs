@@ -4001,29 +4001,44 @@ impl eframe::App for LaserBurnApp {
                     let grid_w = 3.0 * btn_size.x + 2.0 * 4.0;
                     let pad = ((ui.available_width() - grid_w) / 2.0).max(0.0);
 
+                    let is_origin_right = matches!(
+                        self.device.settings.origin_corner,
+                        crate::device::OriginCorner::TopRight | crate::device::OriginCorner::BottomRight
+                    );
+                    let is_origin_top = matches!(
+                        self.device.settings.origin_corner,
+                        crate::device::OriginCorner::TopLeft | crate::device::OriginCorner::TopRight
+                    );
+                    let (left_lbl, right_lbl) = if is_origin_right { ("X+", "X-") } else { ("X-", "X+") };
+                    let (up_lbl, down_lbl) = if is_origin_top { ("Y-", "Y+") } else { ("Y+", "Y-") };
+                    let nw_lbl = format!("{}{}", left_lbl, up_lbl);
+                    let ne_lbl = format!("{}{}", right_lbl, up_lbl);
+                    let sw_lbl = format!("{}{}", left_lbl, down_lbl);
+                    let se_lbl = format!("{}{}", right_lbl, down_lbl);
+
                     ui.horizontal(|ui| {
                         ui.add_space(pad);
                         egui::Grid::new("jog_side_grid")
                             .spacing([4.0, 4.0])
                             .min_col_width(btn_size.x)
                             .show(ui, |ui| {
-                                // Row 1: NW, Y+, NE
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X-Y+").size(11.0))).on_hover_text("X- / Y+").clicked() {
+                                // Row 1: NW, Up, NE
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(&nw_lbl).size(11.0))).on_hover_text(format!("Move Up-Left ({})", nw_lbl)).clicked() {
                                     self.device.jog_arrow(-1.0, 1.0, step, speed);
                                     ctx.request_repaint();
                                 }
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("Y+").strong().size(14.0))).on_hover_text("Jog Y+").clicked() {
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(up_lbl).strong().size(14.0))).on_hover_text(format!("Move Up ({})", up_lbl)).clicked() {
                                     self.device.jog_arrow(0.0, 1.0, step, speed);
                                     ctx.request_repaint();
                                 }
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X+Y+").size(11.0))).on_hover_text("X+ / Y+").clicked() {
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(&ne_lbl).size(11.0))).on_hover_text(format!("Move Up-Right ({})", ne_lbl)).clicked() {
                                     self.device.jog_arrow(1.0, 1.0, step, speed);
                                     ctx.request_repaint();
                                 }
                                 ui.end_row();
 
-                                // Row 2: X-, 0,0, X+
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X-").strong().size(14.0))).on_hover_text("Jog X-").clicked() {
+                                // Row 2: Left, 0,0, Right
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(left_lbl).strong().size(14.0))).on_hover_text(format!("Move Left ({})", left_lbl)).clicked() {
                                     self.device.jog_arrow(-1.0, 0.0, step, speed);
                                     ctx.request_repaint();
                                 }
@@ -4031,22 +4046,22 @@ impl eframe::App for LaserBurnApp {
                                     self.device.go_to_origin();
                                     ctx.request_repaint();
                                 }
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X+").strong().size(14.0))).on_hover_text("Jog X+").clicked() {
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(right_lbl).strong().size(14.0))).on_hover_text(format!("Move Right ({})", right_lbl)).clicked() {
                                     self.device.jog_arrow(1.0, 0.0, step, speed);
                                     ctx.request_repaint();
                                 }
                                 ui.end_row();
 
-                                // Row 3: SW, Y-, SE
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X-Y-").size(11.0))).on_hover_text("X- / Y-").clicked() {
+                                // Row 3: SW, Down, SE
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(&sw_lbl).size(11.0))).on_hover_text(format!("Move Down-Left ({})", sw_lbl)).clicked() {
                                     self.device.jog_arrow(-1.0, -1.0, step, speed);
                                     ctx.request_repaint();
                                 }
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("Y-").strong().size(14.0))).on_hover_text("Jog Y-").clicked() {
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(down_lbl).strong().size(14.0))).on_hover_text(format!("Move Down ({})", down_lbl)).clicked() {
                                     self.device.jog_arrow(0.0, -1.0, step, speed);
                                     ctx.request_repaint();
                                 }
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X+Y-").size(11.0))).on_hover_text("X+ / Y-").clicked() {
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(&se_lbl).size(11.0))).on_hover_text(format!("Move Down-Right ({})", se_lbl)).clicked() {
                                     self.device.jog_arrow(1.0, -1.0, step, speed);
                                     ctx.request_repaint();
                                 }
@@ -6171,29 +6186,44 @@ impl eframe::App for LaserBurnApp {
                     let grid_w = 3.0 * btn_size.x + 2.0 * 4.0;
                     let pad = ((ui.available_width() - grid_w) / 2.0).max(0.0);
 
+                    let is_origin_right = matches!(
+                        self.device.settings.origin_corner,
+                        crate::device::OriginCorner::TopRight | crate::device::OriginCorner::BottomRight
+                    );
+                    let is_origin_top = matches!(
+                        self.device.settings.origin_corner,
+                        crate::device::OriginCorner::TopLeft | crate::device::OriginCorner::TopRight
+                    );
+                    let (left_lbl, right_lbl) = if is_origin_right { ("X+", "X-") } else { ("X-", "X+") };
+                    let (up_lbl, down_lbl) = if is_origin_top { ("Y-", "Y+") } else { ("Y+", "Y-") };
+                    let nw_lbl = format!("{}{}", left_lbl, up_lbl);
+                    let ne_lbl = format!("{}{}", right_lbl, up_lbl);
+                    let sw_lbl = format!("{}{}", left_lbl, down_lbl);
+                    let se_lbl = format!("{}{}", right_lbl, down_lbl);
+
                     ui.horizontal(|ui| {
                         ui.add_space(pad);
                         egui::Grid::new("move_window_grid")
                             .spacing([4.0, 4.0])
                             .min_col_width(btn_size.x)
                             .show(ui, |ui| {
-                                // Row 1: NW, Y+, NE
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X-Y+").size(11.0))).on_hover_text("X- / Y+").clicked() {
+                                // Row 1: NW, Up, NE
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(&nw_lbl).size(11.0))).on_hover_text(format!("Move Up-Left ({})", nw_lbl)).clicked() {
                                     self.device.jog_arrow(-1.0, 1.0, step, speed);
                                     ctx.request_repaint();
                                 }
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("Y+").strong().size(15.0))).on_hover_text("Jog Y+").clicked() {
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(up_lbl).strong().size(15.0))).on_hover_text(format!("Move Up ({})", up_lbl)).clicked() {
                                     self.device.jog_arrow(0.0, 1.0, step, speed);
                                     ctx.request_repaint();
                                 }
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X+Y+").size(11.0))).on_hover_text("X+ / Y+").clicked() {
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(&ne_lbl).size(11.0))).on_hover_text(format!("Move Up-Right ({})", ne_lbl)).clicked() {
                                     self.device.jog_arrow(1.0, 1.0, step, speed);
                                     ctx.request_repaint();
                                 }
                                 ui.end_row();
 
-                                // Row 2: X-, Origin, X+
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X-").strong().size(15.0))).on_hover_text("Jog X-").clicked() {
+                                // Row 2: Left, Origin, Right
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(left_lbl).strong().size(15.0))).on_hover_text(format!("Move Left ({})", left_lbl)).clicked() {
                                     self.device.jog_arrow(-1.0, 0.0, step, speed);
                                     ctx.request_repaint();
                                 }
@@ -6201,22 +6231,22 @@ impl eframe::App for LaserBurnApp {
                                     self.device.go_to_origin();
                                     ctx.request_repaint();
                                 }
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X+").strong().size(15.0))).on_hover_text("Jog X+").clicked() {
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(right_lbl).strong().size(15.0))).on_hover_text(format!("Move Right ({})", right_lbl)).clicked() {
                                     self.device.jog_arrow(1.0, 0.0, step, speed);
                                     ctx.request_repaint();
                                 }
                                 ui.end_row();
 
-                                // Row 3: SW, Y-, SE
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X-Y-").size(11.0))).on_hover_text("X- / Y-").clicked() {
+                                // Row 3: SW, Down, SE
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(&sw_lbl).size(11.0))).on_hover_text(format!("Move Down-Left ({})", sw_lbl)).clicked() {
                                     self.device.jog_arrow(-1.0, -1.0, step, speed);
                                     ctx.request_repaint();
                                 }
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("Y-").strong().size(15.0))).on_hover_text("Jog Y-").clicked() {
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(down_lbl).strong().size(15.0))).on_hover_text(format!("Move Down ({})", down_lbl)).clicked() {
                                     self.device.jog_arrow(0.0, -1.0, step, speed);
                                     ctx.request_repaint();
                                 }
-                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("X+Y-").size(11.0))).on_hover_text("X+ / Y-").clicked() {
+                                if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new(&se_lbl).size(11.0))).on_hover_text(format!("Move Down-Right ({})", se_lbl)).clicked() {
                                     self.device.jog_arrow(1.0, -1.0, step, speed);
                                     ctx.request_repaint();
                                 }

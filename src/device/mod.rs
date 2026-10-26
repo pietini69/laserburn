@@ -999,7 +999,7 @@ impl DeviceManager {
 
                 if allowed_dx.abs() < 1e-4 && allowed_dy.abs() < 1e-4 {
                     self.log(&format!(
-                        "⚠️ Motion blocked: Laser head reached soft limit (X: {:.1}, Y: {:.1} mm)!",
+                        "[LIMIT] Motion blocked: Laser head reached soft limit (X: {:.1}, Y: {:.1} mm)!",
                         cur_x, cur_y
                     ));
                     return;
@@ -1061,20 +1061,20 @@ impl DeviceManager {
         self.settings.custom_boundaries.update_limits();
         self.settings.custom_boundaries.enabled = true; // Auto-enable when a corner is taught!
         let _ = self.settings.save();
-        self.log(&format!("📍 Taught corner [{}]: X={:.2}, Y={:.2} mm", corner_name, x, y));
+        self.log(&format!("[LIMITS] Taught corner [{}]: X={:.2}, Y={:.2} mm", corner_name, x, y));
     }
 
     /// Clear all custom learned boundary corners
     pub fn clear_boundary_corners(&mut self) {
         self.settings.custom_boundaries = CustomBoundaries::default();
         let _ = self.settings.save();
-        self.log("🗑️ Custom learned boundaries cleared.");
+        self.log("[LIMITS] Custom learned boundaries cleared.");
     }
 
     /// Home the laser ($H) / Reset to mechanical switches
     pub fn home(&mut self) {
         if !self.settings.enable_limit_switches {
-            self.log("[HOME] ⚠️ Physical limit switches disabled in settings. Enable in: ⚙️ Settings.");
+            self.log("[HOME] Physical limit switches disabled in settings. Enable in Settings.");
             return;
         }
         self.start_mechanical_home_reset();
@@ -1091,7 +1091,7 @@ impl DeviceManager {
         self.last_wco = (0.0, 0.0);
         self.send_raw("G92 X0 Y0");
         self.send_realtime(b'?');
-        self.log("[ORIGIN] 🎯 Current head position successfully calibrated as Work Origin (0,0) (G92 X0 Y0)!");
+        self.log("[ORIGIN] Current head position calibrated as Work Origin (0,0) (G92 X0 Y0)!");
     }
 
     /// Go to Work Origin (0, 0)
@@ -1167,7 +1167,7 @@ impl DeviceManager {
         self.send_raw(&format!("G90 G0 X{:.3} Y{:.3} F{:.0}", target_x, target_y, feed));
         self.send_realtime(b'?');
         self.log(&format!(
-            "[JOG] 🎯 Moving to position: X={:.1}, Y={:.1} mm...",
+            "[JOG] Moving to position: X={:.1}, Y={:.1} mm...",
             target_x, target_y
         ));
 
@@ -1236,10 +1236,10 @@ impl DeviceManager {
             let s_val = ((self.settings.weak_light_percent / 100.0) * self.settings.max_s_value).max(1.0).round() as u32;
             // GRBL laser mode requires G1 motion state to emit power
             self.send_raw(&format!("M3 S{} G1 F100", s_val));
-            self.log(&format!("[BEAM] 🔦 Weak beam turned on for alignment ({:.1}% power, S{})", self.settings.weak_light_percent, s_val));
+            self.log(&format!("[BEAM] Weak beam turned on for alignment ({:.1}% power, S{})", self.settings.weak_light_percent, s_val));
         } else {
             self.send_raw("M5");
-            self.log("[BEAM] ⭕ Weak beam turned off (M5).");
+            self.log("[BEAM] Weak beam turned off (M5).");
         }
         self.is_weak_light_on
     }
@@ -1254,7 +1254,7 @@ impl DeviceManager {
             Point2D::new(min_x, min_y),
         ];
 
-        self.start_points_frame_test(pts, "🔲 Box Framing");
+        self.start_points_frame_test(pts, "Box Framing");
     }
 
     /// Start Contour / Path Trace Test with Weak Light
@@ -1263,7 +1263,7 @@ impl DeviceManager {
             self.log("[ERROR] No contour points to test.");
             return;
         }
-        self.start_points_frame_test(path_points, "✨ Contour Framing");
+        self.start_points_frame_test(path_points, "Contour Framing");
     }
 
     fn start_points_frame_test(&mut self, points: Vec<Point2D>, test_name: &str) {
