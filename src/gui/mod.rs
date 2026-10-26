@@ -672,7 +672,7 @@ impl LaserBurnApp {
 
         self.doc_version = self.doc_version.wrapping_add(1);
         self.status_msg = format!(
-            "🎯 Auto-fitted to detected tile: Center ({:.1}, {:.1}) mm, Size {:.1}x{:.1} mm, Angle {:+.1}°",
+            "Auto-fitted to detected tile: Center ({:.1}, {:.1}) mm, Size {:.1}x{:.1} mm, Angle {:+.1}°",
             tile.center_x, tile.center_y, tile.width, tile.height, tile.angle_deg
         );
     }
@@ -2515,7 +2515,7 @@ impl eframe::App for LaserBurnApp {
                 });
 
                 ui.menu_button("Laser", |ui| {
-                    if ui.button("🧪 Material Test Generator (Power vs. Speed)...").clicked() {
+                    if ui.button("Material Test Generator (Power vs. Speed)...").clicked() {
                         self.show_material_test_window = true;
                         ui.close_menu();
                     }
@@ -2582,11 +2582,11 @@ impl eframe::App for LaserBurnApp {
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("🎯 Auto-Center Selection on Camera Tile").clicked() {
+                    if ui.button("Auto-Center Selection on Camera Tile").clicked() {
                         self.auto_fit_to_camera_tile(false, 2.0);
                         ui.close_menu();
                     }
-                    if ui.button("🎯 Auto-Fit & Scale Selection to Camera Tile (2mm Margin)").clicked() {
+                    if ui.button("Auto-Fit & Scale Selection to Camera Tile (2mm Margin)").clicked() {
                         self.auto_fit_to_camera_tile(true, 2.0);
                         ui.close_menu();
                     }
@@ -2607,7 +2607,7 @@ impl eframe::App for LaserBurnApp {
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawLine, "Line");
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawText, "Text");
 
-                if ui.button("🖼 Import Image").on_hover_text(format!("Import PNG, JPG, BMP raster image for laser engraving ({}+I)", cmd)).clicked() {
+                if ui.button("Import Image").on_hover_text(format!("Import PNG, JPG, BMP raster image for laser engraving ({}+I)", cmd)).clicked() {
                     self.prompt_import_image(ctx);
                 }
 
@@ -2667,7 +2667,7 @@ impl eframe::App for LaserBurnApp {
 
                 ui.separator();
 
-                if ui.button("🧪 Material Test").on_hover_text("Generate calibrated Power vs. Speed test matrix for tiles or cutting").clicked() {
+                if ui.button("Material Test").on_hover_text("Generate calibrated Power vs. Speed test matrix for tiles or cutting").clicked() {
                     self.show_material_test_window = true;
                 }
 
@@ -2803,7 +2803,7 @@ impl eframe::App for LaserBurnApp {
                 if ui.add(snap_btn).on_hover_text(format!("Capture a fresh photo of the bed with your material (Cmd+U / {}+Shift+U)", cmd)).clicked() {
                     self.trigger_update_overlay();
                 }
-                if ui.button("🎯 Snap to Tile").on_hover_text("Auto-detect ceramic tile / workpiece on camera bed and center/fit selection onto it (Right-click to also scale to fit)").clicked() {
+                if ui.button("Snap to Tile").on_hover_text("Auto-detect ceramic tile / workpiece on camera bed and center/fit selection onto it (Right-click to also scale to fit)").clicked() {
                     self.auto_fit_to_camera_tile(false, 2.0);
                 }
                 if ui.button("Settings").on_hover_text(format!("Device & bed settings ({}+,)", cmd)).clicked() {
@@ -3020,7 +3020,7 @@ impl eframe::App for LaserBurnApp {
                             }
                         });
 
-                        ui.checkbox(&mut self.lock_aspect_ratio, "Lock Aspect Ratio (Säilytä kuvasuhde)");
+                        ui.checkbox(&mut self.lock_aspect_ratio, "Lock Aspect Ratio");
 
                         // Nudge Buttons (also mention keyboard arrow keys!)
                         ui.horizontal(|ui| {
@@ -3198,7 +3198,7 @@ impl eframe::App for LaserBurnApp {
                                     ui.add_space(6.0);
                                     ui.group(|ui| {
                                         ui.horizontal(|ui| {
-                                            ui.label(egui::RichText::new("🖼 Image Adjustments (Preprocess)").strong().color(egui::Color32::from_rgb(100, 210, 255)));
+                                            ui.label(egui::RichText::new("Image Adjustments (Preprocess)").strong().color(egui::Color32::from_rgb(100, 210, 255)));
                                             if ui.small_button("Reset").on_hover_text("Reset Brightness, Contrast, Gamma, and Sharpen to neutral").clicked() {
                                                 *brightness = 0.0;
                                                 *contrast = 0.0;
@@ -3578,7 +3578,7 @@ impl eframe::App for LaserBurnApp {
                                     ui.horizontal(|ui| {
                                         if ui.checkbox(
                                             &mut layer.cut_setting.ceramic_preview,
-                                            egui::RichText::new("🎨 Ceramic Paint Layer Simulator").strong().color(egui::Color32::from_rgb(255, 190, 80)),
+                                            egui::RichText::new("Ceramic Paint Layer Simulator").strong().color(egui::Color32::from_rgb(255, 190, 80)),
                                         )
                                         .on_hover_text("Simulate multi-layer spray-painted ceramic tile colors directly on the canvas based on laser power % thresholds!")
                                         .changed()
@@ -3596,6 +3596,15 @@ impl eframe::App for LaserBurnApp {
                                     if layer.cut_setting.ceramic_preview {
                                         if layer.cut_setting.ceramic_bands.is_empty() {
                                             layer.cut_setting.ceramic_bands = crate::document::default_ceramic_bands();
+                                        }
+                                        for band in layer.cut_setting.ceramic_bands.iter_mut() {
+                                            match band.label.as_str() {
+                                                "1. Pintamaali (Musta)" => band.label = "1. Top Coat (Black)".to_string(),
+                                                "2. Välikerros (Sininen)" => band.label = "2. Mid Coat (Blue)".to_string(),
+                                                "3. Pohjamaali (Keltainen/Kulta)" => band.label = "3. Base Coat (Yellow/Gold)".to_string(),
+                                                "4. Keraaminen laatta (Valkoinen)" => band.label = "4. Ceramic Tile (White)".to_string(),
+                                                _ => {}
+                                            }
                                         }
                                         ui.label(egui::RichText::new("Define paint coat colors & the max laser power (%) that reveals each coat:").small().weak());
                                         let mut remove_idx = None;
@@ -3987,7 +3996,7 @@ impl eframe::App for LaserBurnApp {
                     if !self.device.is_job_running {
                         let est = self.get_job_estimate();
                         ui.label(
-                            egui::RichText::new(format!("⏱ Arvioitu kesto: ~{}", est.formatted_time))
+                            egui::RichText::new(format!("Estimated Time: ~{}", est.formatted_time))
                                 .strong()
                                 .color(egui::Color32::from_rgb(0, 180, 255)),
                         );
@@ -4042,13 +4051,13 @@ impl eframe::App for LaserBurnApp {
                             let rem_str = crate::simulator::Simulator::format_duration(remaining_sec);
 
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(format!("⏱ Kulunut: {}", elapsed_str)).size(11.5));
+                                ui.label(egui::RichText::new(format!("Elapsed: {}", elapsed_str)).size(11.5));
                                 ui.label("|");
-                                ui.label(egui::RichText::new(format!("Jäljellä: ~{}", rem_str)).strong().color(egui::Color32::from_rgb(0, 200, 255)).size(11.5));
+                                ui.label(egui::RichText::new(format!("Remaining: ~{}", rem_str)).strong().color(egui::Color32::from_rgb(0, 200, 255)).size(11.5));
                             });
                         }
                         if self.device.is_job_paused {
-                            ui.colored_label(egui::Color32::from_rgb(255, 193, 7), "⏸ TYÖ KESKEYTETTY (PAUSED)");
+                            ui.colored_label(egui::Color32::from_rgb(255, 193, 7), "JOB PAUSED");
                         }
                     }
 
@@ -5263,7 +5272,7 @@ impl eframe::App for LaserBurnApp {
             let mut do_gen_mat = false;
             let mut is_open = true;
 
-            egui::Window::new("🧪 Material Test Generator")
+            egui::Window::new("Material Test Generator")
                 .collapsible(false)
                 .resizable(false)
                 .default_width(390.0)

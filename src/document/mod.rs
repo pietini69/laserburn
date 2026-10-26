@@ -83,22 +83,22 @@ pub fn default_ceramic_bands() -> Vec<CeramicColorBand> {
         CeramicColorBand {
             max_power_pct: 18.0,
             color_hex: "#1C1C1C".to_string(),
-            label: "1. Pintamaali (Musta)".to_string(),
+            label: "1. Top Coat (Black)".to_string(),
         },
         CeramicColorBand {
             max_power_pct: 45.0,
             color_hex: "#1E64C8".to_string(),
-            label: "2. Välikerros (Sininen)".to_string(),
+            label: "2. Mid Coat (Blue)".to_string(),
         },
         CeramicColorBand {
             max_power_pct: 75.0,
             color_hex: "#E6A817".to_string(),
-            label: "3. Pohjamaali (Keltainen/Kulta)".to_string(),
+            label: "3. Base Coat (Yellow/Gold)".to_string(),
         },
         CeramicColorBand {
             max_power_pct: 100.0,
             color_hex: "#F5F5F0".to_string(),
-            label: "4. Keraaminen laatta (Valkoinen)".to_string(),
+            label: "4. Ceramic Tile (White)".to_string(),
         },
     ]
 }
