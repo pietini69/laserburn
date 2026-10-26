@@ -195,6 +195,8 @@ pub struct DeviceSettings {
     pub save_traffic_log: bool,
     #[serde(default)]
     pub log_status_polls: bool,
+    #[serde(default)]
+    pub dark_mode: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -297,6 +299,7 @@ impl Default for DeviceSettings {
             auto_connect: false,
             save_traffic_log: false,
             log_status_polls: false,
+            dark_mode: false,
         }
     }
 }

@@ -2072,11 +2072,56 @@ impl LaserBurnApp {
         self.device.start_job(&gcode, est.total_estimated_time_sec);
         self.status_msg = format!("Cut job started ({} paths, ~{})...", job.paths.len(), est.formatted_time);
     }
+
+    /// Theme-aware green accent color for labels on either Dark or Light backgrounds
+    fn color_green(&self) -> egui::Color32 {
+        if self.device.settings.dark_mode {
+            egui::Color32::from_rgb(75, 225, 105)
+        } else {
+            egui::Color32::from_rgb(0, 135, 35)
+        }
+    }
+
+    /// Theme-aware orange/amber accent color for labels on either Dark or Light backgrounds
+    fn color_orange(&self) -> egui::Color32 {
+        if self.device.settings.dark_mode {
+            egui::Color32::from_rgb(255, 185, 50)
+        } else {
+            egui::Color32::from_rgb(195, 80, 0)
+        }
+    }
+
+    /// Theme-aware blue/cyan accent color for labels on either Dark or Light backgrounds
+    fn color_blue(&self) -> egui::Color32 {
+        if self.device.settings.dark_mode {
+            egui::Color32::from_rgb(85, 200, 255)
+        } else {
+            egui::Color32::from_rgb(0, 115, 200)
+        }
+    }
+
+    /// Theme-aware red accent color for labels on either Dark or Light backgrounds
+    fn color_red(&self) -> egui::Color32 {
+        if self.device.settings.dark_mode {
+            egui::Color32::from_rgb(255, 95, 95)
+        } else {
+            egui::Color32::from_rgb(200, 25, 25)
+        }
+    }
 }
 
 #[cfg(feature = "gui")]
 impl eframe::App for LaserBurnApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Apply Dark / Light theme visuals whenever changed
+        if ctx.style().visuals.dark_mode != self.device.settings.dark_mode {
+            ctx.set_visuals(if self.device.settings.dark_mode {
+                egui::Visuals::dark()
+            } else {
+                egui::Visuals::light()
+            });
+        }
+
         // Poll incoming responses / status from controller (including real-time ? status)
         self.device.poll_serial();
 
@@ -2732,6 +2777,15 @@ impl eframe::App for LaserBurnApp {
                 });
 
                 ui.separator();
+                let theme_btn_text = if self.device.settings.dark_mode { "Theme: Dark" } else { "Theme: Light" };
+                if ui.button(egui::RichText::new(theme_btn_text).strong())
+                    .on_hover_text("Toggle between Dark Mode and Light Mode")
+                    .clicked()
+                {
+                    self.device.settings.dark_mode = !self.device.settings.dark_mode;
+                    let _ = self.device.settings.save();
+                }
+                ui.separator();
                 ui.label(egui::RichText::new(concat!("LaserBurn v", env!("CARGO_PKG_VERSION"))).strong().color(egui::Color32::from_rgb(255, 140, 0)));
                 ui.label(egui::RichText::new("(Arrow keys nudge selection)").italics().color(egui::Color32::GRAY));
             });
@@ -2924,8 +2978,9 @@ impl eframe::App for LaserBurnApp {
                 if ui.button("Connection").on_hover_text("Device connection & serial console").clicked() {
                     self.show_connection_window = true;
                 }
+                let c_blue = self.color_blue();
                 let traffic_color = if self.show_traffic_panel {
-                    egui::Color32::from_rgb(0, 115, 200)
+                    c_blue
                 } else {
                     egui::Color32::GRAY
                 };
@@ -2937,7 +2992,7 @@ impl eframe::App for LaserBurnApp {
                 }
                 let bg_btn_text = if self.camera_calibration.show_on_canvas { "Cam BG" } else { "Cam BG" };
                 let bg_btn_color = if self.camera_calibration.show_on_canvas {
-                    egui::Color32::from_rgb(0, 115, 200)
+                    c_blue
                 } else {
                     egui::Color32::GRAY
                 };
@@ -3030,16 +3085,21 @@ impl eframe::App for LaserBurnApp {
             ui.add_space(2.0);
             ui.separator();
 
+            let c_green = self.color_green();
+            let c_orange = self.color_orange();
+            let c_blue = self.color_blue();
+            let c_red = self.color_red();
+
             ui.horizontal(|ui| {
                 let is_conn = self.device.status == crate::device::ConnectionStatus::Connected;
                 let (badge_color, badge_text) = if is_conn {
                     if self.device.is_physically_connected() {
-                        (egui::Color32::from_rgb(0, 135, 35), "Connected (USB)")
+                        (c_green, "Connected (USB)")
                     } else {
-                        (egui::Color32::from_rgb(185, 95, 0), "Simulator (Demo)")
+                        (c_orange, "Simulator (Demo)")
                     }
                 } else {
-                    (egui::Color32::from_rgb(200, 25, 25), "Disconnected")
+                    (c_red, "Disconnected")
                 };
 
                 if ui.button(egui::RichText::new(badge_text).strong().color(badge_color)).on_hover_text("Open device connection & console window").clicked() {
@@ -3059,14 +3119,14 @@ impl eframe::App for LaserBurnApp {
                             pct, self.device.job_idx, self.device.job_total_lines
                         ))
                         .strong()
-                        .color(egui::Color32::from_rgb(205, 70, 0)),
+                        .color(c_orange),
                     );
                     ui.separator();
                 } else if self.device.is_weak_light_on {
                     ui.label(
                         egui::RichText::new("WEAK BEAM (1.0%)")
                             .strong()
-                            .color(egui::Color32::from_rgb(0, 110, 195)),
+                            .color(c_blue),
                     );
                     ui.separator();
                 }
@@ -3075,7 +3135,7 @@ impl eframe::App for LaserBurnApp {
                     ui.label(
                         egui::RichText::new("FRAMING IN PROGRESS...")
                             .strong()
-                            .color(egui::Color32::from_rgb(195, 80, 0)),
+                            .color(c_orange),
                     );
                     ui.separator();
                 }
@@ -4168,7 +4228,7 @@ impl eframe::App for LaserBurnApp {
                             self.device.settings.custom_boundaries.max_y,
                         ) {
                             let b_color = if self.device.settings.custom_boundaries.enabled {
-                                egui::Color32::from_rgb(0, 140, 50)
+                                self.color_green()
                             } else {
                                 egui::Color32::GRAY
                             };
@@ -4192,7 +4252,7 @@ impl eframe::App for LaserBurnApp {
                         ui.label(
                             egui::RichText::new(format!("Estimated Time: ~{}", est.formatted_time))
                                 .strong()
-                                .color(egui::Color32::from_rgb(0, 115, 195)),
+                                .color(self.color_blue()),
                         );
                         ui.add_space(2.0);
 
@@ -4244,14 +4304,15 @@ impl eframe::App for LaserBurnApp {
                             };
                             let rem_str = crate::simulator::Simulator::format_duration(remaining_sec);
 
+                            let c_blue = self.color_blue();
                             ui.horizontal(|ui| {
                                 ui.label(egui::RichText::new(format!("Elapsed: {}", elapsed_str)).size(11.5));
                                 ui.label("|");
-                                ui.label(egui::RichText::new(format!("Remaining: ~{}", rem_str)).strong().color(egui::Color32::from_rgb(0, 115, 195)).size(11.5));
+                                ui.label(egui::RichText::new(format!("Remaining: ~{}", rem_str)).strong().color(c_blue).size(11.5));
                             });
                         }
                         if self.device.is_job_paused {
-                            ui.label(egui::RichText::new("JOB PAUSED").strong().color(egui::Color32::from_rgb(195, 85, 0)));
+                            ui.label(egui::RichText::new("JOB PAUSED").strong().color(self.color_orange()));
                         }
                     }
 
@@ -4339,13 +4400,17 @@ impl eframe::App for LaserBurnApp {
                     });
 
                     // Connection & queue summary badge
+                    let c_green = self.color_green();
+                    let c_orange = self.color_orange();
+                    let c_blue = self.color_blue();
+                    let c_red = self.color_red();
                     ui.horizontal(|ui| {
                         let status_color = match self.device.status {
-                            crate::device::ConnectionStatus::Connected => egui::Color32::from_rgb(0, 140, 45),
-                            crate::device::ConnectionStatus::Connecting => egui::Color32::from_rgb(195, 105, 0),
-                            crate::device::ConnectionStatus::Busy => egui::Color32::from_rgb(0, 115, 195),
-                            crate::device::ConnectionStatus::Disconnected => egui::Color32::from_rgb(110, 110, 110),
-                            crate::device::ConnectionStatus::Alarm => egui::Color32::from_rgb(205, 30, 30),
+                            crate::device::ConnectionStatus::Connected => c_green,
+                            crate::device::ConnectionStatus::Connecting => c_orange,
+                            crate::device::ConnectionStatus::Busy => c_blue,
+                            crate::device::ConnectionStatus::Disconnected => egui::Color32::GRAY,
+                            crate::device::ConnectionStatus::Alarm => c_red,
                         };
                         let (dot_rect, _) = ui.allocate_exact_size(egui::Vec2::new(10.0, 10.0), egui::Sense::hover());
                         ui.painter().circle_filled(dot_rect.center(), 4.5, status_color);
@@ -4358,7 +4423,7 @@ impl eframe::App for LaserBurnApp {
                                 ))
                                 .small()
                                 .strong()
-                                .color(egui::Color32::from_rgb(0, 115, 195)),
+                                .color(c_blue),
                             );
                         }
                     });
@@ -5748,6 +5813,8 @@ impl eframe::App for LaserBurnApp {
         // 1. DEVICE CONNECTION & CONSOLE WINDOW
         // -------------------------------------------------------------
         if self.show_connection_window {
+            let c_green = self.color_green();
+            let c_orange = self.color_orange();
             egui::Window::new("Device Connection & Console")
                 .collapsible(false)
                 .resizable(true)
@@ -5816,9 +5883,9 @@ impl eframe::App for LaserBurnApp {
                         let is_conn = self.device.status == crate::device::ConnectionStatus::Connected;
                         if is_conn {
                             if self.device.is_physically_connected() {
-                                ui.label(egui::RichText::new("CONNECTED (USB)").strong().color(egui::Color32::from_rgb(0, 140, 40)));
+                                ui.label(egui::RichText::new("CONNECTED (USB)").strong().color(c_green));
                             } else {
-                                ui.label(egui::RichText::new("SIMULATOR (DEMO)").strong().color(egui::Color32::from_rgb(190, 95, 0)));
+                                ui.label(egui::RichText::new("SIMULATOR (DEMO)").strong().color(c_orange));
                             }
                             if ui.button("Disconnect").clicked() {
                                 self.device.disconnect();
@@ -5917,6 +5984,8 @@ impl eframe::App for LaserBurnApp {
             let sel_center = self.selection_bounds().map(|b| b.center());
             let mut do_start_box_frame = false;
             let mut do_start_contour_frame = false;
+            let c_green = self.color_green();
+            let c_orange = self.color_orange();
 
             egui::Window::new("Laser Control & Positioning")
                 .collapsible(false)
@@ -6203,7 +6272,7 @@ impl eframe::App for LaserBurnApp {
                     if self.device.is_framing_active {
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Framing test in progress...").strong().color(egui::Color32::from_rgb(195, 85, 0)));
+                            ui.label(egui::RichText::new("Framing test in progress...").strong().color(c_orange));
                             if ui.button("Stop Test").clicked() {
                                 self.device.stop_frame_test();
                             }
@@ -6265,7 +6334,7 @@ impl eframe::App for LaserBurnApp {
                         self.device.settings.custom_boundaries.max_y,
                     ) {
                         let b_color = if self.device.settings.custom_boundaries.enabled {
-                            egui::Color32::from_rgb(0, 140, 50)
+                            c_green
                         } else {
                             egui::Color32::GRAY
                         };
@@ -6500,14 +6569,18 @@ impl eframe::App for LaserBurnApp {
                     });
 
                     // Row 2: Stream Controls & Status
+                    let c_green = self.color_green();
+                    let c_orange = self.color_orange();
+                    let c_blue = self.color_blue();
+                    let c_red = self.color_red();
                     ui.horizontal(|ui| {
                         if !self.camera_manager.is_streaming {
-                            let start_btn = egui::Button::new(egui::RichText::new("Start Stream").color(egui::Color32::from_rgb(0, 135, 35)).strong());
+                            let start_btn = egui::Button::new(egui::RichText::new("Start Stream").color(c_green).strong());
                             if ui.add(start_btn).on_hover_text("Start real-time video stream").clicked() {
                                 self.camera_manager.start_stream();
                             }
                         } else {
-                            let stop_btn = egui::Button::new(egui::RichText::new("Stop Stream").color(egui::Color32::from_rgb(200, 30, 30)).strong());
+                            let stop_btn = egui::Button::new(egui::RichText::new("Stop Stream").color(c_red).strong());
                             if ui.add(stop_btn).on_hover_text("Stop video stream").clicked() {
                                 self.camera_manager.stop_stream();
                             }
@@ -6527,7 +6600,7 @@ impl eframe::App for LaserBurnApp {
                         ui.separator();
 
                         let (dot_color, state_txt) = if self.camera_manager.is_streaming {
-                            (egui::Color32::from_rgb(0, 140, 40), "LIVE")
+                            (c_green, "LIVE")
                         } else {
                             (egui::Color32::GRAY, "IDLE")
                         };
@@ -6561,11 +6634,11 @@ impl eframe::App for LaserBurnApp {
                                 ui.checkbox(&mut self.camera_calibration.show_on_canvas, "Show on Canvas");
 
                                 if self.camera_calibration.use_homography {
-                                    ui.label(egui::RichText::new("Homography: Active").color(egui::Color32::from_rgb(0, 140, 40)).small().strong());
+                                    ui.label(egui::RichText::new("Homography: Active").color(c_green).small().strong());
                                 }
 
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if ui.button(egui::RichText::new("Save Calibration").color(egui::Color32::from_rgb(0, 115, 195)).strong()).clicked() {
+                                    if ui.button(egui::RichText::new("Save Calibration").color(c_blue).strong()).clicked() {
                                         if let Err(e) = self.camera_calibration.save() {
                                             self.status_msg = format!("Save Error: {}", e);
                                         } else {
@@ -6659,7 +6732,7 @@ impl eframe::App for LaserBurnApp {
 
                                                     ui.add_space(10.0);
                                                     ui.horizontal(|ui| {
-                                                        if ui.button(egui::RichText::new("Next: Proceed to Burn Marks ->").color(egui::Color32::from_rgb(0, 135, 35)).strong()).clicked() {
+                                                        if ui.button(egui::RichText::new("Next: Proceed to Burn Marks ->").color(c_green).strong()).clicked() {
                                                             self.wizard_step = 1;
                                                         }
                                                         if ui.button("Skip Burning (Marks already placed) ->").clicked() {
@@ -6686,14 +6759,14 @@ impl eframe::App for LaserBurnApp {
                                                     if self.device.is_job_running {
                                                         ui.horizontal(|ui| {
                                                             ui.spinner();
-                                                            ui.label(egui::RichText::new(format!("Marking in progress: {:.0}%", self.device.job_progress * 100.0)).strong().color(egui::Color32::from_rgb(195, 85, 0)));
-                                                            if ui.button(egui::RichText::new("Stop").color(egui::Color32::RED)).clicked() {
+                                                            ui.label(egui::RichText::new(format!("Marking in progress: {:.0}%", self.device.job_progress * 100.0)).strong().color(c_orange));
+                                                            if ui.button(egui::RichText::new("Stop").color(c_red)).clicked() {
                                                                 self.device.stop_job();
                                                             }
                                                         });
                                                     } else {
                                                         ui.horizontal(|ui| {
-                                                            if ui.button(egui::RichText::new("Burn 4 Alignment Marks").color(egui::Color32::from_rgb(200, 75, 0)).strong()).on_hover_text("Execute rapid G-code to burn 4 crosshair bullseyes").clicked() {
+                                                            if ui.button(egui::RichText::new("Burn 4 Alignment Marks").color(c_orange).strong()).on_hover_text("Execute rapid G-code to burn 4 crosshair bullseyes").clicked() {
                                                                 self.burn_alignment_targets();
                                                             }
                                                             if ui.button("Marks Already Burned / Skip ->").clicked() {
@@ -6707,7 +6780,7 @@ impl eframe::App for LaserBurnApp {
                                                         if ui.button("<- Back to Paper Setup").clicked() {
                                                             self.wizard_step = 0;
                                                         }
-                                                        if ui.button(egui::RichText::new("Next: Click Targets on Camera ->").color(egui::Color32::from_rgb(0, 135, 35)).strong()).clicked() {
+                                                        if ui.button(egui::RichText::new("Next: Click Targets on Camera ->").color(c_green).strong()).clicked() {
                                                             self.wizard_step = 2;
                                                         }
                                                     });
@@ -6719,10 +6792,10 @@ impl eframe::App for LaserBurnApp {
                                                     ui.add_space(4.0);
 
                                                     let target_labels = [
-                                                        ("Target 1 (Top-Left)", egui::Color32::from_rgb(200, 30, 30)),
-                                                        ("Target 2 (Top-Right)", egui::Color32::from_rgb(0, 140, 40)),
-                                                        ("Target 3 (Bottom-Right)", egui::Color32::from_rgb(195, 95, 0)),
-                                                        ("Target 4 (Bottom-Left)", egui::Color32::from_rgb(0, 115, 200)),
+                                                        ("Target 1 (Top-Left)", c_red),
+                                                        ("Target 2 (Top-Right)", c_green),
+                                                        ("Target 3 (Bottom-Right)", c_orange),
+                                                        ("Target 4 (Bottom-Left)", c_blue),
                                                     ];
 
                                                     ui.horizontal(|ui| {
@@ -6853,7 +6926,7 @@ impl eframe::App for LaserBurnApp {
                                                     if all_set {
                                                         let apply_btn = egui::Button::new(
                                                             egui::RichText::new("Compute & Apply Homography Alignment")
-                                                                .color(egui::Color32::from_rgb(0, 140, 40))
+                                                                .color(c_green)
                                                                 .strong(),
                                                         );
                                                         if ui.add(apply_btn).clicked() {
@@ -6877,7 +6950,7 @@ impl eframe::App for LaserBurnApp {
                                                         }
                                                     } else {
                                                         let missing_count = self.wizard_points.iter().filter(|p| p.is_none()).count();
-                                                        ui.label(egui::RichText::new(format!("Click {} more target(s) on the camera image above to complete.", missing_count)).strong().color(egui::Color32::from_rgb(195, 85, 0)));
+                                                        ui.label(egui::RichText::new(format!("Click {} more target(s) on the camera image above to complete.", missing_count)).strong().color(c_orange));
                                                     }
 
                                                     ui.add_space(8.0);
@@ -6891,7 +6964,7 @@ impl eframe::App for LaserBurnApp {
                                                     // STEP 3: COMPLETED
                                                     ui.vertical_centered(|ui| {
                                                         ui.add_space(10.0);
-                                                        ui.heading(egui::RichText::new("4-Point Alignment Complete!").color(egui::Color32::from_rgb(0, 140, 40)));
+                                                        ui.heading(egui::RichText::new("4-Point Alignment Complete!").color(c_green));
                                                         ui.label("The camera is now mathematically aligned to your laser bed coordinates using perspective homography.");
                                                         ui.label("The background image under the grid now exactly matches your physical workpiece.");
                                                         ui.add_space(10.0);
@@ -6914,7 +6987,7 @@ impl eframe::App for LaserBurnApp {
 
                                             if self.camera_calibration.use_homography {
                                                 ui.horizontal(|ui| {
-                                                    ui.label(egui::RichText::new("[Active] 4-Point Homography").color(egui::Color32::from_rgb(0, 140, 40)).strong());
+                                                    ui.label(egui::RichText::new("[Active] 4-Point Homography").color(c_green).strong());
                                                     if ui.button("Switch to Manual Mode").clicked() {
                                                         self.camera_calibration.use_homography = false;
                                                     }
