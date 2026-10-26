@@ -571,4 +571,12 @@ EOF"#;
             panic!("Expected Shape::Path");
         }
     }
+
+    #[test]
+    fn test_sample_bracket_dxf_loading() {
+        let sample_str = include_str!("../../samples/sample_bracket.dxf");
+        let doc = DxfFormat::load_from_str(sample_str).expect("Sample bracket DXF must load");
+        assert!(doc.shapes.len() >= 10, "Bracket DXF has perimeter, circles, and lines");
+        assert!(doc.layers.len() >= 3, "Has CUT, HOLES, ENGRAVE layers");
+    }
 }

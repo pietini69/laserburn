@@ -201,6 +201,8 @@ pub struct LaserBurnApp {
     pub trace_min_area: f64,
     pub trace_tolerance: f64,
     pub trace_delete_image: bool,
+    pub trace_preview_polylines: Vec<crate::geometry::Polyline>,
+    pub trace_source_shape_idx: Option<usize>,
 
     // Material Test Generator Window State
     pub show_material_test_window: bool,
@@ -349,6 +351,8 @@ impl Default for LaserBurnApp {
             trace_min_area: 0.2,
             trace_tolerance: 0.08,
             trace_delete_image: false,
+            trace_preview_polylines: Vec::new(),
+            trace_source_shape_idx: None,
 
             show_material_test_window: false,
             mat_test_rows: 5,
@@ -588,13 +592,26 @@ impl LaserBurnApp {
         self.status_msg = format!("Created radial array ({} copies)", self.radial_count);
     }
 
-    /// Traces the currently selected raster image into vector cut/engrave paths
-    pub fn apply_trace_image(&mut self) {
+    /// Opens the Image Trace dialog and immediately computes real-time preview contours
+    pub fn open_trace_dialog(&mut self) {
+        let is_image_sel = self.selected_shape_indices.iter().any(|&i| i < self.doc.shapes.len() && matches!(self.doc.shapes[i], Shape::Image { .. }));
+        if !is_image_sel {
+            self.status_msg = "Please select a raster image on the canvas to trace".to_string();
+            return;
+        }
+        self.show_trace_window = true;
+        self.update_trace_preview();
+    }
+
+    /// Evaluates vector contours in real-time as threshold, blur, or tolerance sliders are adjusted
+    pub fn update_trace_preview(&mut self) {
+        self.trace_preview_polylines.clear();
         let Some(&idx) = self.selected_shape_indices.first() else {
-            self.status_msg = "Select a raster image to trace".to_string();
+            self.trace_source_shape_idx = None;
             return;
         };
         if idx >= self.doc.shapes.len() {
+            self.trace_source_shape_idx = None;
             return;
         }
 
@@ -616,11 +633,9 @@ impl LaserBurnApp {
                     if let Ok(dyn_img) = image::open(path) {
                         dyn_img.to_rgba8().into_raw()
                     } else {
-                        self.status_msg = "Could not load image pixels for tracing".to_string();
                         return;
                     }
                 } else {
-                    self.status_msg = "Image has no pixel data".to_string();
                     return;
                 };
                 let chans = if px_data.len() == (*raw_width as usize) * (*raw_height as usize) * 4 {
@@ -633,12 +648,10 @@ impl LaserBurnApp {
                 (px_data, *raw_width as usize, *raw_height as usize, chans, *x, *y, *width, *height)
             }
             _ => {
-                self.status_msg = "Selected shape is not an image".to_string();
+                self.trace_source_shape_idx = None;
                 return;
             }
         };
-
-        self.push_undo();
 
         let trace_opts = crate::trace::TraceOptions {
             threshold: self.trace_threshold,
@@ -648,7 +661,7 @@ impl LaserBurnApp {
             simplify_tolerance_mm: self.trace_tolerance,
         };
 
-        let polylines = crate::trace::trace_image_to_polylines(
+        self.trace_preview_polylines = crate::trace::trace_image_to_polylines(
             &pixels,
             w,
             h,
@@ -659,12 +672,32 @@ impl LaserBurnApp {
             height_mm,
             &trace_opts,
         );
+        self.trace_source_shape_idx = Some(idx);
+    }
 
-        if polylines.is_empty() {
+    /// Traces the currently selected raster image into vector cut/engrave paths
+    pub fn apply_trace_image(&mut self) {
+        let Some(&idx) = self.selected_shape_indices.first() else {
+            self.status_msg = "Select a raster image to trace".to_string();
+            return;
+        };
+        if idx >= self.doc.shapes.len() {
+            return;
+        }
+
+        if self.trace_preview_polylines.is_empty() {
+            self.update_trace_preview();
+        }
+
+        if self.trace_preview_polylines.is_empty() {
             self.status_msg = "Image Trace: No vector contours found with current threshold".to_string();
             return;
         }
 
+        self.push_undo();
+
+        let polylines = std::mem::take(&mut self.trace_preview_polylines);
+        self.trace_source_shape_idx = None;
         let target_layer = self.selected_layer;
         let count = polylines.len();
         let shapes: Vec<Shape> = polylines
@@ -1118,6 +1151,56 @@ impl LaserBurnApp {
                 Ok(())
             }
             _ => Err(format!("Unsupported file format: .{}", ext)),
+        }
+    }
+
+    /// Loads the built-in sample AutoCAD DXF mechanical mounting bracket
+    pub fn load_sample_dxf(&mut self) {
+        self.push_undo();
+        let sample_str = include_str!("../../samples/sample_bracket.dxf");
+        match crate::formats::DxfFormat::load_from_str(sample_str) {
+            Ok(mut doc) => {
+                doc.width = self.device.settings.bed_width;
+                doc.height = self.device.settings.bed_height;
+                self.doc = doc;
+                self.selected_shape_indices = if !self.doc.shapes.is_empty() { vec![0] } else { vec![] };
+                if let Some(first_shape) = self.doc.shapes.first() {
+                    self.selected_layer = first_shape.layer_index();
+                } else if let Some(&first_layer) = self.doc.layers.keys().next() {
+                    self.selected_layer = first_layer;
+                }
+                self.zoom = 1.2;
+                self.pan = egui::Vec2::new(80.0, 60.0);
+                self.status_msg = format!("Loaded Sample AutoCAD DXF ({} shapes, {} layers)", self.doc.shapes.len(), self.doc.layers.len());
+            }
+            Err(e) => {
+                self.status_msg = format!("Failed to load sample DXF: {}", e);
+            }
+        }
+    }
+
+    /// Loads the built-in sample Adobe / Vector PDF test card
+    pub fn load_sample_pdf(&mut self) {
+        self.push_undo();
+        let sample_bytes = include_bytes!("../../samples/sample_vector.pdf");
+        match crate::formats::PdfFormat::load_from_bytes(sample_bytes) {
+            Ok(mut doc) => {
+                doc.width = self.device.settings.bed_width;
+                doc.height = self.device.settings.bed_height;
+                self.doc = doc;
+                self.selected_shape_indices = if !self.doc.shapes.is_empty() { vec![0] } else { vec![] };
+                if let Some(first_shape) = self.doc.shapes.first() {
+                    self.selected_layer = first_shape.layer_index();
+                } else if let Some(&first_layer) = self.doc.layers.keys().next() {
+                    self.selected_layer = first_layer;
+                }
+                self.zoom = 1.2;
+                self.pan = egui::Vec2::new(80.0, 60.0);
+                self.status_msg = format!("Loaded Sample Vector PDF ({} shapes, {} layers)", self.doc.shapes.len(), self.doc.layers.len());
+            }
+            Err(e) => {
+                self.status_msg = format!("Failed to load sample PDF: {}", e);
+            }
         }
     }
 
@@ -3643,6 +3726,17 @@ impl eframe::App for LaserBurnApp {
                         ui.close_menu();
                     }
                     ui.separator();
+                    ui.menu_button("Sample Files", |ui| {
+                        if ui.button("AutoCAD DXF (Mechanical Bracket)").clicked() {
+                            self.load_sample_dxf();
+                            ui.close_menu();
+                        }
+                        if ui.button("Vector PDF (Laser Test Card)").clicked() {
+                            self.load_sample_pdf();
+                            ui.close_menu();
+                        }
+                    });
+                    ui.separator();
                     if ui.button("Export G-Code (GRBL)...").clicked() {
                         self.prompt_export_gcode(ctx);
                         ui.close_menu();
@@ -3759,7 +3853,7 @@ impl eframe::App for LaserBurnApp {
                         .on_hover_text("Vectorize raster image into closed cutting / engraving paths")
                         .clicked()
                     {
-                        self.show_trace_window = true;
+                        self.open_trace_dialog();
                         ui.close_menu();
                     }
                     if ui.button(format!("Add Text... ({}+T)", cmd)).clicked() {
@@ -3957,7 +4051,7 @@ impl eframe::App for LaserBurnApp {
                 }
                 let is_image_sel = self.selected_shape_indices.iter().any(|&i| i < self.doc.shapes.len() && matches!(self.doc.shapes[i], Shape::Image { .. }));
                 if ui.add_enabled(is_image_sel, egui::Button::new("Trace Image")).on_hover_text("Vectorize selected raster image into cutting / engraving paths").clicked() {
-                    self.show_trace_window = true;
+                    self.open_trace_dialog();
                 }
 
                 // Lock toggle button
@@ -4546,6 +4640,7 @@ impl eframe::App for LaserBurnApp {
                             });
 
                             // Image Preprocessing Adjustments (Brightness, Contrast, Gamma, Sharpen)
+                            let mut open_trace = false;
                             if first_idx < self.doc.shapes.len() {
                                 if let Shape::Image {
                                     ref mut brightness,
@@ -4604,7 +4699,7 @@ impl eframe::App for LaserBurnApp {
                                             egui::RichText::new(" Trace Image to Vectors... ").strong().color(egui::Color32::WHITE),
                                         ).fill(egui::Color32::from_rgb(0, 140, 255));
                                         if ui.add(trace_btn).on_hover_text("Vectorize this bitmap graphic into cutting or engraving paths").clicked() {
-                                            self.show_trace_window = true;
+                                            open_trace = true;
                                         }
 
                                         if img_changed {
@@ -4613,6 +4708,9 @@ impl eframe::App for LaserBurnApp {
                                         }
                                     });
                                 }
+                            }
+                            if open_trace {
+                                self.open_trace_dialog();
                             }
                         }
                     } else {
@@ -6756,6 +6854,26 @@ impl eframe::App for LaserBurnApp {
                 }
             }
 
+            // Draw Real-time Live Preview for Image Trace (Bitmap to Vector)
+            if self.show_trace_window && !self.trace_preview_polylines.is_empty() {
+                let preview_stroke = egui::Stroke::new(2.2_f32, egui::Color32::from_rgb(255, 0, 180));
+                let preview_glow = egui::Stroke::new(4.5_f32, egui::Color32::from_rgba_unmultiplied(255, 0, 180, 80));
+                for poly in &self.trace_preview_polylines {
+                    let n = poly.points.len();
+                    if n >= 2 {
+                        let seg_count = if poly.is_closed { n } else { n - 1 };
+                        for i in 0..seg_count {
+                            let p1 = self.doc_to_screen(poly.points[i], canvas_origin);
+                            let p2 = self.doc_to_screen(poly.points[(i + 1) % n], canvas_origin);
+                            if p1.distance_sq(p2) > 0.01 {
+                                painter.line_segment([p1, p2], preview_glow);
+                                painter.line_segment([p1, p2], preview_stroke);
+                            }
+                        }
+                    }
+                }
+            }
+
             // Draw Combined Selection Bounding Box & 8 Resize Handles OR Node Handles
             if self.active_tool == ActiveTool::NodeEdit {
                 if let Some(&shape_idx) = self.selected_shape_indices.first() {
@@ -7235,39 +7353,124 @@ impl eframe::App for LaserBurnApp {
             let mut do_trace = false;
             let mut is_open = true;
 
+            // Compute initial preview if not yet computed
+            if self.trace_preview_polylines.is_empty() && self.trace_source_shape_idx.is_none() {
+                self.update_trace_preview();
+            }
+
+            let count = self.trace_preview_polylines.len();
+            let total_pts: usize = self.trace_preview_polylines.iter().map(|p| p.points.len()).sum();
+
             egui::Window::new("Trace Image (Bitmap to Vector)")
                 .collapsible(false)
                 .resizable(false)
-                .default_width(380.0)
+                .default_width(400.0)
                 .open(&mut is_open)
                 .show(ctx, |ui| {
                     ui.heading("Trace Raster Image to Vectors");
                     ui.label(egui::RichText::new("Convert logos, silhouettes, and bitmap graphics into sharp cutting and engraving vector paths.").small().weak());
                     ui.add_space(6.0);
 
+                    let mut changed = false;
                     egui::Grid::new("trace_params_grid")
                         .spacing([12.0, 8.0])
                         .show(ui, |ui| {
                             ui.label("Threshold (0..255):");
-                            ui.add(egui::Slider::new(&mut self.trace_threshold, 1..=254));
+                            if ui.add(egui::Slider::new(&mut self.trace_threshold, 1..=254)).changed() {
+                                changed = true;
+                            }
                             ui.end_row();
 
                             ui.label("Blur / Smoothness:");
-                            ui.add(egui::Slider::new(&mut self.trace_blur_radius, 0..=5).text("px radius"));
+                            if ui.add(egui::Slider::new(&mut self.trace_blur_radius, 0..=5).text("px radius")).changed() {
+                                changed = true;
+                            }
                             ui.end_row();
 
                             ui.label("Minimum Area:");
-                            ui.add(egui::DragValue::new(&mut self.trace_min_area).speed(0.1).range(0.01..=50.0).suffix(" mm²"));
+                            if ui.add(egui::DragValue::new(&mut self.trace_min_area).speed(0.1).range(0.01..=50.0).suffix(" mm²")).changed() {
+                                changed = true;
+                            }
                             ui.end_row();
 
                             ui.label("Curve Tolerance:");
-                            ui.add(egui::DragValue::new(&mut self.trace_tolerance).speed(0.01).range(0.01..=1.0).suffix(" mm"));
+                            if ui.add(egui::DragValue::new(&mut self.trace_tolerance).speed(0.01).range(0.01..=1.0).suffix(" mm")).changed() {
+                                changed = true;
+                            }
                             ui.end_row();
                         });
 
                     ui.add_space(4.0);
-                    ui.checkbox(&mut self.trace_invert, "Invert (trace bright pixels instead of dark)");
+                    if ui.checkbox(&mut self.trace_invert, "Invert (trace bright pixels instead of dark)").changed() {
+                        changed = true;
+                    }
                     ui.checkbox(&mut self.trace_delete_image, "Replace original bitmap with vector result");
+
+                    if changed {
+                        self.update_trace_preview();
+                    }
+
+                    ui.add_space(6.0);
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("● Live Preview:").color(egui::Color32::from_rgb(255, 0, 180)).strong());
+                            if count > 0 {
+                                ui.label(egui::RichText::new(format!("{} vector paths ({} points)", count, total_pts)).strong());
+                            } else {
+                                ui.label(egui::RichText::new("No contours found (adjust threshold slider)").italics().color(egui::Color32::from_rgb(255, 170, 50)));
+                            }
+                        });
+                        ui.label(egui::RichText::new("Contours are also rendered live in glowing magenta over the image on the canvas.").small().weak());
+
+                        // Interactive mini-preview box inside the window
+                        let (preview_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 150.0), egui::Sense::hover());
+                        let painter = ui.painter_at(preview_rect);
+                        painter.rect_filled(preview_rect, 4.0, egui::Color32::from_rgb(20, 22, 26));
+                        painter.rect_stroke(preview_rect, 4.0, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(50, 55, 65)), egui::StrokeKind::Inside);
+
+                        if let Some(src_idx) = self.trace_source_shape_idx {
+                            if src_idx < self.doc.shapes.len() {
+                                if let Shape::Image { x: img_x, y: img_y, width: img_w, height: img_h, .. } = self.doc.shapes[src_idx] {
+                                    if img_w > 0.0 && img_h > 0.0 {
+                                        let pad = 12.0_f32;
+                                        let avail_w = (preview_rect.width() - pad * 2.0).max(10.0);
+                                        let avail_h = (preview_rect.height() - pad * 2.0).max(10.0);
+                                        let scale = (avail_w / img_w as f32).min(avail_h / img_h as f32);
+                                        let off_x = preview_rect.min.x + pad + (avail_w - img_w as f32 * scale) * 0.5;
+                                        let off_y = preview_rect.min.y + pad + (avail_h - img_h as f32 * scale) * 0.5;
+
+                                        let img_box = egui::Rect::from_min_size(
+                                            egui::pos2(off_x, off_y),
+                                            egui::vec2(img_w as f32 * scale, img_h as f32 * scale),
+                                        );
+                                        painter.rect_filled(img_box, 0.0, egui::Color32::from_rgb(30, 32, 38));
+                                        painter.rect_stroke(img_box, 0.0, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(70, 75, 85)), egui::StrokeKind::Outside);
+
+                                        let stroke = egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(255, 0, 180));
+                                        for poly in &self.trace_preview_polylines {
+                                            let n = poly.points.len();
+                                            if n >= 2 {
+                                                let seg_count = if poly.is_closed { n } else { n - 1 };
+                                                for i in 0..seg_count {
+                                                    let p1 = egui::pos2(
+                                                        off_x + (poly.points[i].x - img_x) as f32 * scale,
+                                                        off_y + (poly.points[i].y - img_y) as f32 * scale,
+                                                    );
+                                                    let p2 = egui::pos2(
+                                                        off_x + (poly.points[(i + 1) % n].x - img_x) as f32 * scale,
+                                                        off_y + (poly.points[(i + 1) % n].y - img_y) as f32 * scale,
+                                                    );
+                                                    if p1.distance_sq(p2) > 0.01 {
+                                                        painter.line_segment([p1, p2], stroke);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
 
                     ui.add_space(8.0);
                     ui.separator();
@@ -7290,6 +7493,8 @@ impl eframe::App for LaserBurnApp {
             }
             if close_trace || !is_open {
                 self.show_trace_window = false;
+                self.trace_preview_polylines.clear();
+                self.trace_source_shape_idx = None;
             }
         }
 
@@ -9715,10 +9920,21 @@ mod tests {
         });
         app.selected_shape_indices = vec![0];
 
+        // Test opening trace dialog & live preview
+        app.open_trace_dialog();
+        assert!(app.show_trace_window);
+        assert!(!app.trace_preview_polylines.is_empty(), "Live preview should have contours immediately");
+
+        // Adjust threshold and verify live update
+        app.trace_threshold = 200;
+        app.update_trace_preview();
+        assert!(!app.trace_preview_polylines.is_empty());
+
         app.trace_threshold = 128;
         app.trace_invert = false;
         app.trace_blur_radius = 0;
         app.trace_delete_image = true; // Replace image with vectors
+        app.update_trace_preview();
         app.apply_trace_image();
 
         assert_eq!(app.doc.shapes.len(), 1);
@@ -9727,6 +9943,21 @@ mod tests {
         } else {
             panic!("Expected traced vectors to replace image as a Group");
         }
+    }
+
+    #[test]
+    fn test_gui_load_sample_files() {
+        let mut app = LaserBurnApp::default();
+
+        // Test loading sample DXF bracket
+        app.load_sample_dxf();
+        assert!(app.doc.shapes.len() >= 10, "Sample DXF bracket has multiple shapes");
+        assert!(app.doc.layers.len() >= 3, "Sample DXF has CUT, HOLES, ENGRAVE layers");
+
+        // Test loading sample PDF test card
+        app.load_sample_pdf();
+        assert!(app.doc.shapes.len() >= 6, "Sample PDF test card has multiple shapes");
+        assert!(app.doc.layers.len() >= 2, "Sample PDF has multiple layers");
     }
 
     #[test]

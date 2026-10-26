@@ -447,4 +447,12 @@ endobj\n\
         let doc = PdfFormat::load_from_bytes(pdf_data).expect("PDF should parse vector shapes");
         assert_eq!(doc.shapes.len(), 2);
     }
+
+    #[test]
+    fn test_sample_vector_pdf_loading() {
+        let pdf_data = include_bytes!("../../samples/sample_vector.pdf");
+        let doc = PdfFormat::load_from_bytes(pdf_data).expect("Sample vector PDF must load");
+        assert!(doc.shapes.len() >= 6, "PDF has rectangles, lines, and curves");
+        assert!(doc.layers.len() >= 2, "PDF has multiple color layers");
+    }
 }
