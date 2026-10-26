@@ -4436,10 +4436,10 @@ impl eframe::App for LaserBurnApp {
                 if ui.button(egui::RichText::new(badge_text).strong().color(badge_color)).on_hover_text("Open device connection & console window").clicked() {
                     self.show_connection_window = true;
                 }
-                ui.label(format!("{}: {}", tr("Controller:"), self.device.controller_type.name()));
+                ui.label(format!("{} {}", tr("Controller:"), self.device.controller_type.name()));
                 ui.separator();
 
-                ui.label(format!("{}: X: {:.1} mm, Y: {:.1} mm", tr("Machine Pos:"), self.device.machine_x, self.device.machine_y));
+                ui.label(format!("{} X: {:.1} mm, Y: {:.1} mm", tr("Machine Pos:"), self.device.machine_x, self.device.machine_y));
                 ui.separator();
 
                 if self.device.is_job_running {
@@ -4471,15 +4471,11 @@ impl eframe::App for LaserBurnApp {
                     ui.separator();
                 }
 
-                let disp_status = if self.status_msg == "LaserBurn Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog" {
-                    tr("LaserBurn Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog")
-                } else {
-                    &self.status_msg
-                };
+                let disp_status = tr(&self.status_msg);
                 ui.label(egui::RichText::new(disp_status).strong());
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(format!("{}: {:.0} x {:.0} mm | {}: {} | {}: {}", tr("Bed:"), self.doc.width, self.doc.height, tr("Shapes:"), self.doc.shapes.len(), tr("Selected:"), self.selected_shape_indices.len()));
+                    ui.label(format!("{} {:.0} x {:.0} mm | {} {} | {} {}", tr("Bed:"), self.doc.width, self.doc.height, tr("Shapes:"), self.doc.shapes.len(), tr("Selected:"), self.selected_shape_indices.len()));
                 });
             });
         });

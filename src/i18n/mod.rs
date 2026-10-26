@@ -32,14 +32,14 @@ impl Default for Language {
 }
 
 /// Translates a given key into the requested language
-pub fn t(key: &'static str, lang: Language) -> &'static str {
+pub fn t<'a>(key: &'a str, lang: Language) -> &'a str {
     match lang {
         Language::English => key,
         Language::Finnish => translate_fi(key),
     }
 }
 
-fn translate_fi(key: &'static str) -> &'static str {
+fn translate_fi<'a>(key: &'a str) -> &'a str {
     match key {
         // File Menu
         "File" => "Tiedosto",
@@ -429,6 +429,25 @@ fn translate_fi(key: &'static str) -> &'static str {
         "Laser Head Positioning & Jog" => "Laserpään asemointi ja siirto",
         "Weak Beam / Alignment Pointer" => "Kohdistussäde / Osoitin",
         "Framing Test with Weak Beam" => "Rajauksen testaus säteellä",
+        "LaserBurn Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog" => "LaserBurn valmis - Valitse klikkaamalla muotoa, siirrä vetämällä tai käytä nuolia",
+        "Nothing to undo" => "Ei kumottavaa",
+        "Nothing to redo" => "Ei uudelleentehtävää",
+        "Nothing selected to copy" => "Ei valintaa kopioitavaksi",
+        "Nothing selected to cut" => "Ei valintaa leikattavaksi",
+        "Clipboard is empty" => "Leikepöytä on tyhjä",
+        "Nothing selected to duplicate" => "Ei valintaa kahdennettavaksi",
+        "Selection unlocked (can be moved and edited)" => "Valinnan lukitus avattu (voidaan siirtää ja muokata)",
+        "Selection locked in place (cannot be moved accidentally)" => "Valinta lukittu paikoilleen",
+        "Shapes locked together in a Group" => "Muodot ryhmitelty",
+        "Group(s) unpacked into individual shapes" => "Ryhmittely purettu",
+        "Flipped selection horizontally" => "Valinta peilattu vaakasuunnassa",
+        "Flipped selection vertically" => "Valinta peilattu pystysuunnassa",
+        "Converted selection to editable vector Path" => "Valinta muunnettu muokattavaksi vektoripoluksi",
+        "Joined open paths successfully" => "Avoimet polut yhdistetty onnistuneesti",
+        "Layer & material palette saved as startup default!" => "Tasot ja materiaalipaletti tallennettu oletukseksi!",
+        "Connection settings saved (~/.config/laser_burn/settings.json)" => "Yhteysasetukset tallennettu",
+        "Sent $10=19 and $21=1 to GRBL" => "Lähetetty $10=19 ja $21=1 GRBL:lle",
+        "Homography alignment solved & saved! Bed overlay is now active." => "Kameran kohdistus laskettu ja tallennettu! Taustakuva on aktiivinen.",
 
         // Fallback: return original key
         _ => key,
