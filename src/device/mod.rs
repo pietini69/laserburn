@@ -197,6 +197,16 @@ pub struct DeviceSettings {
     pub log_status_polls: bool,
     #[serde(default)]
     pub dark_mode: bool,
+
+    // macOS Apple Shortcuts Automation (On Job Start / On Job Complete)
+    #[serde(default)]
+    pub run_shortcut_on_start: bool,
+    #[serde(default)]
+    pub shortcut_on_start_name: String,
+    #[serde(default)]
+    pub run_shortcut_on_complete: bool,
+    #[serde(default)]
+    pub shortcut_on_complete_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -300,6 +310,10 @@ impl Default for DeviceSettings {
             save_traffic_log: false,
             log_status_polls: false,
             dark_mode: false,
+            run_shortcut_on_start: false,
+            shortcut_on_start_name: String::new(),
+            run_shortcut_on_complete: false,
+            shortcut_on_complete_name: String::new(),
         }
     }
 }
@@ -1769,7 +1783,47 @@ impl DeviceManager {
         self.job_start_instant = Some(Instant::now());
         self.job_estimated_total_sec = estimated_time_sec;
         let est_str = crate::simulator::Simulator::format_duration(estimated_time_sec);
-        self.log(&format!("[JOB] ▶ Cut job started ({} G-code lines, ~{}).", self.job_total_lines, est_str));
+        self.log(&format!("[JOB] Cut job started ({} G-code lines, ~{}).", self.job_total_lines, est_str));
+
+        #[cfg(target_os = "macos")]
+        if self.settings.run_shortcut_on_start {
+            let name = self.settings.shortcut_on_start_name.trim().to_string();
+            if !name.is_empty() {
+                self.trigger_macos_shortcut(&name, "On Job Start");
+            }
+        }
+    }
+
+    /// Queries the macOS `shortcuts list` CLI to return available Apple Shortcuts on this Mac.
+    #[cfg(target_os = "macos")]
+    pub fn list_macos_shortcuts() -> Vec<String> {
+        if let Ok(output) = std::process::Command::new("shortcuts").arg("list").output() {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                return text
+                    .lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty())
+                    .collect();
+            }
+        }
+        Vec::new()
+    }
+
+    /// Triggers an Apple Shortcut asynchronously in the background on macOS (`shortcuts run "<name>"`).
+    #[cfg(target_os = "macos")]
+    pub fn trigger_macos_shortcut(&mut self, shortcut_name: &str, reason: &str) {
+        let trimmed = shortcut_name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        self.log(&format!("[SHORTCUT] Running Apple Shortcut '{}' ({})...", trimmed, reason));
+        if !cfg!(test) {
+            let _ = std::process::Command::new("shortcuts")
+                .arg("run")
+                .arg(trimmed)
+                .spawn();
+        }
     }
 
     /// Pause the active job
@@ -1780,7 +1834,7 @@ impl DeviceManager {
             // Real-time feed hold command '!' and laser off M5
             self.send_realtime(b'!');
             self.send_raw("M5");
-            self.log("[JOB] ⏸ Job paused.");
+            self.log("[JOB] Job paused.");
         }
     }
 
@@ -1790,7 +1844,7 @@ impl DeviceManager {
             self.is_job_paused = false;
             // Real-time cycle start command '~'
             self.send_realtime(b'~');
-            self.log("[JOB] ▶ Job resumed.");
+            self.log("[JOB] Job resumed.");
         }
     }
 
@@ -1836,10 +1890,10 @@ impl DeviceManager {
                 stopped_y,
                 started_at: Instant::now(),
             });
-            self.log(&format!("[JOB] ⏹ Emergency stop at X={:.2}, Y={:.2} mm. Halting laser and preserving origin...", stopped_x, stopped_y));
+            self.log(&format!("[JOB] Emergency stop at X={:.2}, Y={:.2} mm. Halting laser and preserving origin...", stopped_x, stopped_y));
         } else {
             self.abort_phase = None;
-            self.log(&format!("[JOB] ⏹ Job stopped at X={:.2}, Y={:.2} mm. Origin (0,0) preserved.", stopped_x, stopped_y));
+            self.log(&format!("[JOB] Job stopped at X={:.2}, Y={:.2} mm. Origin (0,0) preserved.", stopped_x, stopped_y));
         }
     }
 
@@ -1923,6 +1977,15 @@ impl DeviceManager {
                     String::new()
                 };
                 self.log(&format!("[JOB] Job completed successfully{}!", dur_str));
+
+                #[cfg(target_os = "macos")]
+                if self.settings.run_shortcut_on_complete {
+                    let name = self.settings.shortcut_on_complete_name.trim().to_string();
+                    if !name.is_empty() {
+                        self.trigger_macos_shortcut(&name, "On Job Complete");
+                    }
+                }
+
                 return false;
             }
         }

@@ -177,6 +177,10 @@ pub struct LaserBurnApp {
     pub show_traffic_panel: bool,
     pub hide_ok_in_traffic_log: bool,
     pub explain_traffic_codes: bool,
+
+    // macOS Apple Shortcuts list
+    #[cfg(target_os = "macos")]
+    pub available_shortcuts: Vec<String>,
 }
 
 #[cfg(feature = "gui")]
@@ -265,6 +269,8 @@ impl Default for LaserBurnApp {
             show_traffic_panel: true,
             hide_ok_in_traffic_log: false,
             explain_traffic_codes: true,
+            #[cfg(target_os = "macos")]
+            available_shortcuts: Vec::new(),
             file_dialog_tx,
             file_dialog_rx,
         };
@@ -4314,6 +4320,93 @@ impl eframe::App for LaserBurnApp {
                         if self.device.is_job_paused {
                             ui.label(egui::RichText::new("JOB PAUSED").strong().color(self.color_orange()));
                         }
+                    }
+
+                    #[cfg(target_os = "macos")]
+                    {
+                        ui.add_space(4.0);
+                        ui.collapsing("Apple Shortcuts Automation (macOS)", |ui| {
+                            ui.label(
+                                egui::RichText::new("Automatically trigger macOS Shortcuts (e.g. smart plug, exhaust fan, or notification) when a burn job starts or finishes.")
+                                    .small()
+                                    .weak(),
+                            );
+                            ui.horizontal(|ui| {
+                                if ui.small_button("Load Shortcuts List").on_hover_text("Fetch installed Apple Shortcuts from macOS").clicked() {
+                                    self.available_shortcuts = crate::device::DeviceManager::list_macos_shortcuts();
+                                }
+                                if !self.available_shortcuts.is_empty() {
+                                    ui.label(egui::RichText::new(format!("({} found)", self.available_shortcuts.len())).small().weak());
+                                }
+                            });
+                            ui.add_space(2.0);
+
+                            // 1. On Job Start
+                            if ui.checkbox(&mut self.device.settings.run_shortcut_on_start, "Run Shortcut when Job Starts").changed() {
+                                let _ = self.device.settings.save();
+                            }
+                            ui.horizontal(|ui| {
+                                ui.label("Start:");
+                                if ui.add(
+                                    egui::TextEdit::singleline(&mut self.device.settings.shortcut_on_start_name)
+                                        .hint_text("Shortcut name (e.g. Pöytä päälle)")
+                                        .desired_width(155.0),
+                                ).changed() {
+                                    let _ = self.device.settings.save();
+                                }
+                                if !self.available_shortcuts.is_empty() {
+                                    egui::ComboBox::from_id_salt("shortcut_start_picker")
+                                        .selected_text("Pick")
+                                        .width(55.0)
+                                        .show_ui(ui, |ui| {
+                                            for sc in &self.available_shortcuts {
+                                                if ui.selectable_label(self.device.settings.shortcut_on_start_name == *sc, sc).clicked() {
+                                                    self.device.settings.shortcut_on_start_name = sc.clone();
+                                                    let _ = self.device.settings.save();
+                                                }
+                                            }
+                                        });
+                                }
+                                if ui.small_button("Test").on_hover_text("Run this Shortcut now").clicked() {
+                                    let name = self.device.settings.shortcut_on_start_name.clone();
+                                    self.device.trigger_macos_shortcut(&name, "Manual Test");
+                                }
+                            });
+
+                            ui.add_space(4.0);
+
+                            // 2. On Job Complete
+                            if ui.checkbox(&mut self.device.settings.run_shortcut_on_complete, "Run Shortcut when Job Finishes").changed() {
+                                let _ = self.device.settings.save();
+                            }
+                            ui.horizontal(|ui| {
+                                ui.label("Done:");
+                                if ui.add(
+                                    egui::TextEdit::singleline(&mut self.device.settings.shortcut_on_complete_name)
+                                        .hint_text("Shortcut name (e.g. Laser valmis)")
+                                        .desired_width(155.0),
+                                ).changed() {
+                                    let _ = self.device.settings.save();
+                                }
+                                if !self.available_shortcuts.is_empty() {
+                                    egui::ComboBox::from_id_salt("shortcut_done_picker")
+                                        .selected_text("Pick")
+                                        .width(55.0)
+                                        .show_ui(ui, |ui| {
+                                            for sc in &self.available_shortcuts {
+                                                if ui.selectable_label(self.device.settings.shortcut_on_complete_name == *sc, sc).clicked() {
+                                                    self.device.settings.shortcut_on_complete_name = sc.clone();
+                                                    let _ = self.device.settings.save();
+                                                }
+                                            }
+                                        });
+                                }
+                                if ui.small_button("Test").on_hover_text("Run this Shortcut now").clicked() {
+                                    let name = self.device.settings.shortcut_on_complete_name.clone();
+                                    self.device.trigger_macos_shortcut(&name, "Manual Test");
+                                }
+                            });
+                        });
                     }
 
                     ui.add_space(8.0);
