@@ -6,6 +6,7 @@
 [![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-dea584.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)]()
 [![Free Download on Gumroad](https://img.shields.io/badge/Gumroad-Free%20Download-orange.svg)](https://shop.pietiniart.com/l/laserburn)
+[![Buy Me A Coffee](https://img.shields.io/badge/☕%20Buy%20Me%20A%20Coffee-Donate-yellow.svg)](https://shop.pietiniart.com/l/laserburn)
 
 **LaserBurn** is an open-source, ultra-lightweight, and fully-featured laser CAM & controller application written from scratch in pure **Rust** (`eframe` / `egui`). 
 
