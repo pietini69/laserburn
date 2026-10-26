@@ -2236,9 +2236,9 @@ impl LaserBurnApp {
 
         egui::Window::new("📚 Material Library & Database")
             .open(&mut is_open)
-            .default_size([760.0, 520.0])
-            .min_width(620.0)
-            .min_height(400.0)
+            .default_size([820.0, 560.0])
+            .min_width(680.0)
+            .min_height(460.0)
             .resizable(true)
             .collapsible(false)
             .show(ctx, |ui| {
@@ -2291,13 +2291,19 @@ impl LaserBurnApp {
                 let search_term = search.trim().to_lowercase();
 
                 // 2-Panel Layout: Left Tree List, Right Detail & Actions
-                ui.horizontal(|ui| {
+                ui.horizontal_top(|ui| {
                     // LEFT COLUMN
-                    ui.allocate_ui_with_layout(egui::Vec2::new(280.0, ui.available_height()), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.vertical(|ui| {
+                        ui.set_width(320.0);
                         ui.heading("Materials");
+                        ui.add_space(2.0);
+
+                        let scroll_height = ui.available_height().max(420.0);
                         egui::ScrollArea::vertical()
                             .id_salt("mat_lib_tree_scroll")
-                            .max_height(420.0)
+                            .auto_shrink([false, false])
+                            .min_scrolled_height(380.0)
+                            .max_height(scroll_height)
                             .show(ui, |ui| {
                                 if self.material_lib.materials.is_empty() {
                                     ui.label("No materials in database.");
@@ -2387,7 +2393,8 @@ impl LaserBurnApp {
                     ui.separator();
 
                     // RIGHT COLUMN
-                    ui.allocate_ui_with_layout(egui::Vec2::new(ui.available_width(), ui.available_height()), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.vertical(|ui| {
+                        ui.set_min_width(360.0);
                         let selected_data = if let (Some(ref mat_name), Some(thick_mm), Some(ref op_name)) = (
                             &selected_mat,
                             selected_thick,
