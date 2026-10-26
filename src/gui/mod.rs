@@ -8,6 +8,7 @@ use eframe::egui;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTool {
     Select,
+    NodeEdit,
     DrawRect,
     DrawCircle,
     DrawLine,
@@ -90,6 +91,10 @@ pub struct LaserBurnApp {
     pub draw_start: Option<Point2D>,
     pub draw_current: Option<Point2D>,
 
+    // Node Editing State
+    pub selected_node_index: Option<usize>,
+    pub dragging_node_index: Option<usize>,
+
     // Machine & Connection Manager
     pub device: crate::device::DeviceManager,
     pub jog_step: f64,
@@ -111,6 +116,10 @@ pub struct LaserBurnApp {
     pub text_pos_x: f64,
     pub text_pos_y: f64,
     pub text_align: crate::text::TextAlign,
+    pub text_on_path_enabled: bool,
+    pub text_on_path_offset: f64,
+    pub text_on_path_perpendicular: f64,
+    pub text_on_path_reverse: bool,
 
     // Status
     pub status_msg: String,
@@ -163,6 +172,35 @@ pub struct LaserBurnApp {
     pub offset_inward: bool,
     pub offset_both: bool,
     pub offset_delete_orig: bool,
+
+    // Array Tools (Grid & Radial Array)
+    pub show_grid_array_window: bool,
+    pub grid_columns: usize,
+    pub grid_rows: usize,
+    pub grid_spacing_x: f64,
+    pub grid_spacing_y: f64,
+    pub grid_use_spacing: bool,
+
+    pub show_radial_array_window: bool,
+    pub radial_count: usize,
+    pub radial_total_angle: f64,
+    pub radial_rotate_copies: bool,
+    pub radial_center_x: f64,
+    pub radial_center_y: f64,
+    pub radial_center_auto: bool,
+
+    // Multiple Machine Profiles State
+    pub show_device_profiles_window: bool,
+    pub profile_new_name: String,
+
+    // Image Trace (Bitmap to Vector) State
+    pub show_trace_window: bool,
+    pub trace_threshold: u8,
+    pub trace_invert: bool,
+    pub trace_blur_radius: usize,
+    pub trace_min_area: f64,
+    pub trace_tolerance: f64,
+    pub trace_delete_image: bool,
 
     // Material Test Generator Window State
     pub show_material_test_window: bool,
@@ -230,6 +268,9 @@ impl Default for LaserBurnApp {
             draw_start: None,
             draw_current: None,
 
+            selected_node_index: None,
+            dragging_node_index: None,
+
             device: crate::device::DeviceManager::new(),
             jog_step: 10.0,
             jog_speed: 3000.0,
@@ -249,6 +290,10 @@ impl Default for LaserBurnApp {
             text_pos_x: 60.0,
             text_pos_y: 60.0,
             text_align: crate::text::TextAlign::Left,
+            text_on_path_enabled: false,
+            text_on_path_offset: 0.0,
+            text_on_path_perpendicular: 0.0,
+            text_on_path_reverse: false,
 
             status_msg: "LaserBurn Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog".to_string(),
             clipboard_shapes: Vec::new(),
@@ -278,6 +323,33 @@ impl Default for LaserBurnApp {
             offset_inward: false,
             offset_both: false,
             offset_delete_orig: false,
+
+            show_grid_array_window: false,
+            grid_columns: 3,
+            grid_rows: 2,
+            grid_spacing_x: 5.0,
+            grid_spacing_y: 5.0,
+            grid_use_spacing: true,
+
+            show_radial_array_window: false,
+            radial_count: 8,
+            radial_total_angle: 360.0,
+            radial_rotate_copies: true,
+            radial_center_x: 200.0,
+            radial_center_y: 200.0,
+            radial_center_auto: true,
+
+            show_device_profiles_window: false,
+            profile_new_name: String::new(),
+
+            show_trace_window: false,
+            trace_threshold: 128,
+            trace_invert: false,
+            trace_blur_radius: 1,
+            trace_min_area: 0.2,
+            trace_tolerance: 0.08,
+            trace_delete_image: false,
+
             show_material_test_window: false,
             mat_test_rows: 5,
             mat_test_cols: 5,
@@ -448,6 +520,178 @@ impl LaserBurnApp {
                 "outward"
             }
         );
+    }
+
+    /// Duplicates selected shapes in a rectangular grid array
+    pub fn apply_grid_array(&mut self) {
+        if self.selected_shape_indices.is_empty() {
+            self.status_msg = "Select at least one shape for Grid Array".to_string();
+            return;
+        }
+        self.push_undo();
+
+        let (delta_x, delta_y) = if self.grid_use_spacing {
+            let mut bb = crate::geometry::BoundingBox::empty();
+            for &idx in &self.selected_shape_indices {
+                if idx < self.doc.shapes.len() {
+                    bb = bb.union(&self.doc.shapes[idx].bounds());
+                }
+            }
+            (bb.width() + self.grid_spacing_x, bb.height() + self.grid_spacing_y)
+        } else {
+            (self.grid_spacing_x, self.grid_spacing_y)
+        };
+
+        let new_indices = self.doc.create_grid_array(
+            &self.selected_shape_indices,
+            self.grid_columns,
+            self.grid_rows,
+            delta_x,
+            delta_y,
+        );
+        self.selected_shape_indices.extend(new_indices);
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.image_textures.clear();
+        self.status_msg = format!("Created {}x{} grid array", self.grid_columns, self.grid_rows);
+    }
+
+    /// Duplicates selected shapes in a radial circular array around a center point
+    pub fn apply_radial_array(&mut self) {
+        if self.selected_shape_indices.is_empty() {
+            self.status_msg = "Select at least one shape for Radial Array".to_string();
+            return;
+        }
+        self.push_undo();
+
+        let center = if self.radial_center_auto {
+            let mut bb = crate::geometry::BoundingBox::empty();
+            for &idx in &self.selected_shape_indices {
+                if idx < self.doc.shapes.len() {
+                    bb = bb.union(&self.doc.shapes[idx].bounds());
+                }
+            }
+            bb.center()
+        } else {
+            crate::geometry::Point2D::new(self.radial_center_x, self.radial_center_y)
+        };
+
+        let new_indices = self.doc.create_radial_array(
+            &self.selected_shape_indices,
+            self.radial_count,
+            center,
+            self.radial_total_angle,
+            self.radial_rotate_copies,
+        );
+        self.selected_shape_indices.extend(new_indices);
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.image_textures.clear();
+        self.status_msg = format!("Created radial array ({} copies)", self.radial_count);
+    }
+
+    /// Traces the currently selected raster image into vector cut/engrave paths
+    pub fn apply_trace_image(&mut self) {
+        let Some(&idx) = self.selected_shape_indices.first() else {
+            self.status_msg = "Select a raster image to trace".to_string();
+            return;
+        };
+        if idx >= self.doc.shapes.len() {
+            return;
+        }
+
+        let (pixels, w, h, channels, x, y, width_mm, height_mm) = match &self.doc.shapes[idx] {
+            Shape::Image {
+                x,
+                y,
+                width,
+                height,
+                raw_pixels,
+                raw_width,
+                raw_height,
+                image_path,
+                ..
+            } => {
+                let px_data = if let Some(p) = raw_pixels {
+                    p.clone()
+                } else if let Some(path) = image_path {
+                    if let Ok(dyn_img) = image::open(path) {
+                        dyn_img.to_rgba8().into_raw()
+                    } else {
+                        self.status_msg = "Could not load image pixels for tracing".to_string();
+                        return;
+                    }
+                } else {
+                    self.status_msg = "Image has no pixel data".to_string();
+                    return;
+                };
+                let chans = if px_data.len() == (*raw_width as usize) * (*raw_height as usize) * 4 {
+                    4
+                } else if px_data.len() == (*raw_width as usize) * (*raw_height as usize) * 3 {
+                    3
+                } else {
+                    1
+                };
+                (px_data, *raw_width as usize, *raw_height as usize, chans, *x, *y, *width, *height)
+            }
+            _ => {
+                self.status_msg = "Selected shape is not an image".to_string();
+                return;
+            }
+        };
+
+        self.push_undo();
+
+        let trace_opts = crate::trace::TraceOptions {
+            threshold: self.trace_threshold,
+            invert: self.trace_invert,
+            blur_radius: self.trace_blur_radius,
+            min_area_mm2: self.trace_min_area,
+            simplify_tolerance_mm: self.trace_tolerance,
+        };
+
+        let polylines = crate::trace::trace_image_to_polylines(
+            &pixels,
+            w,
+            h,
+            channels,
+            x,
+            y,
+            width_mm,
+            height_mm,
+            &trace_opts,
+        );
+
+        if polylines.is_empty() {
+            self.status_msg = "Image Trace: No vector contours found with current threshold".to_string();
+            return;
+        }
+
+        let target_layer = self.selected_layer;
+        let count = polylines.len();
+        let shapes: Vec<Shape> = polylines
+            .into_iter()
+            .map(|poly| Shape::Path {
+                layer_index: target_layer,
+                polyline: poly,
+            })
+            .collect();
+
+        let vector_group = Shape::Group {
+            layer_index: target_layer,
+            shapes,
+            locked: false,
+        };
+
+        if self.trace_delete_image {
+            self.doc.shapes[idx] = vector_group;
+            self.selected_shape_indices = vec![idx];
+        } else {
+            self.doc.add_shape(vector_group);
+            let new_idx = self.doc.shapes.len() - 1;
+            self.selected_shape_indices = vec![new_idx];
+        }
+
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.status_msg = format!("Image Traced: Created {} vector paths on Layer {}", count, target_layer);
     }
 
     /// Generates a calibrated Power (%) vs. Speed (mm/s) Material Test Matrix on the canvas
@@ -819,6 +1063,52 @@ impl LaserBurnApp {
                 );
                 Ok(())
             }
+            "dxf" => {
+                let mut doc = crate::formats::DxfFormat::load_from_file(p)?;
+                doc.width = self.device.settings.bed_width;
+                doc.height = self.device.settings.bed_height;
+                self.doc = doc;
+                self.selected_shape_indices = if !self.doc.shapes.is_empty() { vec![0] } else { vec![] };
+                if let Some(first_shape) = self.doc.shapes.first() {
+                    self.selected_layer = first_shape.layer_index();
+                } else if let Some(&first_layer) = self.doc.layers.keys().next() {
+                    self.selected_layer = first_layer;
+                } else {
+                    self.selected_layer = 0;
+                }
+                self.zoom = 1.2;
+                self.pan = egui::Vec2::new(80.0, 60.0);
+                self.status_msg = format!(
+                    "Loaded DXF: {} ({} shapes, {} layers)",
+                    p.file_name().unwrap_or_default().to_string_lossy(),
+                    self.doc.shapes.len(),
+                    self.doc.layers.len()
+                );
+                Ok(())
+            }
+            "pdf" => {
+                let mut doc = crate::formats::PdfFormat::load_from_file(p)?;
+                doc.width = self.device.settings.bed_width;
+                doc.height = self.device.settings.bed_height;
+                self.doc = doc;
+                self.selected_shape_indices = if !self.doc.shapes.is_empty() { vec![0] } else { vec![] };
+                if let Some(first_shape) = self.doc.shapes.first() {
+                    self.selected_layer = first_shape.layer_index();
+                } else if let Some(&first_layer) = self.doc.layers.keys().next() {
+                    self.selected_layer = first_layer;
+                } else {
+                    self.selected_layer = 0;
+                }
+                self.zoom = 1.2;
+                self.pan = egui::Vec2::new(80.0, 60.0);
+                self.status_msg = format!(
+                    "Loaded PDF: {} ({} shapes, {} layers)",
+                    p.file_name().unwrap_or_default().to_string_lossy(),
+                    self.doc.shapes.len(),
+                    self.doc.layers.len()
+                );
+                Ok(())
+            }
             "png" | "jpg" | "jpeg" | "bmp" => {
                 let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or("Image");
                 self.doc = Document::new(name, self.device.settings.bed_width, self.device.settings.bed_height);
@@ -911,7 +1201,9 @@ impl LaserBurnApp {
         std::thread::spawn(move || {
             pollster::block_on(async move {
                 if let Some(handle) = rfd::AsyncFileDialog::new()
-                    .add_filter("All Supported Files (*.lbrn2, *.lbrn, *.svg, *.png, *.jpg, *.bmp)", &["lbrn2", "lbrn", "svg", "png", "jpg", "jpeg", "bmp"])
+                    .add_filter("All Supported Files (*.lbrn2, *.lbrn, *.svg, *.dxf, *.pdf, *.png, *.jpg, *.bmp)", &["lbrn2", "lbrn", "svg", "dxf", "pdf", "png", "jpg", "jpeg", "bmp"])
+                    .add_filter("CAD Vector Drawing (*.dxf)", &["dxf"])
+                    .add_filter("Adobe / Vector PDF (*.pdf)", &["pdf"])
                     .add_filter("LightBurn Projects (*.lbrn2, *.lbrn)", &["lbrn2", "lbrn"])
                     .add_filter("Vector SVG (*.svg)", &["svg"])
                     .add_filter("Raster Images (*.png, *.jpg, *.jpeg, *.bmp)", &["png", "jpg", "jpeg", "bmp"])
@@ -1544,6 +1836,116 @@ impl LaserBurnApp {
         }
     }
 
+    /// Converts selected primitive shapes (Rect, Circle) into editable vector Paths
+    pub fn convert_selected_to_path(&mut self) {
+        if self.selected_shape_indices.is_empty() {
+            return;
+        }
+        self.push_undo();
+        for &idx in &self.selected_shape_indices {
+            if idx < self.doc.shapes.len() {
+                let polys = self.doc.shapes[idx].to_polylines();
+                let layer_idx = self.doc.shapes[idx].layer_index();
+                if let Some(poly) = polys.into_iter().next() {
+                    self.doc.shapes[idx] = Shape::Path {
+                        layer_index: layer_idx,
+                        polyline: poly,
+                    };
+                }
+            }
+        }
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.status_msg = "Converted selection to editable vector Path".to_string();
+    }
+
+    /// Deletes the currently selected node from the active path
+    pub fn delete_selected_node(&mut self) {
+        let Some(node_idx) = self.selected_node_index else { return; };
+        let Some(&shape_idx) = self.selected_shape_indices.first() else { return; };
+        if shape_idx >= self.doc.shapes.len() { return; }
+
+        let can_delete = if let Shape::Path { ref polyline, .. } = self.doc.shapes[shape_idx] {
+            let min_pts = if polyline.is_closed { 3 } else { 2 };
+            polyline.points.len() > min_pts && node_idx < polyline.points.len()
+        } else {
+            false
+        };
+
+        if !can_delete {
+            self.status_msg = "Cannot delete node: path requires at least minimum vertices".to_string();
+            return;
+        }
+
+        self.push_undo();
+        if let Shape::Path { ref mut polyline, .. } = self.doc.shapes[shape_idx] {
+            polyline.points.remove(node_idx);
+            self.selected_node_index = if polyline.points.is_empty() {
+                None
+            } else {
+                Some(node_idx.min(polyline.points.len() - 1))
+            };
+            self.doc_version = self.doc_version.wrapping_add(1);
+            self.status_msg = format!("Deleted node #{}", node_idx + 1);
+        }
+    }
+
+    /// Inserts a new node into the active path near the given point
+    pub fn insert_node_at_point(&mut self, pt: Point2D) -> bool {
+        let Some(&shape_idx) = self.selected_shape_indices.first() else { return false; };
+        if shape_idx >= self.doc.shapes.len() { return false; }
+
+        let best_seg = if let Shape::Path { ref polyline, .. } = self.doc.shapes[shape_idx] {
+            let n = polyline.points.len();
+            if n < 2 { return false; }
+            let num_segs = if polyline.is_closed { n } else { n - 1 };
+
+            let mut seg = None;
+            let mut min_d = f64::MAX;
+
+            for i in 0..num_segs {
+                let p1 = polyline.points[i];
+                let p2 = if i + 1 < n { polyline.points[i + 1] } else { polyline.points[0] };
+                let d = crate::geometry::point_to_segment_distance(&pt, &p1, &p2);
+                if d < min_d {
+                    min_d = d;
+                    seg = Some(i);
+                }
+            }
+            seg
+        } else {
+            None
+        };
+
+        if let Some(seg_idx) = best_seg {
+            self.push_undo();
+            if let Shape::Path { ref mut polyline, .. } = self.doc.shapes[shape_idx] {
+                let insert_idx = seg_idx + 1;
+                polyline.points.insert(insert_idx, pt);
+                self.selected_node_index = Some(insert_idx);
+                self.doc_version = self.doc_version.wrapping_add(1);
+                self.status_msg = format!("Inserted new node at segment #{}", seg_idx + 1);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Toggles whether the selected path is closed or open
+    pub fn toggle_selected_path_closed(&mut self) {
+        let Some(&shape_idx) = self.selected_shape_indices.first() else { return; };
+        if shape_idx >= self.doc.shapes.len() { return; }
+
+        if matches!(self.doc.shapes[shape_idx], Shape::Path { .. }) {
+            self.push_undo();
+            if let Shape::Path { ref mut polyline, .. } = self.doc.shapes[shape_idx] {
+                polyline.is_closed = !polyline.is_closed;
+                self.doc_version = self.doc_version.wrapping_add(1);
+                let state = if polyline.is_closed { "Closed" } else { "Open" };
+                self.status_msg = format!("Toggled path state to: {}", state);
+            }
+        }
+    }
+
     /// Copies selected shapes to the internal clipboard
     pub fn copy_selected(&mut self) {
         if self.selected_shape_indices.is_empty() {
@@ -1679,7 +2081,32 @@ impl LaserBurnApp {
             line_spacing: 1.2,
         };
 
-        match crate::text::generate_text_polylines(&opt) {
+        let polylines_res = if self.text_on_path_enabled {
+            if let Some(&sel_idx) = self.selected_shape_indices.first() {
+                if sel_idx < self.doc.shapes.len() {
+                    let path_polys = self.doc.shapes[sel_idx].to_polylines();
+                    if let Some(target_poly) = path_polys.first() {
+                        let on_path = crate::text::TextOnPathOptions {
+                            start_offset_mm: self.text_on_path_offset,
+                            perpendicular_offset_mm: self.text_on_path_perpendicular,
+                            align: self.text_align,
+                            reverse_direction: self.text_on_path_reverse,
+                        };
+                        crate::text::generate_text_on_path(&opt, target_poly, &on_path)
+                    } else {
+                        crate::text::generate_text_polylines(&opt)
+                    }
+                } else {
+                    crate::text::generate_text_polylines(&opt)
+                }
+            } else {
+                crate::text::generate_text_polylines(&opt)
+            }
+        } else {
+            crate::text::generate_text_polylines(&opt)
+        };
+
+        match polylines_res {
             Ok(polylines) => {
                 if polylines.is_empty() {
                     self.status_msg = "No geometry generated for text".to_string();
@@ -3029,7 +3456,27 @@ impl eframe::App for LaserBurnApp {
 
             // Delete / Backspace key to delete
             if ctx.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
-                self.delete_selected();
+                if self.active_tool == ActiveTool::NodeEdit && self.selected_node_index.is_some() {
+                    self.delete_selected_node();
+                } else {
+                    self.delete_selected();
+                }
+            }
+
+            // N (Toggle Node Edit Tool)
+            if !ctx.input(|i| i.modifiers.command) && ctx.input(|i| i.key_pressed(egui::Key::N)) {
+                if self.active_tool == ActiveTool::NodeEdit {
+                    self.active_tool = ActiveTool::Select;
+                    self.selected_node_index = None;
+                } else {
+                    self.active_tool = ActiveTool::NodeEdit;
+                    self.convert_selected_to_path();
+                }
+            }
+
+            // C in NodeEdit mode (Toggle closed/open path)
+            if self.active_tool == ActiveTool::NodeEdit && !ctx.input(|i| i.modifiers.command) && ctx.input(|i| i.key_pressed(egui::Key::C)) {
+                self.toggle_selected_path_closed();
             }
 
             // Cmd+T (Open Text Tool)
@@ -3292,6 +3739,29 @@ impl eframe::App for LaserBurnApp {
                         self.boolean_selected(crate::geometry::BooleanOp::Intersect);
                         ui.close_menu();
                     }
+                    ui.separator();
+                    if ui.add_enabled(has_selection, egui::Button::new("Grid Array (Matrix)..."))
+                        .on_hover_text("Duplicate selected shape(s) in a rectangular grid of rows and columns")
+                        .clicked()
+                    {
+                        self.show_grid_array_window = true;
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(has_selection, egui::Button::new("Radial Array (Circular)..."))
+                        .on_hover_text("Duplicate selected shape(s) in a circular pattern around a center point")
+                        .clicked()
+                    {
+                        self.show_radial_array_window = true;
+                        ui.close_menu();
+                    }
+                    let is_image_sel = self.selected_shape_indices.iter().any(|&i| i < self.doc.shapes.len() && matches!(self.doc.shapes[i], Shape::Image { .. }));
+                    if ui.add_enabled(is_image_sel, egui::Button::new("Trace Image (Bitmap to Vector)..."))
+                        .on_hover_text("Vectorize raster image into closed cutting / engraving paths")
+                        .clicked()
+                    {
+                        self.show_trace_window = true;
+                        ui.close_menu();
+                    }
                     if ui.button(format!("Add Text... ({}+T)", cmd)).clicked() {
                         self.show_text_dialog = true;
                         ui.close_menu();
@@ -3416,6 +3886,10 @@ impl eframe::App for LaserBurnApp {
             // Main Action Toolbar (Wraps cleanly if screen is smaller)
             ui.horizontal_wrapped(|ui| {
                 ui.selectable_value(&mut self.active_tool, ActiveTool::Select, "Select / Move");
+                let node_btn = ui.selectable_value(&mut self.active_tool, ActiveTool::NodeEdit, "Edit Nodes (N)");
+                if node_btn.clicked() {
+                    self.convert_selected_to_path();
+                }
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawRect, "Rect");
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawCircle, "Circle / Oval");
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawLine, "Line");
@@ -3474,6 +3948,16 @@ impl eframe::App for LaserBurnApp {
                 }
                 if ui.add_enabled(multi_selected, egui::Button::new("Intersect")).on_hover_text("Boolean Intersect: keep only the overlapping region of selected shapes").clicked() {
                     self.boolean_selected(crate::geometry::BooleanOp::Intersect);
+                }
+                if ui.add_enabled(has_selection, egui::Button::new("Grid Array")).on_hover_text("Duplicate selected shape(s) into a matrix of rows and columns").clicked() {
+                    self.show_grid_array_window = true;
+                }
+                if ui.add_enabled(has_selection, egui::Button::new("Radial Array")).on_hover_text("Duplicate selected shape(s) in a circular pattern around a center point").clicked() {
+                    self.show_radial_array_window = true;
+                }
+                let is_image_sel = self.selected_shape_indices.iter().any(|&i| i < self.doc.shapes.len() && matches!(self.doc.shapes[i], Shape::Image { .. }));
+                if ui.add_enabled(is_image_sel, egui::Button::new("Trace Image")).on_hover_text("Vectorize selected raster image into cutting / engraving paths").clicked() {
+                    self.show_trace_window = true;
                 }
 
                 // Lock toggle button
@@ -3639,6 +4123,29 @@ impl eframe::App for LaserBurnApp {
                 if ui.button("Snap to Tile").on_hover_text("Auto-detect ceramic tile / workpiece on camera bed and center/fit selection onto it (Right-click to also scale to fit)").clicked() {
                     self.auto_fit_to_camera_tile(false, 2.0);
                 }
+
+                // Laser Machine Profile Dropdown
+                let cur_prof = self.device.settings.current_profile_name.clone();
+                egui::ComboBox::from_id_salt("topbar_laser_profile_combo")
+                    .selected_text(format!("Laser: {}", cur_prof))
+                    .show_ui(ui, |ui| {
+                        let names: Vec<String> = self.device.settings.profiles.iter().map(|p| p.name.clone()).collect();
+                        for name in names {
+                            let is_sel = name == cur_prof;
+                            if ui.selectable_label(is_sel, &name).clicked() {
+                                self.device.settings.apply_profile(&name);
+                                self.doc.width = self.device.settings.bed_width;
+                                self.doc.height = self.device.settings.bed_height;
+                                let _ = self.device.settings.save();
+                                self.status_msg = format!("Active Laser Profile: {}", name);
+                            }
+                        }
+                        ui.separator();
+                        if ui.button("Manage Laser Profiles...").clicked() {
+                            self.show_device_profiles_window = true;
+                        }
+                    });
+
                 if ui.button("Settings").on_hover_text(format!("Device & bed settings ({}+,)", cmd)).clicked() {
                     self.show_settings_window = true;
                 }
@@ -4091,6 +4598,14 @@ impl eframe::App for LaserBurnApp {
                                                 }
                                                 ui.end_row();
                                             });
+
+                                        ui.add_space(4.0);
+                                        let trace_btn = egui::Button::new(
+                                            egui::RichText::new(" Trace Image to Vectors... ").strong().color(egui::Color32::WHITE),
+                                        ).fill(egui::Color32::from_rgb(0, 140, 255));
+                                        if ui.add(trace_btn).on_hover_text("Vectorize this bitmap graphic into cutting or engraving paths").clicked() {
+                                            self.show_trace_window = true;
+                                        }
 
                                         if img_changed {
                                             self.image_textures.remove(&first_idx);
@@ -5624,6 +6139,32 @@ impl eframe::App for LaserBurnApp {
                                 self.selected_shape_indices.clear();
                             }
                         }
+                    } else if self.active_tool == ActiveTool::NodeEdit {
+                        let node_radius_doc = (8.0 / self.zoom as f64).max(2.0);
+                        let mut hit_node = None;
+                        if let Some(&shape_idx) = self.selected_shape_indices.first() {
+                            if shape_idx < self.doc.shapes.len() {
+                                if let Shape::Path { ref polyline, .. } = self.doc.shapes[shape_idx] {
+                                    for (v_idx, pt) in polyline.points.iter().enumerate() {
+                                        if pt.distance_to(&doc_pt) <= node_radius_doc {
+                                            hit_node = Some(v_idx);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(v_idx) = hit_node {
+                            self.selected_node_index = Some(v_idx);
+                            self.status_msg = format!("Selected Node #{} of path (Drag to move, Del to delete)", v_idx + 1);
+                        } else if response.double_clicked() {
+                            self.insert_node_at_point(doc_pt);
+                        } else if let Some(best_idx) = self.find_best_shape_at_point(&doc_pt, hit_tolerance_doc) {
+                            self.selected_shape_indices = vec![best_idx];
+                            self.convert_selected_to_path();
+                            self.selected_node_index = None;
+                        }
                     }
                 }
                 // 2. Mouse Drag Start
@@ -5688,6 +6229,22 @@ impl eframe::App for LaserBurnApp {
                                 self.box_select_start = Some(doc_pt);
                                 self.box_select_current = Some(doc_pt);
                                 self.drag_handle = DragHandle::None;
+                            }
+                        }
+                    } else if self.active_tool == ActiveTool::NodeEdit {
+                        let node_radius_doc = (10.0 / self.zoom as f64).max(2.5);
+                        if let Some(&shape_idx) = self.selected_shape_indices.first() {
+                            if shape_idx < self.doc.shapes.len() {
+                                if let Shape::Path { ref polyline, .. } = self.doc.shapes[shape_idx] {
+                                    for (v_idx, pt) in polyline.points.iter().enumerate() {
+                                        if pt.distance_to(&doc_pt) <= node_radius_doc {
+                                            self.selected_node_index = Some(v_idx);
+                                            self.dragging_node_index = Some(v_idx);
+                                            self.push_undo();
+                                            break;
+                                        }
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -5889,6 +6446,19 @@ impl eframe::App for LaserBurnApp {
                             }
                             self.last_drag_doc = Some(doc_pt);
                         }
+                    } else if self.active_tool == ActiveTool::NodeEdit {
+                        if let Some(node_idx) = self.dragging_node_index {
+                            if let Some(&shape_idx) = self.selected_shape_indices.first() {
+                                if shape_idx < self.doc.shapes.len() {
+                                    if let Shape::Path { ref mut polyline, .. } = self.doc.shapes[shape_idx] {
+                                        if node_idx < polyline.points.len() {
+                                            polyline.points[node_idx] = doc_pt;
+                                            self.doc_version = self.doc_version.wrapping_add(1);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     } else if self.is_drawing {
                         self.draw_current = Some(doc_pt);
                     }
@@ -5898,6 +6468,7 @@ impl eframe::App for LaserBurnApp {
                     self.drag_handle = DragHandle::None;
                     self.drag_start_doc = None;
                     self.last_drag_doc = None;
+                    self.dragging_node_index = None;
 
                     // Finalize rubberband box selection
                     if self.is_box_selecting {
@@ -6185,8 +6756,33 @@ impl eframe::App for LaserBurnApp {
                 }
             }
 
-            // Draw Combined Selection Bounding Box & 8 Resize Handles
-            if let Some(b) = self.selection_bounds() {
+            // Draw Combined Selection Bounding Box & 8 Resize Handles OR Node Handles
+            if self.active_tool == ActiveTool::NodeEdit {
+                if let Some(&shape_idx) = self.selected_shape_indices.first() {
+                    if shape_idx < self.doc.shapes.len() {
+                        if let Shape::Path { ref polyline, .. } = self.doc.shapes[shape_idx] {
+                            for (v_idx, pt) in polyline.points.iter().enumerate() {
+                                let scr_p = self.doc_to_screen(*pt, canvas_origin);
+                                let is_node_sel = self.selected_node_index == Some(v_idx);
+                                let node_sz = if is_node_sel { 12.0 } else { 8.0 };
+                                let node_rect = egui::Rect::from_center_size(scr_p, egui::Vec2::splat(node_sz));
+                                let fill_color = if is_node_sel {
+                                    egui::Color32::from_rgb(255, 140, 0)
+                                } else {
+                                    egui::Color32::from_rgb(0, 220, 255)
+                                };
+                                painter.rect_filled(node_rect, 2.0, fill_color);
+                                painter.rect_stroke(
+                                    node_rect,
+                                    2.0,
+                                    egui::Stroke::new(1.5_f32, egui::Color32::BLACK),
+                                    egui::StrokeKind::Outside,
+                                );
+                            }
+                        }
+                    }
+                }
+            } else if let Some(b) = self.selection_bounds() {
                 let min_p = self.doc_to_screen(Point2D::new(b.min_x, b.min_y), canvas_origin);
                 let max_p = self.doc_to_screen(Point2D::new(b.max_x, b.max_y), canvas_origin);
                 let sel_rect = egui::Rect::from_two_pos(min_p, max_p);
@@ -6372,6 +6968,25 @@ impl eframe::App for LaserBurnApp {
                             });
                     });
 
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.label(egui::RichText::new("Text on Path (Teksti polulla):").strong());
+                    let has_path_sel = !self.selected_shape_indices.is_empty();
+                    ui.checkbox(&mut self.text_on_path_enabled, "Flow text along selected path / curve");
+                    if self.text_on_path_enabled {
+                        if !has_path_sel {
+                            ui.label(egui::RichText::new("⚠ Select a path or circle on the canvas first!").color(egui::Color32::from_rgb(255, 193, 7)).small());
+                        } else {
+                            ui.horizontal(|ui| {
+                                ui.label("Path Offset:");
+                                ui.add(egui::DragValue::new(&mut self.text_on_path_offset).speed(0.5).suffix(" mm"));
+                                ui.label("Perpendicular / Dist:");
+                                ui.add(egui::DragValue::new(&mut self.text_on_path_perpendicular).speed(0.5).suffix(" mm"));
+                            });
+                            ui.checkbox(&mut self.text_on_path_reverse, "Reverse path direction");
+                        }
+                    }
+
                     ui.add_space(8.0);
                     ui.separator();
 
@@ -6469,6 +7084,305 @@ impl eframe::App for LaserBurnApp {
             }
             if close_offset || !is_open {
                 self.show_offset_window = false;
+            }
+        }
+
+        // -------------------------------------------------------------
+        // GRID ARRAY WINDOW
+        // -------------------------------------------------------------
+        if self.show_grid_array_window {
+            let mut close_grid = false;
+            let mut do_apply = false;
+            let mut is_open = true;
+
+            egui::Window::new("Grid Array")
+                .collapsible(false)
+                .resizable(false)
+                .default_width(340.0)
+                .open(&mut is_open)
+                .show(ctx, |ui| {
+                    ui.heading("Duplicate Grid Array");
+                    ui.label(egui::RichText::new("Duplicate selected shape(s) into a matrix of rows and columns with custom spacing or pitch.").small().weak());
+                    ui.add_space(6.0);
+
+                    egui::Grid::new("grid_array_params")
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label("Columns (X):");
+                            ui.add(egui::DragValue::new(&mut self.grid_columns).range(1..=100));
+                            ui.end_row();
+
+                            ui.label("Rows (Y):");
+                            ui.add(egui::DragValue::new(&mut self.grid_rows).range(1..=100));
+                            ui.end_row();
+
+                            ui.label(if self.grid_use_spacing { "Gap / Spacing X:" } else { "Pitch Delta X:" });
+                            ui.add(egui::DragValue::new(&mut self.grid_spacing_x).speed(0.5).range(0.0..=1000.0).suffix(" mm"));
+                            ui.end_row();
+
+                            ui.label(if self.grid_use_spacing { "Gap / Spacing Y:" } else { "Pitch Delta Y:" });
+                            ui.add(egui::DragValue::new(&mut self.grid_spacing_y).speed(0.5).range(0.0..=1000.0).suffix(" mm"));
+                            ui.end_row();
+                        });
+
+                    ui.add_space(4.0);
+                    ui.checkbox(&mut self.grid_use_spacing, "Measure spacing as gap between object edges")
+                        .on_hover_text("When checked, spacing is added to the shape's width/height. When unchecked, value is center-to-center pitch.");
+
+                    ui.add_space(4.0);
+                    let total_copies = self.grid_columns * self.grid_rows;
+                    ui.label(egui::RichText::new(format!("Total items: {} ({} new copies)", total_copies, total_copies.saturating_sub(1))).strong());
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        let apply_btn = egui::Button::new(
+                            egui::RichText::new(" Create Grid ").strong().color(egui::Color32::WHITE),
+                        ).fill(egui::Color32::from_rgb(0, 120, 215));
+                        if ui.add(apply_btn).clicked() {
+                            do_apply = true;
+                            close_grid = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close_grid = true;
+                        }
+                    });
+                });
+
+            if do_apply {
+                self.apply_grid_array();
+            }
+            if close_grid || !is_open {
+                self.show_grid_array_window = false;
+            }
+        }
+
+        // -------------------------------------------------------------
+        // RADIAL ARRAY WINDOW
+        // -------------------------------------------------------------
+        if self.show_radial_array_window {
+            let mut close_radial = false;
+            let mut do_apply = false;
+            let mut is_open = true;
+
+            egui::Window::new("Radial Array (Circular)")
+                .collapsible(false)
+                .resizable(false)
+                .default_width(340.0)
+                .open(&mut is_open)
+                .show(ctx, |ui| {
+                    ui.heading("Duplicate Radial Array");
+                    ui.label(egui::RichText::new("Duplicate selected shape(s) in a circular pattern around a center point.").small().weak());
+                    ui.add_space(6.0);
+
+                    egui::Grid::new("radial_array_params")
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label("Total Copies:");
+                            ui.add(egui::DragValue::new(&mut self.radial_count).range(2..=360));
+                            ui.end_row();
+
+                            ui.label("Total Angle:");
+                            ui.add(egui::DragValue::new(&mut self.radial_total_angle).speed(1.0).range(-360.0..=360.0).suffix(" °"));
+                            ui.end_row();
+                        });
+
+                    ui.add_space(4.0);
+                    ui.checkbox(&mut self.radial_rotate_copies, "Rotate copies along arc")
+                        .on_hover_text("When checked, each copy rotates to face outward. When unchecked, copies stay upright.");
+
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Center Point:").strong());
+                    ui.checkbox(&mut self.radial_center_auto, "Use Selection Center");
+                    if !self.radial_center_auto {
+                        ui.horizontal(|ui| {
+                            ui.label("X:");
+                            ui.add(egui::DragValue::new(&mut self.radial_center_x).speed(1.0).suffix(" mm"));
+                            ui.label("Y:");
+                            ui.add(egui::DragValue::new(&mut self.radial_center_y).speed(1.0).suffix(" mm"));
+                        });
+                    }
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        let apply_btn = egui::Button::new(
+                            egui::RichText::new(" Create Radial Array ").strong().color(egui::Color32::WHITE),
+                        ).fill(egui::Color32::from_rgb(0, 120, 215));
+                        if ui.add(apply_btn).clicked() {
+                            do_apply = true;
+                            close_radial = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close_radial = true;
+                        }
+                    });
+                });
+
+            if do_apply {
+                self.apply_radial_array();
+            }
+            if close_radial || !is_open {
+                self.show_radial_array_window = false;
+            }
+        }
+
+        // -------------------------------------------------------------
+        // IMAGE TRACE (BITMAP TO VECTOR) WINDOW
+        // -------------------------------------------------------------
+        if self.show_trace_window {
+            let mut close_trace = false;
+            let mut do_trace = false;
+            let mut is_open = true;
+
+            egui::Window::new("Trace Image (Bitmap to Vector)")
+                .collapsible(false)
+                .resizable(false)
+                .default_width(380.0)
+                .open(&mut is_open)
+                .show(ctx, |ui| {
+                    ui.heading("Trace Raster Image to Vectors");
+                    ui.label(egui::RichText::new("Convert logos, silhouettes, and bitmap graphics into sharp cutting and engraving vector paths.").small().weak());
+                    ui.add_space(6.0);
+
+                    egui::Grid::new("trace_params_grid")
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label("Threshold (0..255):");
+                            ui.add(egui::Slider::new(&mut self.trace_threshold, 1..=254));
+                            ui.end_row();
+
+                            ui.label("Blur / Smoothness:");
+                            ui.add(egui::Slider::new(&mut self.trace_blur_radius, 0..=5).text("px radius"));
+                            ui.end_row();
+
+                            ui.label("Minimum Area:");
+                            ui.add(egui::DragValue::new(&mut self.trace_min_area).speed(0.1).range(0.01..=50.0).suffix(" mm²"));
+                            ui.end_row();
+
+                            ui.label("Curve Tolerance:");
+                            ui.add(egui::DragValue::new(&mut self.trace_tolerance).speed(0.01).range(0.01..=1.0).suffix(" mm"));
+                            ui.end_row();
+                        });
+
+                    ui.add_space(4.0);
+                    ui.checkbox(&mut self.trace_invert, "Invert (trace bright pixels instead of dark)");
+                    ui.checkbox(&mut self.trace_delete_image, "Replace original bitmap with vector result");
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        let trace_btn = egui::Button::new(
+                            egui::RichText::new(" Trace & Create Vectors ").strong().color(egui::Color32::WHITE),
+                        ).fill(egui::Color32::from_rgb(0, 140, 255));
+                        if ui.add(trace_btn).clicked() {
+                            do_trace = true;
+                            close_trace = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close_trace = true;
+                        }
+                    });
+                });
+
+            if do_trace {
+                self.apply_trace_image();
+            }
+            if close_trace || !is_open {
+                self.show_trace_window = false;
+            }
+        }
+
+        // -------------------------------------------------------------
+        // MANAGE MACHINE PROFILES WINDOW
+        // -------------------------------------------------------------
+        if self.show_device_profiles_window {
+            let mut close_profiles = false;
+            let mut is_open = true;
+
+            egui::Window::new("Manage Machine Profiles")
+                .collapsible(false)
+                .resizable(true)
+                .default_width(460.0)
+                .open(&mut is_open)
+                .show(ctx, |ui| {
+                    ui.heading("Laser Machine Profiles");
+                    ui.label(egui::RichText::new("Save and switch between different laser cutters and engravers with distinct bed sizes, origins, and laser types.").small().weak());
+                    ui.add_space(8.0);
+
+                    let cur_name = self.device.settings.current_profile_name.clone();
+                    let mut switch_to: Option<String> = None;
+                    let mut delete_name: Option<String> = None;
+
+                    egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
+                        for prof in &self.device.settings.profiles {
+                            let is_active = prof.name == cur_name;
+                            ui.group(|ui| {
+                                ui.horizontal(|ui| {
+                                    if is_active {
+                                        ui.label(egui::RichText::new("● ACTIVE").color(egui::Color32::from_rgb(50, 205, 50)).strong());
+                                    }
+                                    ui.label(egui::RichText::new(&prof.name).strong());
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        if !is_active {
+                                            if self.device.settings.profiles.len() > 1 {
+                                                if ui.button("Delete").clicked() {
+                                                    delete_name = Some(prof.name.clone());
+                                                }
+                                            }
+                                            if ui.button("Activate").clicked() {
+                                                switch_to = Some(prof.name.clone());
+                                            }
+                                        }
+                                    });
+                                });
+                                ui.label(egui::RichText::new(format!(
+                                    "Bed: {:.0} x {:.0} mm | Laser: {:?} | Origin: {:?}",
+                                    prof.bed_width, prof.bed_height, prof.laser_type, prof.origin_corner
+                                )).small().weak());
+                            });
+                            ui.add_space(2.0);
+                        }
+                    });
+
+                    if let Some(to_activate) = switch_to {
+                        self.device.settings.apply_profile(&to_activate);
+                        self.doc.width = self.device.settings.bed_width;
+                        self.doc.height = self.device.settings.bed_height;
+                        let _ = self.device.settings.save();
+                        self.status_msg = format!("Active Laser Profile: {}", to_activate);
+                    }
+
+                    if let Some(to_del) = delete_name {
+                        self.device.settings.delete_profile(&to_del);
+                        let _ = self.device.settings.save();
+                        self.status_msg = format!("Deleted profile: {}", to_del);
+                    }
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.label(egui::RichText::new("Save Current Settings as New Profile:").strong());
+                    ui.horizontal(|ui| {
+                        ui.text_edit_singleline(&mut self.profile_new_name);
+                        let can_save = !self.profile_new_name.trim().is_empty();
+                        if ui.add_enabled(can_save, egui::Button::new("Save as New Profile")).clicked() {
+                            let trimmed = self.profile_new_name.trim().to_string();
+                            self.device.settings.save_current_as_profile(&trimmed);
+                            let _ = self.device.settings.save();
+                            self.profile_new_name.clear();
+                            self.status_msg = format!("Saved new profile: {}", trimmed);
+                        }
+                    });
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    if ui.button("Close").clicked() {
+                        close_profiles = true;
+                    }
+                });
+
+            if close_profiles || !is_open {
+                self.show_device_profiles_window = false;
             }
         }
 
@@ -7142,6 +8056,29 @@ impl eframe::App for LaserBurnApp {
                 .show(ctx, |ui| {
                     ui.heading("LaserBurn Settings");
                     ui.add_space(4.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Machine Profile:").strong());
+                        let cur_prof = self.device.settings.current_profile_name.clone();
+                        egui::ComboBox::from_id_salt("settings_machine_profile_combo")
+                            .selected_text(&cur_prof)
+                            .show_ui(ui, |ui| {
+                                let names: Vec<String> = self.device.settings.profiles.iter().map(|p| p.name.clone()).collect();
+                                for name in names {
+                                    let is_sel = name == cur_prof;
+                                    if ui.selectable_label(is_sel, &name).clicked() {
+                                        self.device.settings.apply_profile(&name);
+                                        self.doc.width = self.device.settings.bed_width;
+                                        self.doc.height = self.device.settings.bed_height;
+                                    }
+                                }
+                            });
+                        if ui.button("Manage Profiles...").clicked() {
+                            self.show_device_profiles_window = true;
+                        }
+                    });
+                    ui.add_space(4.0);
+                    ui.separator();
 
                     ui.label(egui::RichText::new("Bed Dimensions (mm):").strong());
                     ui.horizontal(|ui| {
@@ -8629,6 +9566,240 @@ mod tests {
             let _ = std::fs::remove_file(&path);
         } else {
             panic!("Expected ExportMaterialLibrary action from rx");
+        }
+    }
+
+    #[test]
+    fn test_gui_grid_and_radial_array() {
+        let mut app = LaserBurnApp::default();
+        app.doc.shapes.clear();
+        app.selected_shape_indices.clear();
+
+        app.doc.add_shape(Shape::Rect {
+            layer_index: 0,
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+            corner_radius: 0.0,
+        });
+        app.selected_shape_indices = vec![0];
+
+        // 3x2 Grid Array with 5mm spacing
+        app.grid_columns = 3;
+        app.grid_rows = 2;
+        app.grid_spacing_x = 5.0;
+        app.grid_spacing_y = 5.0;
+        app.grid_use_spacing = true;
+        app.apply_grid_array();
+
+        assert_eq!(app.doc.shapes.len(), 6);
+        assert_eq!(app.selected_shape_indices.len(), 6);
+
+        // Test undo
+        app.undo();
+        assert_eq!(app.doc.shapes.len(), 1);
+
+        // Radial Array: 4 copies around (50, 50)
+        app.selected_shape_indices = vec![0];
+        app.radial_count = 4;
+        app.radial_total_angle = 360.0;
+        app.radial_center_auto = false;
+        app.radial_center_x = 50.0;
+        app.radial_center_y = 50.0;
+        app.radial_rotate_copies = false;
+        app.apply_radial_array();
+
+        assert_eq!(app.doc.shapes.len(), 4);
+        assert_eq!(app.selected_shape_indices.len(), 4);
+    }
+
+    #[test]
+    fn test_gui_machine_profiles_switch_and_create() {
+        let mut app = LaserBurnApp::default();
+
+        // Switch to Compact Diode (200x200)
+        assert!(app.device.settings.apply_profile("Compact Diode (200x200)"));
+        app.doc.width = app.device.settings.bed_width;
+        app.doc.height = app.device.settings.bed_height;
+        assert_eq!(app.doc.width, 200.0);
+        assert_eq!(app.doc.height, 200.0);
+
+        // Save current as new profile "My Custom 50W"
+        app.device.settings.bed_width = 500.0;
+        app.device.settings.bed_height = 300.0;
+        app.device.settings.save_current_as_profile("My Custom 50W");
+
+        assert_eq!(app.device.settings.current_profile_name, "My Custom 50W");
+        let prof = app.device.settings.profiles.iter().find(|p| p.name == "My Custom 50W").unwrap();
+        assert_eq!(prof.bed_width, 500.0);
+        assert_eq!(prof.bed_height, 300.0);
+
+        // Switch back to Large Format / CO2 (600x400)
+        assert!(app.device.settings.apply_profile("Large Format / CO2 (600x400)"));
+        assert_eq!(app.device.settings.bed_width, 600.0);
+    }
+
+    #[test]
+    fn test_gui_text_on_path() {
+        let mut app = LaserBurnApp::default();
+        app.doc.shapes.clear();
+        app.selected_shape_indices.clear();
+
+        // Add a circle as the path
+        app.doc.add_shape(Shape::Circle {
+            layer_index: 0,
+            center: Point2D::new(100.0, 100.0),
+            radius: 40.0,
+        });
+        app.selected_shape_indices = vec![0];
+
+        // Configure Text on Path
+        app.text_input = "LASER".to_string();
+        app.text_is_singleline = true;
+        app.text_font_size = 12.0;
+        app.text_on_path_enabled = true;
+        app.text_on_path_offset = 0.0;
+        app.text_on_path_perpendicular = 2.0;
+        app.text_on_path_reverse = false;
+
+        app.add_text_to_document();
+
+        // Must now have the original circle plus the new text group
+        assert_eq!(app.doc.shapes.len(), 2);
+        if let Shape::Group { shapes, .. } = &app.doc.shapes[1] {
+            assert!(!shapes.is_empty(), "Text on path should produce non-empty glyph shapes");
+        } else {
+            panic!("Expected newly added text to be a Group");
+        }
+    }
+
+    #[test]
+    fn test_gui_image_trace() {
+        let mut app = LaserBurnApp::default();
+        app.doc.shapes.clear();
+        app.selected_shape_indices.clear();
+
+        // Create an image with a dark circle
+        let w = 40;
+        let h = 40;
+        let mut pixels = vec![255u8; w * h * 4];
+        for y in 0..h {
+            for x in 0..w {
+                let dx = x as f64 - 20.0;
+                let dy = y as f64 - 20.0;
+                let off = (y * w + x) * 4;
+                if dx * dx + dy * dy <= 100.0 {
+                    pixels[off] = 0; // Black circle
+                    pixels[off + 1] = 0;
+                    pixels[off + 2] = 0;
+                    pixels[off + 3] = 255;
+                }
+            }
+        }
+
+        app.doc.add_shape(Shape::Image {
+            layer_index: 1,
+            x: 10.0,
+            y: 10.0,
+            width: 50.0,
+            height: 50.0,
+            image_path: None,
+            raw_pixels: Some(pixels),
+            raw_width: w as u32,
+            raw_height: h as u32,
+            brightness: 0.0,
+            contrast: 0.0,
+            gamma: 1.0,
+            sharpen: 0.0,
+        });
+        app.selected_shape_indices = vec![0];
+
+        app.trace_threshold = 128;
+        app.trace_invert = false;
+        app.trace_blur_radius = 0;
+        app.trace_delete_image = true; // Replace image with vectors
+        app.apply_trace_image();
+
+        assert_eq!(app.doc.shapes.len(), 1);
+        if let Shape::Group { shapes, .. } = &app.doc.shapes[0] {
+            assert!(!shapes.is_empty(), "Trace should produce vector paths");
+        } else {
+            panic!("Expected traced vectors to replace image as a Group");
+        }
+    }
+
+    #[test]
+    fn test_gui_open_dxf_and_pdf() {
+        let mut app = LaserBurnApp::default();
+        let tmp = std::env::temp_dir();
+
+        // 1. Test opening DXF
+        let dxf_path = tmp.join("test_gui_dxf.dxf");
+        let dxf_content = "0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0.0\n20\n0.0\n11\n50.0\n21\n50.0\n0\nENDSEC\n0\nEOF";
+        std::fs::write(&dxf_path, dxf_content).unwrap();
+        assert!(app.open_file(&dxf_path).is_ok());
+        assert_eq!(app.doc.shapes.len(), 1);
+        let _ = std::fs::remove_file(&dxf_path);
+
+        // 2. Test opening PDF
+        let pdf_path = tmp.join("test_gui_pdf.pdf");
+        let pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Length 28 >>\nstream\n0 0 m 100 100 l S\nendstream\nendobj\n%%EOF";
+        std::fs::write(&pdf_path, pdf_content).unwrap();
+        assert!(app.open_file(&pdf_path).is_ok());
+        assert_eq!(app.doc.shapes.len(), 1);
+        let _ = std::fs::remove_file(&pdf_path);
+    }
+
+    #[test]
+    fn test_gui_node_editing() {
+        let mut app = LaserBurnApp::default();
+        app.doc.shapes.clear();
+        app.selected_shape_indices.clear();
+
+        // Add a triangle path with 3 points
+        let tri = Polyline::new(
+            vec![
+                Point2D::new(0.0, 0.0),
+                Point2D::new(40.0, 0.0),
+                Point2D::new(20.0, 30.0),
+            ],
+            true,
+        );
+        app.doc.add_shape(Shape::Path { layer_index: 0, polyline: tri });
+        app.selected_shape_indices = vec![0];
+        app.active_tool = ActiveTool::NodeEdit;
+
+        // 1. Move vertex #1 (at 40, 0) to (50, 5)
+        app.selected_node_index = Some(1);
+        if let Shape::Path { ref mut polyline, .. } = app.doc.shapes[0] {
+            polyline.points[1] = Point2D::new(50.0, 5.0);
+        }
+        if let Shape::Path { ref polyline, .. } = app.doc.shapes[0] {
+            assert_eq!(polyline.points[1], Point2D::new(50.0, 5.0));
+        }
+
+        // 2. Insert node at midpoint of edge between (0, 0) and (50, 5): approx (25, 2.5)
+        assert!(app.insert_node_at_point(Point2D::new(25.0, 2.5)));
+        if let Shape::Path { ref polyline, .. } = app.doc.shapes[0] {
+            assert_eq!(polyline.points.len(), 4, "Must now have 4 vertices after node insertion");
+        }
+
+        // 3. Delete the newly inserted node
+        app.selected_node_index = Some(1);
+        app.delete_selected_node();
+        if let Shape::Path { ref polyline, .. } = app.doc.shapes[0] {
+            assert_eq!(polyline.points.len(), 3, "Must return to 3 vertices after deleting node");
+        }
+
+        // 4. Toggle closed/open
+        app.toggle_selected_path_closed();
+        if let Shape::Path { ref polyline, .. } = app.doc.shapes[0] {
+            assert!(!polyline.is_closed, "Must be open after toggling");
+        }
+        app.toggle_selected_path_closed();
+        if let Shape::Path { ref polyline, .. } = app.doc.shapes[0] {
+            assert!(polyline.is_closed, "Must be closed after toggling again");
         }
     }
 }

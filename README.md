@@ -43,8 +43,17 @@ LaserBurn was engineered to deliver a responsive, industrial-grade CAM suite tha
 - **📂 LightBurn `.lbrn2` & `.clb` File Support:** Seamlessly load and save multi-layer LightBurn projects (C00–C29) and import LightBurn material databases into clean per-machine categories (`📁 LaserBurn Oletus`, `📁 Oma 10W`, etc.).
 - **📐 Built-in 2D Vector CAD & Boolean Operations:**
   - **Boolean Tools:** Weld / Union, Subtract ($A - B$), and Intersect overlapping shapes and text.
+  - **Interactive Node Editing:** Manipulate vector path vertices directly on the canvas—move nodes, double-click to insert vertices, delete nodes, and toggle open/closed paths (`N`).
   - **Signed Distance Field (SDF) Contour Offsets:** Generate crisp outward sticker cut borders or inward insets with controllable round/miter corner transitions.
+  - **Duplication Arrays:** Grid Array (rectangular matrix with gap/pitch) and Radial Array (circular pattern around any center).
+  - **Text on Path:** Flow TrueType or single-line Hershey text along circular arcs and curved vector contours.
   - **Automatic Kerf Compensation:** Ensures parts fit together snugly right off the laser honeycomb bed.
+- **🖼️ Bitmap to Vector (Image Trace):** Sub-pixel Marching Squares vectorizer with adaptive thresholding, multi-scale smoothing, and collinear curve simplification to convert logos and raster sketches into clean cutlines.
+- **📂 Multi-Format CAD & Project Import:**
+  - **LightBurn Projects (`.lbrn2`, `.lbrn`):** Direct import and export of cut settings and artwork.
+  - **AutoCAD DXF (`.dxf`):** Full 2D CAD support with accurate arc-bulge reconstruction, circles, ellipses, and layer mapping.
+  - **Adobe / Vector PDF (`.pdf`):** Extracts vector cutlines from compressed `/FlateDecode` streams with CMYK/RGB color-to-layer mapping.
+  - **Scalable Vector Graphics (`.svg`):** Full SVG path parsing.
 - **🎨 9 High-Precision Image Dithering Engines:**
   - Atkinson, Floyd-Steinberg, Jarvis-Judice-Ninke, Stucki, Burkes, Sierra3, Ordered Bayer 8x8, Halftone, and Threshold.
 - **⚡ True Analog Grayscale Power Modulation (`M4 S...`):** Dynamic continuous spindle PWM power modulation based on pixel luminance, with automatic **Overscan (Lead-in / Lead-out)** to prevent overburnt edges during acceleration.

@@ -64,7 +64,7 @@ pub enum SwitchHomingPhase {
     Finalizing { started_at: Instant },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CustomBoundaries {
     #[serde(default)]
     pub enabled: bool,
@@ -207,6 +207,107 @@ pub struct DeviceSettings {
     pub run_shortcut_on_complete: bool,
     #[serde(default)]
     pub shortcut_on_complete_name: String,
+
+    // Multiple Machine Profiles
+    #[serde(default = "default_current_profile_name")]
+    pub current_profile_name: String,
+    #[serde(default = "default_profiles_list")]
+    pub profiles: Vec<DeviceProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeviceProfile {
+    pub name: String,
+    pub bed_width: f64,
+    pub bed_height: f64,
+    pub origin_corner: OriginCorner,
+    #[serde(default)]
+    pub enable_limit_switches: bool,
+    #[serde(default)]
+    pub custom_boundaries: CustomBoundaries,
+    pub max_s_value: f64,
+    pub weak_light_percent: f64,
+    pub weak_light_enabled: bool,
+    pub laser_type: LaserType,
+    #[serde(default = "default_kerf")]
+    pub default_kerf: f64,
+    pub rapid_speed: f64,
+    pub jog_speed: f64,
+    pub frame_speed: f64,
+    #[serde(default = "default_homing_speed")]
+    pub homing_speed: f64,
+    pub default_port: String,
+    pub default_baud: u32,
+    pub auto_connect: bool,
+}
+
+fn default_current_profile_name() -> String {
+    "Oma 10W (Standard)".to_string()
+}
+
+fn default_profiles_list() -> Vec<DeviceProfile> {
+    vec![
+        DeviceProfile {
+            name: "Oma 10W (Standard)".to_string(),
+            bed_width: 400.0,
+            bed_height: 400.0,
+            origin_corner: OriginCorner::BottomLeft,
+            enable_limit_switches: false,
+            custom_boundaries: CustomBoundaries::default(),
+            max_s_value: 1000.0,
+            weak_light_percent: 1.0,
+            weak_light_enabled: false,
+            laser_type: LaserType::Diode,
+            default_kerf: 0.0,
+            rapid_speed: 6000.0,
+            jog_speed: 3000.0,
+            frame_speed: 4000.0,
+            homing_speed: 400.0,
+            default_port: String::new(),
+            default_baud: 115200,
+            auto_connect: false,
+        },
+        DeviceProfile {
+            name: "Compact Diode (200x200)".to_string(),
+            bed_width: 200.0,
+            bed_height: 200.0,
+            origin_corner: OriginCorner::BottomLeft,
+            enable_limit_switches: false,
+            custom_boundaries: CustomBoundaries::default(),
+            max_s_value: 1000.0,
+            weak_light_percent: 1.0,
+            weak_light_enabled: false,
+            laser_type: LaserType::Diode,
+            default_kerf: 0.0,
+            rapid_speed: 4000.0,
+            jog_speed: 2500.0,
+            frame_speed: 3000.0,
+            homing_speed: 300.0,
+            default_port: String::new(),
+            default_baud: 115200,
+            auto_connect: false,
+        },
+        DeviceProfile {
+            name: "Large Format / CO2 (600x400)".to_string(),
+            bed_width: 600.0,
+            bed_height: 400.0,
+            origin_corner: OriginCorner::TopLeft,
+            enable_limit_switches: true,
+            custom_boundaries: CustomBoundaries::default(),
+            max_s_value: 1000.0,
+            weak_light_percent: 0.0,
+            weak_light_enabled: false,
+            laser_type: LaserType::Co2,
+            default_kerf: 0.15,
+            rapid_speed: 12000.0,
+            jog_speed: 5000.0,
+            frame_speed: 6000.0,
+            homing_speed: 600.0,
+            default_port: String::new(),
+            default_baud: 115200,
+            auto_connect: false,
+        },
+    ]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -242,6 +343,86 @@ impl DeviceSettings {
         Some(dir.join("settings.json"))
     }
 
+    /// Switches to the specified profile by name and copies its settings into active fields.
+    pub fn apply_profile(&mut self, name: &str) -> bool {
+        if let Some(prof) = self.profiles.iter().find(|p| p.name.eq_ignore_ascii_case(name)).cloned() {
+            self.bed_width = prof.bed_width;
+            self.bed_height = prof.bed_height;
+            self.origin_corner = prof.origin_corner;
+            self.enable_limit_switches = prof.enable_limit_switches;
+            self.custom_boundaries = prof.custom_boundaries;
+            self.max_s_value = prof.max_s_value;
+            self.weak_light_percent = prof.weak_light_percent;
+            self.weak_light_enabled = prof.weak_light_enabled;
+            self.laser_type = prof.laser_type;
+            self.default_kerf = prof.default_kerf;
+            self.rapid_speed = prof.rapid_speed;
+            self.jog_speed = prof.jog_speed;
+            self.frame_speed = prof.frame_speed;
+            self.homing_speed = prof.homing_speed;
+            self.default_port = prof.default_port;
+            self.default_baud = prof.default_baud;
+            self.auto_connect = prof.auto_connect;
+            self.current_profile_name = prof.name;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Saves current active settings under the specified profile name (updating or appending).
+    pub fn save_current_as_profile(&mut self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        let prof = DeviceProfile {
+            name: name.to_string(),
+            bed_width: self.bed_width,
+            bed_height: self.bed_height,
+            origin_corner: self.origin_corner,
+            enable_limit_switches: self.enable_limit_switches,
+            custom_boundaries: self.custom_boundaries.clone(),
+            max_s_value: self.max_s_value,
+            weak_light_percent: self.weak_light_percent,
+            weak_light_enabled: self.weak_light_enabled,
+            laser_type: self.laser_type,
+            default_kerf: self.default_kerf,
+            rapid_speed: self.rapid_speed,
+            jog_speed: self.jog_speed,
+            frame_speed: self.frame_speed,
+            homing_speed: self.homing_speed,
+            default_port: self.default_port.clone(),
+            default_baud: self.default_baud,
+            auto_connect: self.auto_connect,
+        };
+        if let Some(existing) = self.profiles.iter_mut().find(|p| p.name.eq_ignore_ascii_case(name)) {
+            *existing = prof;
+        } else {
+            self.profiles.push(prof);
+        }
+        self.current_profile_name = name.to_string();
+    }
+
+    /// Deletes a profile by name. Preserves at least 1 profile.
+    pub fn delete_profile(&mut self, name: &str) -> bool {
+        if self.profiles.len() <= 1 {
+            return false;
+        }
+        let initial = self.profiles.len();
+        self.profiles.retain(|p| !p.name.eq_ignore_ascii_case(name));
+        if self.profiles.len() < initial {
+            if self.current_profile_name.eq_ignore_ascii_case(name) {
+                if let Some(first) = self.profiles.first().cloned() {
+                    self.apply_profile(&first.name);
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn load_saved() -> Self {
         if cfg!(test) {
             return Self::default();
@@ -249,7 +430,13 @@ impl DeviceSettings {
         if let Some(path) = Self::config_path() {
             if path.exists() {
                 if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(settings) = serde_json::from_str::<DeviceSettings>(&content) {
+                    if let Ok(mut settings) = serde_json::from_str::<DeviceSettings>(&content) {
+                        if settings.profiles.is_empty() {
+                            settings.profiles = default_profiles_list();
+                        }
+                        if settings.current_profile_name.is_empty() {
+                            settings.current_profile_name = settings.profiles[0].name.clone();
+                        }
                         return settings;
                     }
                 }
@@ -314,6 +501,9 @@ impl Default for DeviceSettings {
             shortcut_on_start_name: String::new(),
             run_shortcut_on_complete: false,
             shortcut_on_complete_name: String::new(),
+
+            current_profile_name: default_current_profile_name(),
+            profiles: default_profiles_list(),
         }
     }
 }
@@ -2347,5 +2537,38 @@ mod tests {
         dm.clear_boundary_corners();
         assert!(!dm.settings.custom_boundaries.enabled);
         assert!(dm.settings.custom_boundaries.min_x.is_none());
+    }
+
+    #[test]
+    fn test_device_profiles_management() {
+        let mut settings = DeviceSettings::default();
+        assert!(!settings.profiles.is_empty());
+        assert_eq!(settings.current_profile_name, "Oma 10W (Standard)");
+
+        // Switch to CO2 Laser profile
+        assert!(settings.apply_profile("Large Format / CO2 (600x400)"));
+        assert_eq!(settings.bed_width, 600.0);
+        assert_eq!(settings.bed_height, 400.0);
+        assert_eq!(settings.laser_type, LaserType::Co2);
+        assert_eq!(settings.origin_corner, OriginCorner::TopLeft);
+        assert_eq!(settings.current_profile_name, "Large Format / CO2 (600x400)");
+
+        // Modify and save as new custom profile
+        settings.bed_width = 300.0;
+        settings.bed_height = 300.0;
+        settings.save_current_as_profile("Workshop Custom 300");
+        assert_eq!(settings.current_profile_name, "Workshop Custom 300");
+        assert!(settings.profiles.iter().any(|p| p.name == "Workshop Custom 300"));
+
+        // Switch back to Oma 10W
+        assert!(settings.apply_profile("Oma 10W (Standard)"));
+        assert_eq!(settings.bed_width, 400.0);
+
+        // Delete the custom profile
+        assert!(settings.delete_profile("Workshop Custom 300"));
+        assert!(!settings.profiles.iter().any(|p| p.name == "Workshop Custom 300"));
+
+        // Non-existent profile fails gracefully
+        assert!(!settings.apply_profile("NonExistentMachine"));
     }
 }

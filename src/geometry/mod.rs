@@ -99,6 +99,10 @@ impl BoundingBox {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.min_x > self.max_x || self.min_y > self.max_y
+    }
+
     pub fn from_points(points: &[Point2D]) -> Self {
         let mut bb = Self::empty();
         for p in points {
@@ -186,6 +190,54 @@ impl Polyline {
             total += self.points.last().unwrap().distance_to(&self.points[0]);
         }
         total
+    }
+
+    /// Returns the position and unit tangent vector at a specified distance along the polyline.
+    pub fn point_and_tangent_at_distance(&self, mut distance: f64) -> Option<(Point2D, Point2D)> {
+        if self.points.len() < 2 {
+            return None;
+        }
+
+        let total_len = self.length();
+        if total_len <= 1e-6 {
+            return None;
+        }
+
+        if self.is_closed {
+            distance = distance.rem_euclid(total_len);
+        } else {
+            distance = distance.clamp(0.0, total_len);
+        }
+
+        let n = self.points.len();
+        let num_segs = if self.is_closed { n } else { n - 1 };
+
+        let mut accumulated = 0.0;
+        for i in 0..num_segs {
+            let p1 = self.points[i];
+            let p2 = if i + 1 < n { self.points[i + 1] } else { self.points[0] };
+            let seg_len = p1.distance_to(&p2);
+
+            if seg_len <= 1e-9 {
+                continue;
+            }
+
+            if accumulated + seg_len >= distance || i == num_segs - 1 {
+                let seg_dist = (distance - accumulated).clamp(0.0, seg_len);
+                let t = seg_dist / seg_len;
+                let pt = Point2D::new(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t);
+                let tangent = Point2D::new((p2.x - p1.x) / seg_len, (p2.y - p1.y) / seg_len);
+                return Some((pt, tangent));
+            }
+
+            accumulated += seg_len;
+        }
+
+        let p1 = self.points[n - 2];
+        let p2 = self.points[n - 1];
+        let seg_len = p1.distance_to(&p2).max(1e-9);
+        let tangent = Point2D::new((p2.x - p1.x) / seg_len, (p2.y - p1.y) / seg_len);
+        Some((p2, tangent))
     }
 
     pub fn reverse(&mut self) {

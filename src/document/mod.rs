@@ -1160,6 +1160,88 @@ impl Document {
         }
         bb
     }
+
+    /// Duplicates the given shapes in a rectangular grid array.
+    /// Returns the indices of the newly created shapes.
+    pub fn create_grid_array(
+        &mut self,
+        source_indices: &[usize],
+        columns: usize,
+        rows: usize,
+        delta_x: f64,
+        delta_y: f64,
+    ) -> Vec<usize> {
+        if columns == 0 || rows == 0 || source_indices.is_empty() {
+            return Vec::new();
+        }
+        let mut new_indices = Vec::new();
+        for r in 0..rows {
+            for c in 0..columns {
+                if r == 0 && c == 0 {
+                    continue; // Skip original
+                }
+                let dx = c as f64 * delta_x;
+                let dy = r as f64 * delta_y;
+                for &idx in source_indices {
+                    if idx < self.shapes.len() {
+                        let mut copy = self.shapes[idx].clone();
+                        copy.translate(dx, dy);
+                        self.shapes.push(copy);
+                        new_indices.push(self.shapes.len() - 1);
+                    }
+                }
+            }
+        }
+        new_indices
+    }
+
+    /// Duplicates the given shapes in a radial circular array around a center point.
+    /// Returns the indices of the newly created shapes.
+    pub fn create_radial_array(
+        &mut self,
+        source_indices: &[usize],
+        count: usize,
+        center: Point2D,
+        total_angle_deg: f64,
+        rotate_copies: bool,
+    ) -> Vec<usize> {
+        if count <= 1 || source_indices.is_empty() {
+            return Vec::new();
+        }
+        let mut new_indices = Vec::new();
+        let step_deg = if (total_angle_deg - 360.0).abs() < 1e-4 {
+            360.0 / count as f64
+        } else {
+            total_angle_deg / (count - 1).max(1) as f64
+        };
+
+        for i in 1..count {
+            let angle_deg = i as f64 * step_deg;
+            let angle_rad = angle_deg.to_radians();
+            for &idx in source_indices {
+                if idx < self.shapes.len() {
+                    let mut copy = self.shapes[idx].clone();
+                    if rotate_copies {
+                        copy.rotate(center, angle_rad);
+                    } else {
+                        let bounds = copy.bounds();
+                        let orig_center = bounds.center();
+                        let (sin_a, cos_a) = angle_rad.sin_cos();
+                        let rel_x = orig_center.x - center.x;
+                        let rel_y = orig_center.y - center.y;
+                        let new_center_x = center.x + rel_x * cos_a - rel_y * sin_a;
+                        let new_center_y = center.y + rel_x * sin_a + rel_y * cos_a;
+                        let dx = new_center_x - orig_center.x;
+                        let dy = new_center_y - orig_center.y;
+                        copy.translate(dx, dy);
+                    }
+                    self.shapes.push(copy);
+                    new_indices.push(self.shapes.len() - 1);
+                }
+            }
+        }
+        new_indices
+    }
 }
 
 #[cfg(test)]
@@ -1250,5 +1332,58 @@ mod tests {
         assert!((b_v_flipped.max_x - 40.0).abs() < 1e-4);
         assert!((b_v_flipped.min_y - 20.0).abs() < 1e-4);
         assert!((b_v_flipped.max_y - 60.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_create_grid_array() {
+        let mut doc = Document::new("Test", 400.0, 400.0);
+        doc.add_shape(Shape::Rect {
+            layer_index: 0,
+            x: 10.0,
+            y: 10.0,
+            width: 20.0,
+            height: 20.0,
+            corner_radius: 0.0,
+        });
+
+        // 3 columns x 2 rows, delta_x = 30.0, delta_y = 40.0
+        let new_indices = doc.create_grid_array(&[0], 3, 2, 30.0, 40.0);
+        assert_eq!(new_indices.len(), 5); // 3*2 - 1 = 5 new shapes
+        assert_eq!(doc.shapes.len(), 6);
+
+        // Check top-right shape: c=2, r=1 -> x = 10 + 60 = 70, y = 10 + 40 = 50
+        let last_bounds = doc.shapes.last().unwrap().bounds();
+        assert!((last_bounds.min_x - 70.0).abs() < 1e-4);
+        assert!((last_bounds.min_y - 50.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_create_radial_array() {
+        let mut doc = Document::new("Test", 400.0, 400.0);
+        doc.add_shape(Shape::Circle {
+            layer_index: 0,
+            center: Point2D::new(100.0, 50.0), // 50mm above center (100, 100)
+            radius: 5.0,
+        });
+
+        // 4 copies around (100, 100), full 360 deg
+        let new_indices = doc.create_radial_array(&[0], 4, Point2D::new(100.0, 100.0), 360.0, false);
+        assert_eq!(new_indices.len(), 3);
+        assert_eq!(doc.shapes.len(), 4);
+
+        // Copy 1 at 90 deg: (150, 100)
+        let b1 = doc.shapes[1].bounds().center();
+        assert!((b1.x - 150.0).abs() < 1e-3);
+        assert!((b1.y - 100.0).abs() < 1e-3);
+
+        // Copy 2 at 180 deg: (100, 150)
+        let b2 = doc.shapes[2].bounds().center();
+        assert!((b2.x - 100.0).abs() < 1e-3);
+        assert!((b2.y - 150.0).abs() < 1e-3);
+
+        // Copy 3 at 270 deg: (50, 100)
+        let b3 = doc.shapes[3].bounds().center();
+        assert!((b3.x - 50.0).abs() < 1e-3);
+        assert!((b3.y - 100.0).abs() < 1e-3);
     }
 }

@@ -18,6 +18,7 @@ eframe = { version = "0.31", optional = true }
 rfd = { version = "0.15", optional = true }
 pollster = { version = "0.4", optional = true }
 ttf-parser = "0.25"
+miniz_oxide = "0.8"
 serialport = { version = "4.10.1", default-features = false }
 nokhwa = { version = "0.10.11", default-features = false, features = ["input-native"] }
 

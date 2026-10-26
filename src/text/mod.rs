@@ -197,6 +197,187 @@ pub fn generate_text_polylines(options: &TextOptions) -> Result<Vec<Polyline>, S
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextOnPathOptions {
+    pub start_offset_mm: f64,
+    pub perpendicular_offset_mm: f64,
+    pub align: TextAlign,
+    pub reverse_direction: bool,
+}
+
+impl Default for TextOnPathOptions {
+    fn default() -> Self {
+        Self {
+            start_offset_mm: 0.0,
+            perpendicular_offset_mm: 0.0,
+            align: TextAlign::Center,
+            reverse_direction: false,
+        }
+    }
+}
+
+/// Generates vector polylines flowing along an arbitrary path (open curve or closed shape).
+pub fn generate_text_on_path(
+    options: &TextOptions,
+    path: &Polyline,
+    on_path: &TextOnPathOptions,
+) -> Result<Vec<Polyline>, String> {
+    if path.points.len() < 2 {
+        return Err("Path must have at least 2 points".to_string());
+    }
+
+    let mut path_clone = path.clone();
+    if on_path.reverse_direction {
+        path_clone.reverse();
+    }
+
+    let path_len = path_clone.length();
+    if path_len <= 1e-4 {
+        return Err("Path length is too short".to_string());
+    }
+
+    match &options.font_type {
+        FontType::SingleLine => generate_singleline_on_path(options, &path_clone, on_path, path_len),
+        FontType::TrueType { path: font_path } => {
+            generate_ttf_on_path(options, font_path, &path_clone, on_path, path_len)
+        }
+    }
+}
+
+fn generate_singleline_on_path(
+    options: &TextOptions,
+    path: &Polyline,
+    on_path: &TextOnPathOptions,
+    path_len: f64,
+) -> Result<Vec<Polyline>, String> {
+    let scale = options.font_size_mm / 22.0;
+    let mut total_w = 0.0;
+    for ch in options.text.chars() {
+        total_w += get_hershey_char_width(ch) * scale * options.letter_spacing;
+    }
+
+    let start_dist = match on_path.align {
+        TextAlign::Left => on_path.start_offset_mm,
+        TextAlign::Center => on_path.start_offset_mm + (path_len - total_w) * 0.5,
+        TextAlign::Right => on_path.start_offset_mm + (path_len - total_w),
+    };
+
+    let mut all_polylines = Vec::new();
+    let mut cur_x = 0.0;
+
+    for ch in options.text.chars() {
+        let (char_w_raw, strokes) = get_hershey_char_strokes(ch);
+        let char_w = char_w_raw * scale * options.letter_spacing;
+
+        let char_center_dist = start_dist + cur_x + char_w * 0.5;
+        if let Some((pt, tangent)) = path.point_and_tangent_at_distance(char_center_dist) {
+            let cos_theta = tangent.x;
+            let sin_theta = tangent.y;
+
+            for stroke in strokes {
+                let pts: Vec<Point2D> = stroke
+                    .into_iter()
+                    .map(|(gx, gy)| {
+                        let lx = (gx * scale) - (char_w_raw * scale * 0.5);
+                        let ly = -(gy * scale) - on_path.perpendicular_offset_mm;
+                        let rx = lx * cos_theta - ly * sin_theta;
+                        let ry = lx * sin_theta + ly * cos_theta;
+                        Point2D::new(pt.x + rx, pt.y + ry)
+                    })
+                    .collect();
+
+                if pts.len() >= 2 {
+                    all_polylines.push(Polyline::new(pts, false));
+                }
+            }
+        }
+
+        cur_x += char_w;
+    }
+
+    Ok(all_polylines)
+}
+
+fn generate_ttf_on_path(
+    options: &TextOptions,
+    font_path: &str,
+    path: &Polyline,
+    on_path: &TextOnPathOptions,
+    path_len: f64,
+) -> Result<Vec<Polyline>, String> {
+    let font_bytes = std::fs::read(font_path)
+        .map_err(|e| format!("Failed to read font file '{}': {}", font_path, e))?;
+
+    let face = ttf_parser::Face::parse(&font_bytes, 0)
+        .map_err(|e| format!("Failed to parse font file: {:?}", e))?;
+
+    let units_per_em = face.units_per_em() as f64;
+    let ascender = face.ascender() as f64;
+    let descender = face.descender() as f64;
+    let line_height_units = (ascender - descender).max(units_per_em);
+    let scale = options.font_size_mm / line_height_units;
+
+    let mut total_w = 0.0;
+    for ch in options.text.chars() {
+        if let Some(glyph_id) = face.glyph_index(ch) {
+            let adv = face.glyph_hor_advance(glyph_id).unwrap_or(0) as f64;
+            total_w += adv * scale * options.letter_spacing;
+        } else {
+            total_w += (units_per_em * 0.5) * scale * options.letter_spacing;
+        }
+    }
+
+    let start_dist = match on_path.align {
+        TextAlign::Left => on_path.start_offset_mm,
+        TextAlign::Center => on_path.start_offset_mm + (path_len - total_w) * 0.5,
+        TextAlign::Right => on_path.start_offset_mm + (path_len - total_w),
+    };
+
+    let mut all_polylines = Vec::new();
+    let mut cur_x = 0.0;
+
+    for ch in options.text.chars() {
+        if let Some(glyph_id) = face.glyph_index(ch) {
+            let adv_units = face.glyph_hor_advance(glyph_id).unwrap_or(0) as f64;
+            let char_w = adv_units * scale * options.letter_spacing;
+            let char_center_dist = start_dist + cur_x + char_w * 0.5;
+
+            if let Some((pt, tangent)) = path.point_and_tangent_at_distance(char_center_dist) {
+                let cos_theta = tangent.x;
+                let sin_theta = tangent.y;
+
+                let mut collector = OutlineCollector::new(scale, 0.0, 0.0);
+                face.outline_glyph(glyph_id, &mut collector);
+                collector.finish_subpath(true);
+
+                for poly in collector.polylines {
+                    let transformed_pts: Vec<Point2D> = poly
+                        .points
+                        .into_iter()
+                        .map(|p| {
+                            let lx = p.x - (char_w * 0.5);
+                            let ly = p.y - on_path.perpendicular_offset_mm;
+                            let rx = lx * cos_theta - ly * sin_theta;
+                            let ry = lx * sin_theta + ly * cos_theta;
+                            Point2D::new(pt.x + rx, pt.y + ry)
+                        })
+                        .collect();
+
+                    if transformed_pts.len() >= 2 {
+                        all_polylines.push(Polyline::new(transformed_pts, poly.is_closed));
+                    }
+                }
+            }
+
+            cur_x += char_w;
+        } else {
+            cur_x += (units_per_em * 0.5) * scale * options.letter_spacing;
+        }
+    }
+
+    Ok(all_polylines)
+}
+
 fn generate_ttf_polylines(options: &TextOptions, font_path: &str) -> Result<Vec<Polyline>, String> {
     let font_bytes = std::fs::read(font_path)
         .map_err(|e| format!("Failed to read font file '{}': {}", font_path, e))?;
@@ -608,5 +789,38 @@ mod tests {
                 assert!(p.is_closed, "TrueType contours must be closed");
             }
         }
+    }
+
+    #[test]
+    fn test_text_on_path_singleline() {
+        let opt = TextOptions {
+            text: "CIRCULAR".to_string(),
+            font_type: FontType::SingleLine,
+            font_size_mm: 10.0,
+            x: 0.0,
+            y: 0.0,
+            align: TextAlign::Center,
+            letter_spacing: 1.0,
+            line_spacing: 1.2,
+        };
+
+        // Create a semicircular arc path of radius 50mm
+        let mut arc_pts = Vec::new();
+        let steps = 30;
+        for i in 0..=steps {
+            let a = (i as f64 / steps as f64) * std::f64::consts::PI;
+            arc_pts.push(Point2D::new(50.0 + 50.0 * a.cos(), 50.0 + 50.0 * a.sin()));
+        }
+        let arc_path = Polyline::new(arc_pts, false);
+
+        let on_path = TextOnPathOptions {
+            start_offset_mm: 0.0,
+            perpendicular_offset_mm: 2.0,
+            align: TextAlign::Center,
+            reverse_direction: false,
+        };
+
+        let polylines = generate_text_on_path(&opt, &arc_path, &on_path).expect("Text on path must succeed");
+        assert!(!polylines.is_empty(), "Must generate polylines along arc");
     }
 }
