@@ -4328,7 +4328,9 @@ impl eframe::App for LaserBurnApp {
                             crate::device::ConnectionStatus::Disconnected => egui::Color32::GRAY,
                             crate::device::ConnectionStatus::Alarm => egui::Color32::from_rgb(255, 90, 90),
                         };
-                        ui.colored_label(status_color, format!("● {:?} ({})", self.device.status, self.device.grbl_state));
+                        let (dot_rect, _) = ui.allocate_exact_size(egui::Vec2::new(10.0, 10.0), egui::Sense::hover());
+                        ui.painter().circle_filled(dot_rect.center(), 4.5, status_color);
+                        ui.colored_label(status_color, format!("{:?} ({})", self.device.status, self.device.grbl_state));
                         if self.device.is_job_running {
                             ui.label(
                                 egui::RichText::new(format!(
@@ -4343,8 +4345,41 @@ impl eframe::App for LaserBurnApp {
 
                     ui.separator();
 
-                    // Reserve bottom 32px for the raw G-code command input row
-                    let available_h = (ui.available_height() - 34.0).max(80.0);
+                    // Allocate the bottom G-code command bar first with generous breathing room
+                    egui::TopBottomPanel::bottom("traffic_cmd_footer")
+                        .show_separator_line(false)
+                        .frame(egui::Frame::NONE.inner_margin(egui::Margin {
+                            left: 2,
+                            right: 2,
+                            top: 8,
+                            bottom: 10,
+                        }))
+                        .show_inside(ui, |ui| {
+                            ui.label(egui::RichText::new("Send G-code Command:").small().strong());
+                            ui.add_space(3.0);
+                            ui.horizontal(|ui| {
+                                let send_btn_w = 54.0;
+                                let text_w = (ui.available_width() - send_btn_w - 8.0).max(60.0);
+                                let resp = ui.add_sized(
+                                    [text_w, 24.0],
+                                    egui::TextEdit::singleline(&mut self.command_input)
+                                        .hint_text("e.g. $$, $X, G0 X10..."),
+                                );
+                                let send_clicked = ui.add_sized([send_btn_w, 24.0], egui::Button::new("Send")).clicked();
+                                if (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                                    || send_clicked
+                                {
+                                    let cmd = self.command_input.trim().to_string();
+                                    if !cmd.is_empty() {
+                                        self.device.send_raw(&cmd);
+                                        self.command_input.clear();
+                                    }
+                                }
+                            });
+                        });
+
+                    // Fill the remaining middle area with the dark terminal log
+                    let available_h = (ui.available_height() - 14.0).max(80.0);
 
                     egui::Frame::canvas(ui.style())
                         .fill(egui::Color32::from_rgb(16, 18, 22))
@@ -4385,25 +4420,6 @@ impl eframe::App for LaserBurnApp {
                                     }
                                 });
                         });
-
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        let resp = ui.add(
-                            egui::TextEdit::singleline(&mut self.command_input)
-                                .hint_text("Send G-code (e.g. $$, $X, G0 X10)...")
-                                .desired_width((ui.available_width() - 48.0).max(60.0)),
-                        );
-                        let send_clicked = ui.button("Send").clicked();
-                        if (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-                            || send_clicked
-                        {
-                            let cmd = self.command_input.trim().to_string();
-                            if !cmd.is_empty() {
-                                self.device.send_raw(&cmd);
-                                self.command_input.clear();
-                            }
-                        }
-                    });
                 });
         }
 
