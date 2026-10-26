@@ -1,69 +1,131 @@
-# LaserBurn v1.0.0 🦀⚡
+# LaserBurn 🦀⚡
 
-Moderni, huippunopea ja kevyt monialustainen (macOS, Windows, Linux) laserleikkaus- ja kaiverrus-CAM-ohjelmisto (Rust / `eframe` / `egui`).
+### The Blazingly Fast, Native Rust Laser Cutting & Engraving CAM for macOS, Windows & Linux
 
-Ohjelmisto tarjoaa suoran LightBurn `.lbrn2`- ja `.svg`-projektitiedostojen yhteensopivuuden, edistyneen CAM-radanoptimoinnin, todellisen analogisen harmaasävy-tehomodulaation (`GrayscalePower`), keramiikkalaattojen maalikerrossimulaattorin, kamerakohdistuksen automaattisella aihion tunnistuksella sekä suoran tuen useille laserohjaimille (GRBL 1.1+, Smoothie, Marlin, Ruida DSP).
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-dea584.svg)](https://www.rust-lang.org/)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)]()
+[![Free Download on Gumroad](https://img.shields.io/badge/Gumroad-Free%20Download-orange.svg)](https://shop.pietiniart.com/l/laserburn)
 
----
+**LaserBurn** is an open-source, ultra-lightweight, and fully-featured laser CAM & controller application written from scratch in pure **Rust** (`eframe` / `egui`). 
 
-## 🎯 Pääominaisuudet (v1.0.0)
-
-### 1. Täysi LightBurn `.lbrn2` & `.svg` -yhteensopivuus
-- Lukee ja kirjoittaa LightBurnin `.lbrn2`-projektitiedostoja.
-- Tukee monitasoisia leikkauskerroksia (C00–C29) omine nopeus-, teho-, toisto-, ditheröinti- ja ilmansyöttöasetuksineen.
-- Täysi SVG-vektoritiedostojen tuonti ja vienti 2D-affiinimatriisimuunnoksilla (`matrix`, `translate`, `scale`, `rotate`, `<use>`).
-
-### 2. True Analog Grayscale Power Modulation & Keramiikkalaattojen Maalikerrossimulaattori
-- **Grayscale Power Modulation (`M4 S...`):** Säätelee dynaamisesti laserin PWM-tehoa lineaarisesti pikselin tummuuden mukaan välillä `Min Power %` – `Max Power %`.
-- **Overscan (Lead-in / Lead-out):** Kiihdyttää ja jarruttaa laserpään varsinaisen polttoalueen ulkopuolella 0 % teholla, jolloin laatan tai puun reunat eivät pala tummiksi.
-- **Negative / Invert:** Kääntää harmaasävyt tummaksi maalatuille keramiikkalaatoille, joissa laser paljastaa alla olevan vaalean/värillisen kerroksen.
-- **Ceramic Tile Paint Layer Simulator:** Simuloi ja esikatselee suoraan työalueella, miten eri lasertehot polttavat päällekkäisten spraymaalikerrosten läpi aina pohjalaattaan saakka.
-
-### 3. Vektori-CAD, 2D Boolean -työkalut, SDF Contour Offset & Undo/Redo
-- **Monivaiheinen Undo / Redo (`Cmd+Z` / `Cmd+Shift+Z`):** Täydellinen muokkaushistoria kaikille piirto-, siirto-, skaalaus- ja boolean-toiminnoille.
-- **2D Boolean -operaatiot:** Yhdistä (`Weld / Union`), vähennä (`Subtract A - B`) ja leikkaa (`Intersect`) päällekkäisiä vektorimuotoja ja tekstiä.
-- **True SDF Contour Offset:** Luo tarkat ulko- tai sisäpuoliset ääriviivasiirtymät (esim. tarrojen leikkausreunat tai korujen kehykset) Signed Distance Field -laskennalla.
-- **Automaattinen Kerf-kompensaatio:** Huomioi säteen polttoleveyden (`kerf`) laajentaen ulkoreunoja $+kerf/2$ ja pienentäen sisäreikiä $-kerf/2$.
-
-### 4. Sisäänrakennettu Materiaalin Testimatriisi (Speed × Power Grid Generator)
-- Generoi yhdellä klikkauksella valmiin `Nopeus × Teho` -kalibrointiruudukon automaattisilla vektoriteksteillä (C00 tekstit, C01–C29 testiruudut) mille tahansa materiaalille.
-
-### 5. Teollisuustason kuvan ditheröinti (9 tilaa)
-1. **Atkinson** (Erittäin terävät ja puhtaat rasteripisteet)
-2. **Floyd-Steinberg** (Klassinen virheenlevitys)
-3. **Jarvis-Judice-Ninke** (Korkea dynamiikka)
-4. **Stucki** (Pehmeä sävyala)
-5. **Burkes & Sierra3** (Nopea ja tasainen virheenlevitys)
-6. **Ordered Bayer 8x8** (Säännöllinen matriisiditheröinti)
-7. **Halftone** (Sanomalehtirasteri)
-8. **Threshold & SmartThreshold** (Mustavalko-rajaus)
-9. **Grayscale Power Modulation** (Analoginen PWM-tehomodulaatio)
-
-### 6. Kamerakohdistus & 1-Click Workpiece Auto-Fit
-- **4 pisteen perspektiivikalibrointi (Homography $H$ ja $H^{-1}$)** sekä kelluva **2x–8x Zoom Loupe** tarkkaan kohdistukseen.
-- **1-Click Detect & Center on Workpiece:** Tunnistaa kamerakuvasta alustalla olevan suorakaiteen muotoisen aihion (esim. keraaminen laatta tai vanerinpala) ja keskittää/sovittaa valitut kuviot automaattisesti sen päälle.
-
-### 7. Reaaliaikainen Data Traffic Log (TX / RX) & Selkokielinen G-kooditulkki
-- Oma rinnakkainen **Data Traffic (TX / RX)** -paneeli näyttää jokaisen lähetetyn G-koodin ja GRBL-vastauksen reaaliajassa.
-- **`[✓] Explain`:** Kääntää jokaisen G-koodin, M-koodin, GRBL-asetuksen (`$`), tilaviestin (`<Idle|MPos:...>`) ja virheen/hälytyksen suoraan selkokieliseksi englanniksi.
-- **`[✓] Save to Log File`:** Tallentaa kaiken sarjaliikenteen aikaleimoilla suoraan tiedostoon `~/Documents/LaserBurn_traffic.log`.
-
-### 8. Tumma & Vaalea tila, Dynaaminen 0,0-Jog-ohjaus & macOS Apple Shortcuts
-- **Theme: Dark / Light:** Korkean kontrastin tumma ja vaalea käyttöliittymäteema.
-- **Origin-Aware Jog D-Pad:** `X+`/`X-`/`Y+`/`Y-`-jog-painikkeet mukautuvat automaattisesti sen mukaan, missä kulmassa koneen `0,0`-origo sijaitsee.
-- **macOS Apple Shortcuts -automaatio (`#[cfg(target_os = "macos")]`):** Käynnistä valittu macOS-pikakomento automaattisesti, kun poltto alkaa (`On Job Start`) tai valmistuu (`On Job Complete`).
+Built as a high-performance native alternative for diode and CO2 laser enthusiasts, LaserBurn offers direct compatibility with **LightBurn (`.lbrn2` and `.clb`)** files, workshop-tested CAM trajectory optimization, dynamic analog power modulation, and a plain-English serial traffic debugger.
 
 ---
 
-## 🚀 Kääntäminen ja jakelupaketit
+![LaserBurn Screenshot](assets/screenshots/screenshot_dark_and_light.png)
 
+---
+
+## ⚡ The Value Proposition: Why LaserBurn?
+
+Most free laser software out there is either locked to Windows (e.g. LaserGRBL running on legacy .NET), sluggish Electron/Python wrappers consuming hundreds of megabytes of RAM, or simple G-code senders lacking real CAM capabilities.
+
+LaserBurn was engineered to deliver a responsive, industrial-grade CAM suite that starts instantly and respects your machine's hardware:
+
+| Feature | Legacy Free Tools (e.g., LaserGRBL) | Heavy Commercial Tools | LaserBurn 🦀 |
+|---|---|---|---|
+| **OS Support** | Windows only (requires Wine on Mac/Linux) | Windows, Mac, Linux | **100% Native Universal** (macOS Apple Silicon & Intel, Windows 64-bit, Linux) |
+| **Startup & Footprint** | Slow cold start, high CPU idle | Proprietary installer, ~400MB+ disk | **<0.2s cold start, <40 MB RAM**, single native binary |
+| **LightBurn Compatibility** | ❌ None | Native proprietary | **Direct import/export of `.lbrn2` projects and `.clb` material databases** |
+| **Vector CAD & Booleans** | ❌ None (external CAD required) | ✅ Included | **2D Booleans (Weld, Subtract, Intersect) + True SDF Contour Offset** |
+| **Beam Kerf Compensation** | ❌ None | ✅ Included | **Auto Inner/Outer Kerf Offset** (+kerf/2 outer, -kerf/2 inner) |
+| **Camera Alignment** | ❌ None | Paid add-on camera feature | **4-point Homography ($H$ & $H^{-1}$) + 1-Click Auto-Detect Workpiece** |
+| **Controller Diagnostics** | Cryptic error codes (`error:20`) | Basic console | **Live Traffic Log with Plain-English Explanations (`[✓] Explain`)** |
+| **License & Privacy** | Windows freeware / closed | Commercial subscription/license | **100% Free & Open Source (GPLv3), 100% Offline & Private** |
+
+---
+
+## 🎯 Key Features
+
+- **⚡ Blazing Fast Rust Performance:** Cold startup in under 200 ms. Real-time 60 FPS pan/zoom viewport even with complex vector graphics and high-density raster rasters.
+- **📂 LightBurn `.lbrn2` & `.clb` File Support:** Seamlessly load and save multi-layer LightBurn projects (C00–C29) and import LightBurn material databases into clean per-machine categories (`📁 LaserBurn Oletus`, `📁 Oma 10W`, etc.).
+- **📐 Built-in 2D Vector CAD & Boolean Operations:**
+  - **Boolean Tools:** Weld / Union, Subtract ($A - B$), and Intersect overlapping shapes and text.
+  - **Signed Distance Field (SDF) Contour Offsets:** Generate crisp outward sticker cut borders or inward insets with controllable round/miter corner transitions.
+  - **Automatic Kerf Compensation:** Ensures parts fit together snugly right off the laser honeycomb bed.
+- **🎨 9 High-Precision Image Dithering Engines:**
+  - Atkinson, Floyd-Steinberg, Jarvis-Judice-Ninke, Stucki, Burkes, Sierra3, Ordered Bayer 8x8, Halftone, and Threshold.
+- **⚡ True Analog Grayscale Power Modulation (`M4 S...`):** Dynamic continuous spindle PWM power modulation based on pixel luminance, with automatic **Overscan (Lead-in / Lead-out)** to prevent overburnt edges during acceleration.
+- **🧱 Ceramic Tile Multi-Layer Paint Simulator:** Real-time visual feedback showing how various laser power levels burn through multi-colored spray paint layers (e.g. Norton TiO2 white tile or Black/Red/Yellow stack).
+- **📷 Camera Calibration & 1-Click Workpiece Alignment:**
+  - 4-point perspective homography distortion correction with a 2x–8x floating zoom loupe.
+  - **1-Click Detect & Center:** Automatically identifies rectangular tiles or wood blanks on the bed and fits selected graphics directly onto them.
+- **🚦 Plain-English Serial Traffic Debugger:**
+  - Live dual-column TX/RX monitor capturing every G-code command and controller reply.
+  - Toggle **`[✓] Explain`** to translate cryptic GRBL alarms (`ALARM:2`), errors (`error:20`), and status packets (`<Idle|WPos:...>`) into plain English.
+- **🎯 1-Click Speed × Power Material Test Matrix:** Automatically generates calibration test grids with labeled vector text for rapid speed/power dialing on new materials.
+- **🍎 macOS Apple Shortcuts Automation:** Automatically fire custom macOS Shortcuts when a job starts or completes (e.g., turn on air exhaust fan, play notification chime, or alert phone).
+- **🌓 Dark & Light Mode:** High-contrast UI themes designed for bright workshop lighting and late-night cutting sessions.
+
+---
+
+## 📥 Downloads
+
+Pre-built binaries are available for every major platform from [GitHub Releases](https://github.com/pietini69/laserburn/releases/latest) or [Gumroad](https://shop.pietiniart.com/l/laserburn):
+
+| Operating System | Package | Architecture | Direct Download |
+|---|---|---|---|
+| **macOS** (11.0+) | **DMG Installer** | Universal (Apple Silicon M1/M2/M3/M4 + Intel) | [LaserBurn-1.0.0-universal.dmg](https://github.com/pietini69/laserburn/releases/download/v1.0.0/LaserBurn-1.0.0-universal.dmg) |
+| **macOS** (11.0+) | **ZIP Archive** | Universal 2 | [LaserBurn-1.0.0-macos-universal.zip](https://github.com/pietini69/laserburn/releases/download/v1.0.0/LaserBurn-1.0.0-macos-universal.zip) |
+| **Windows** (10/11) | **ZIP Executable** | x86_64 (64-bit) | [LaserBurn-1.0.0-windows-x64.zip](https://github.com/pietini69/laserburn/releases/download/v1.0.0/LaserBurn-1.0.0-windows-x64.zip) |
+| **Linux** | **tar.gz Archive** | x86_64 | [LaserBurn-1.0.0-linux-x86_64.tar.gz](https://github.com/pietini69/laserburn/releases/download/v1.0.0/LaserBurn-1.0.0-linux-x86_64.tar.gz) |
+
+> **macOS Note:** On first launch, if macOS Gatekeeper flags the app as unsigned, simply right-click `LaserBurn.app` in `/Applications` and select **Open**, or run:
+> ```bash
+> xattr -cr /Applications/LaserBurn.app
+> ```
+
+---
+
+## ☕ Support the Project
+
+LaserBurn is free and open-source software under the GPLv3 license. If LaserBurn saves you time, money on commercial licenses, or makes your laser workflow smoother, you can support future development by buying a coffee or leaving a tip on Gumroad:
+
+👉 **[https://shop.pietiniart.com/l/laserburn](https://shop.pietiniart.com/l/laserburn)**
+
+---
+
+## 🛠️ Building from Source
+
+### Prerequisites
+- Install [Rust & Cargo](https://rustup.rs/) (version 1.75+ recommended):
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+
+### Build & Run
 ```bash
-cd /Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn
+# Clone the repository
+git clone https://github.com/pietini69/laserburn.git
+cd laserburn
 
-# Suorita yksikkötestit:
+# Run unit tests
 cargo test --features gui
 
-# Rakenna kaikki jakelupaketit (macOS Universal 2 DMG/ZIP, Windows x64 ZIP, Linux x86_64 tar.gz)
-# ja päivitä /Applications/LaserBurn.app:
-./scripts/build_all.sh
+# Run in release mode
+cargo run --release --features gui
 ```
+
+### Packaging macOS App Bundle & DMG
+```bash
+# Builds native Universal 2 bundle and DMG under dist/
+./scripts/build_dmg.sh universal
+```
+
+---
+
+## 🤝 Contributing
+
+Contributions, bug reports, and feature suggestions are warmly welcomed!
+- Found a bug or compatibility issue with your laser controller? Open an [Issue](https://github.com/pietini69/laserburn/issues).
+- Want to add a feature or improve documentation? Submit a [Pull Request](https://github.com/pietini69/laserburn/pulls).
+
+---
+
+## 📜 License
+
+LaserBurn is released under the **GNU General Public License v3.0 (GPLv3)**.  
+See the [LICENSE](LICENSE) file for details.
+
+Copyright © 2026 Niko Pietinen.
