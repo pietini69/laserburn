@@ -2336,7 +2336,7 @@ impl LaserBurnApp {
                                                     if ui.selectable_label(is_sel, format!("{} {}", icon, op.name)).clicked() {
                                                         new_selection = Some((mat.name.clone(), thick.thickness_mm, op.name.clone()));
                                                     }
-                                                    ui.label(egui::RichText::new(format!("  {} • {}", mat.name, thick.label)).small().weak());
+                                                    ui.label(egui::RichText::new(format!("  📁 {} • 📦 {} • {}", mat.category, mat.name, thick.label)).small().weak());
                                                 }
                                             }
                                         }
@@ -2355,9 +2355,11 @@ impl LaserBurnApp {
                                     }
 
                                     for (category, mats) in categories_map {
-                                        ui.collapsing(egui::RichText::new(&category).strong().color(color_blue), |ui| {
+                                        let cat_label = format!("📁 {} ({} materiaalia)", category, mats.len());
+                                        ui.collapsing(egui::RichText::new(cat_label).strong().color(color_blue), |ui| {
                                             for mat in mats {
-                                                ui.collapsing(egui::RichText::new(&mat.name).strong(), |ui| {
+                                                let mat_label = format!("📦 {}", mat.name);
+                                                ui.collapsing(egui::RichText::new(mat_label).strong(), |ui| {
                                                     for thick in &mat.thicknesses {
                                                         ui.horizontal(|ui| {
                                                             ui.add_space(4.0);
