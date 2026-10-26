@@ -105,6 +105,14 @@ impl MaterialEntry {
     pub fn find_thickness_mut(&mut self, thickness_mm: f64) -> Option<&mut ThicknessEntry> {
         self.thicknesses.iter_mut().find(|t| (t.thickness_mm - thickness_mm).abs() < 0.05)
     }
+
+    pub fn find_matching_thickness_mut(&mut self, thickness_mm: f64, label: &str) -> Option<&mut ThicknessEntry> {
+        if thickness_mm > 0.05 {
+            self.thicknesses.iter_mut().find(|t| (t.thickness_mm - thickness_mm).abs() < 0.05)
+        } else {
+            self.thicknesses.iter_mut().find(|t| t.label.eq_ignore_ascii_case(label) || (t.thickness_mm <= 0.05 && (t.label == "Single / Surface" || label == "Single / Surface")))
+        }
+    }
 }
 
 /// Full Material Library containing curated materials and user presets.
@@ -272,7 +280,7 @@ impl MaterialLibrary {
                     existing_mat.category = other_mat.category.clone();
                 }
                 for other_thick in other_mat.thicknesses {
-                    if let Some(existing_thick) = existing_mat.find_thickness_mut(other_thick.thickness_mm) {
+                    if let Some(existing_thick) = existing_mat.find_matching_thickness_mut(other_thick.thickness_mm, &other_thick.label) {
                         for other_op in other_thick.operations {
                             if let Some(existing_op) = existing_thick.find_operation_mut(&other_op.name) {
                                 *existing_op = other_op;
@@ -295,9 +303,17 @@ impl MaterialLibrary {
         let doc = roxmltree::Document::parse(xml_str).map_err(|e| format!("XML parse error: {}", e))?;
         let root = doc.root_element();
 
+        // Find library display name (e.g. <LightBurnLibrary DisplayName="Oma 10W">)
+        let lib_display_name = root
+            .attributes()
+            .find(|a| a.name().eq_ignore_ascii_case("DisplayName") || a.name().eq_ignore_ascii_case("name"))
+            .map(|a| a.value().trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "LightBurn Imports".to_string());
+
         let mut library = MaterialLibrary {
             version: 1,
-            laser_profile: "Imported LightBurn Library".to_string(),
+            laser_profile: lib_display_name.clone(),
             materials: Vec::new(),
         };
 
@@ -306,74 +322,108 @@ impl MaterialLibrary {
             let mat_name = mat_node
                 .attributes()
                 .find(|a| a.name().eq_ignore_ascii_case("name"))
-                .map(|a| a.value().to_string())
+                .map(|a| a.value().trim().to_string())
                 .unwrap_or_else(|| "Unnamed Material".to_string());
+
+            if mat_name.is_empty() {
+                continue;
+            }
 
             let category = mat_node
                 .attributes()
                 .find(|a| a.name().eq_ignore_ascii_case("category") || a.name().eq_ignore_ascii_case("group"))
-                .map(|a| a.value().to_string())
-                .unwrap_or_else(|| "LightBurn Imports".to_string());
+                .map(|a| a.value().trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| lib_display_name.clone());
 
-            let mut thicknesses: Vec<ThicknessEntry> = Vec::new();
+            // Collect all Entry nodes (both direct children of Material AND inside Thickness tags)
+            let mut entries_to_process = Vec::new();
 
-            for thick_node in mat_node.children().filter(|n| n.tag_name().name().eq_ignore_ascii_case("Thickness")) {
-                let thick_val = thick_node
+            for child in mat_node.children() {
+                let tag = child.tag_name().name();
+                if tag.eq_ignore_ascii_case("Entry") || tag.eq_ignore_ascii_case("Operation") {
+                    entries_to_process.push((None, child));
+                } else if tag.eq_ignore_ascii_case("Thickness") {
+                    for sub_entry in child.children().filter(|n| {
+                        let stag = n.tag_name().name();
+                        stag.eq_ignore_ascii_case("Entry") || stag.eq_ignore_ascii_case("Operation") || stag.eq_ignore_ascii_case("CutSetting")
+                    }) {
+                        entries_to_process.push((Some(child), sub_entry));
+                    }
+                }
+            }
+
+            // Group entries by thickness: key = ((thickness_mm * 1000.0).round() as i64, thickness_label)
+            let mut thickness_order: Vec<((i64, String), f64, String)> = Vec::new();
+            let mut thickness_ops: std::collections::HashMap<(i64, String), Vec<MaterialOperation>> = std::collections::HashMap::new();
+
+            for (p_thick, entry_node) in entries_to_process {
+                let thick_raw = entry_node
                     .attributes()
-                    .find(|a| a.name().eq_ignore_ascii_case("value") || a.name().eq_ignore_ascii_case("val"))
+                    .find(|a| a.name().eq_ignore_ascii_case("Thickness") || a.name().eq_ignore_ascii_case("thickness"))
+                    .or_else(|| p_thick.and_then(|p| p.attributes().find(|a| a.name().eq_ignore_ascii_case("value") || a.name().eq_ignore_ascii_case("val"))))
                     .and_then(|a| a.value().parse::<f64>().ok())
                     .unwrap_or(0.0);
 
-                let thick_label = thick_node
+                let thick_val = if thick_raw < 0.0 { 0.0 } else { thick_raw };
+
+                let no_thick_title = entry_node
                     .attributes()
-                    .find(|a| a.name().eq_ignore_ascii_case("name") || a.name().eq_ignore_ascii_case("label"))
-                    .map(|a| a.value().to_string())
-                    .unwrap_or_else(|| {
-                        if thick_val > 0.0 {
-                            format!("{:.1} mm", thick_val)
-                        } else {
-                            "Default Thickness".to_string()
-                        }
-                    });
+                    .find(|a| a.name().eq_ignore_ascii_case("NoThickTitle") || a.name().eq_ignore_ascii_case("noThickTitle"))
+                    .or_else(|| p_thick.and_then(|p| p.attributes().find(|a| a.name().eq_ignore_ascii_case("name") || a.name().eq_ignore_ascii_case("label"))))
+                    .map(|a| a.value().trim().to_string());
 
-                let mut operations: Vec<MaterialOperation> = Vec::new();
-
-                for entry_node in thick_node.children().filter(|n| {
-                    let tag = n.tag_name().name();
-                    tag.eq_ignore_ascii_case("Entry") || tag.eq_ignore_ascii_case("Operation") || tag.eq_ignore_ascii_case("CutSetting")
-                }) {
-                    let op_name = entry_node
-                        .attributes()
-                        .find(|a| a.name().eq_ignore_ascii_case("name") || a.name().eq_ignore_ascii_case("type"))
-                        .map(|a| a.value().to_string())
-                        .unwrap_or_else(|| "Cut".to_string());
-
-                    // Either this node is CutSetting, or it has a CutSetting child
-                    let cs_node = if entry_node.tag_name().name().eq_ignore_ascii_case("CutSetting") {
-                        Some(entry_node)
+                let thick_label = if thick_val > 0.0 {
+                    if (thick_val * 10.0).fract().abs() > 0.01 {
+                        format!("{:.2} mm", thick_val)
                     } else {
-                        entry_node.children().find(|n| n.tag_name().name().eq_ignore_ascii_case("CutSetting"))
-                    };
+                        format!("{:.1} mm", thick_val)
+                    }
+                } else if let Some(nt) = no_thick_title.filter(|s| !s.is_empty()) {
+                    nt
+                } else {
+                    "Single / Surface".to_string()
+                };
 
-                    let cut_setting = if let Some(cs) = cs_node {
-                        parse_clb_cut_setting(&cs)
-                    } else {
-                        CutSetting::default()
-                    };
+                let op_name = entry_node
+                    .attributes()
+                    .find(|a| a.name().eq_ignore_ascii_case("Desc") || a.name().eq_ignore_ascii_case("desc") || a.name().eq_ignore_ascii_case("name") || a.name().eq_ignore_ascii_case("type"))
+                    .map(|a| a.value().trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "Cut".to_string());
 
-                    let notes = entry_node
-                        .children()
-                        .find(|n| n.tag_name().name().eq_ignore_ascii_case("Notes") || n.tag_name().name().eq_ignore_ascii_case("Description"))
-                        .and_then(|n| n.text())
-                        .unwrap_or("")
-                        .trim()
-                        .to_string();
+                let cs_node = if entry_node.tag_name().name().eq_ignore_ascii_case("CutSetting") {
+                    Some(entry_node)
+                } else {
+                    entry_node.children().find(|n| n.tag_name().name().eq_ignore_ascii_case("CutSetting"))
+                };
 
-                    operations.push(MaterialOperation::new(&op_name, cut_setting, &notes));
+                let cut_setting = if let Some(cs) = cs_node {
+                    parse_clb_cut_setting(&cs, &op_name)
+                } else {
+                    CutSetting::default()
+                };
+
+                let notes = entry_node
+                    .children()
+                    .find(|n| n.tag_name().name().eq_ignore_ascii_case("Notes") || n.tag_name().name().eq_ignore_ascii_case("Description"))
+                    .and_then(|n| n.text())
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
+
+                let key = ((thick_val * 1000.0).round() as i64, thick_label.clone());
+                if !thickness_ops.contains_key(&key) {
+                    thickness_order.push((key.clone(), thick_val, thick_label.clone()));
                 }
+                thickness_ops.entry(key).or_default().push(MaterialOperation::new(&op_name, cut_setting, &notes));
+            }
 
-                if !operations.is_empty() {
-                    thicknesses.push(ThicknessEntry::new(thick_val, &thick_label, operations));
+            let mut thicknesses = Vec::new();
+            for (key, thick_val, thick_label) in thickness_order {
+                if let Some(ops) = thickness_ops.remove(&key) {
+                    if !ops.is_empty() {
+                        thicknesses.push(ThicknessEntry::new(thick_val, &thick_label, ops));
+                    }
                 }
             }
 
@@ -402,7 +452,7 @@ impl MaterialLibrary {
 }
 
 /// Helper function to parse LightBurn XML `<CutSetting>` elements into LaserBurn's native `CutSetting`.
-fn parse_clb_cut_setting(cs_node: &roxmltree::Node) -> CutSetting {
+fn parse_clb_cut_setting(cs_node: &roxmltree::Node, op_name: &str) -> CutSetting {
     let mut setting = CutSetting::default();
 
     let find_child_attr = |tags: &[&str], attr_name: &str| -> Option<String> {
@@ -461,16 +511,40 @@ fn parse_clb_cut_setting(cs_node: &roxmltree::Node) -> CutSetting {
     setting.power_max = get_val_f64(&["maxPower", "MaxPower", "power", "Power"], 80.0);
     setting.num_passes = get_val_u32(&["numPasses", "NumPasses", "passes"], 1);
     setting.z_offset = get_val_f64(&["zOffset", "ZOffset"], 0.0);
-    setting.air_assist = get_val_u32(&["enableAir", "EnableAir", "airAssist", "AirAssist"], 0) > 0;
+    setting.air_assist = get_val_u32(&["enableAir", "EnableAir", "airAssist", "AirAssist", "runBlower", "RunBlower"], 0) > 0;
     setting.kerf = get_val_f64(&["kerf", "Kerf"], 0.0);
     setting.line_interval = get_val_f64(&["interval", "Interval", "lineInterval"], 0.08);
 
-    if cut_type.eq_ignore_ascii_case("Scan") || cut_type.eq_ignore_ascii_case("Scan+Cut") || cut_type.eq_ignore_ascii_case("Engrave") {
-        setting.mode = CutMode::Fill;
-    } else if cut_type.eq_ignore_ascii_case("Image") {
+    let op_lower = op_name.to_lowercase();
+    if cut_type.eq_ignore_ascii_case("Image")
+        || op_lower.contains("bitmap")
+        || op_lower.contains("image")
+        || op_lower.contains("photo")
+        || op_lower.contains("kuva")
+    {
         setting.mode = CutMode::Image;
+    } else if cut_type.eq_ignore_ascii_case("Scan")
+        || cut_type.eq_ignore_ascii_case("Scan+Cut")
+        || ((op_lower.contains("fill") || op_lower.contains("engrav") || op_lower.contains("kaiver"))
+            && !op_lower.contains("vector"))
+    {
+        setting.mode = CutMode::Fill;
     } else {
         setting.mode = CutMode::Line;
+    }
+
+    if let Some(dither_str) = find_child_attr(&["ditherMode", "DitherMode"], "Value") {
+        match dither_str.to_lowercase().as_str() {
+            "grayscale" => setting.dither_mode = DitherMode::GrayscalePower,
+            "halftone" => setting.dither_mode = DitherMode::Halftone,
+            "atkinson" => setting.dither_mode = DitherMode::Atkinson,
+            "floydsteinberg" | "floyd" => setting.dither_mode = DitherMode::FloydSteinberg,
+            "stucki" => setting.dither_mode = DitherMode::Stucki,
+            "jarvis" => setting.dither_mode = DitherMode::Jarvis,
+            "threshold" => setting.dither_mode = DitherMode::Threshold,
+            "ordered" | "bayer" => setting.dither_mode = DitherMode::OrderedBayer,
+            _ => {}
+        }
     }
 
     setting
@@ -882,6 +956,76 @@ mod tests {
         let scan_op = thick.find_operation("Surface Scan").expect("Must find Surface Scan");
         assert_eq!(scan_op.cut_setting.speed, 80.0);
         assert_eq!(scan_op.cut_setting.mode, CutMode::Fill);
+    }
+
+    #[test]
+    fn test_import_real_lightburn_clb_flat_entries() {
+        let sample_clb = r#"<?xml version="1.0" encoding="UTF-8"?>
+<LightBurnLibrary DisplayName="Oma 10W">
+    <Material name="Balsa">
+        <Entry Thickness="2.0000" Desc="Kaiverus">
+            <CutSetting type="Cut">
+                <maxPower Value="100"/>
+                <speed Value="83.3333"/>
+                <priority Value="0"/>
+            </CutSetting>
+        </Entry>
+        <Entry Thickness="2.0000" Desc="Leikkaus">
+            <CutSetting type="Cut">
+                <maxPower Value="50"/>
+                <speed Value="3.33333"/>
+                <runBlower Value="1"/>
+            </CutSetting>
+        </Entry>
+    </Material>
+    <Material name="Titaanioksidi laatta">
+        <Entry Thickness="-1.0000" Desc="Kaiverrus" NoThickTitle="B/W kuva">
+            <CutSetting type="Image">
+                <minPower Value="5"/>
+                <maxPower Value="40"/>
+                <speed Value="33.3333"/>
+                <interval Value="0.0801"/>
+                <ditherMode Value="halftone"/>
+            </CutSetting>
+        </Entry>
+    </Material>
+</LightBurnLibrary>"#;
+
+        let lib = MaterialLibrary::import_from_clb_str(sample_clb).expect("Must parse real LightBurn XML");
+        assert_eq!(lib.laser_profile, "Oma 10W");
+        assert_eq!(lib.materials.len(), 2);
+
+        // 1. Verify Balsa (grouped 2mm thickness with 2 operations)
+        let balsa = lib.find_material("Balsa").expect("Must find Balsa");
+        assert_eq!(balsa.category, "Oma 10W");
+        assert_eq!(balsa.thicknesses.len(), 1);
+
+        let thick_2 = balsa.find_thickness(2.0).expect("Must find 2.0mm thickness");
+        assert_eq!(thick_2.operations.len(), 2);
+
+        let engrave_op = thick_2.find_operation("Kaiverus").expect("Must find Kaiverus");
+        assert_eq!(engrave_op.cut_setting.speed, 83.3333);
+        assert_eq!(engrave_op.cut_setting.power_max, 100.0);
+        assert_eq!(engrave_op.cut_setting.mode, CutMode::Fill); // Inferred from "Kaiverus"
+
+        let cut_op = thick_2.find_operation("Leikkaus").expect("Must find Leikkaus");
+        assert_eq!(cut_op.cut_setting.speed, 3.33333);
+        assert_eq!(cut_op.cut_setting.power_max, 50.0);
+        assert_eq!(cut_op.cut_setting.air_assist, true); // runBlower Value="1"
+        assert_eq!(cut_op.cut_setting.mode, CutMode::Line);
+
+        // 2. Verify Titaanioksidi laatta (Thickness -1.0 with NoThickTitle "B/W kuva")
+        let tile = lib.find_material("Titaanioksidi laatta").expect("Must find Titaanioksidi laatta");
+        assert_eq!(tile.thicknesses.len(), 1);
+        let thick_tile = &tile.thicknesses[0];
+        assert_eq!(thick_tile.thickness_mm, 0.0);
+        assert_eq!(thick_tile.label, "B/W kuva");
+
+        let photo_op = thick_tile.find_operation("Kaiverrus").expect("Must find Kaiverrus");
+        assert_eq!(photo_op.cut_setting.mode, CutMode::Image);
+        assert_eq!(photo_op.cut_setting.dither_mode, DitherMode::Halftone);
+        assert_eq!(photo_op.cut_setting.power_min, 5.0);
+        assert_eq!(photo_op.cut_setting.power_max, 40.0);
     }
 
     #[test]
