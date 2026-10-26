@@ -4883,41 +4883,42 @@ impl eframe::App for LaserBurnApp {
                     // -------------------------------------------------
                     let mut layer_to_remove: Option<usize> = None;
                     let can_remove_layer = self.doc.layers.len() > 1;
+
+                    ui.heading(tr("Cut & Layer Settings"));
+                    ui.add_space(3.0);
+
                     ui.horizontal_wrapped(|ui| {
-                        ui.heading(tr("Cut & Layer Settings"));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button(tr("Library")).on_hover_text("Open Material Library presets to apply to this layer or save new presets").clicked() {
-                                self.show_material_library = true;
-                            }
-                            if ui.button(tr("Save Palette")).on_hover_text("Save current layers & materials as startup default (~/.config/laser_burn/default_layers.json)").clicked() {
-                                if let Err(e) = Document::save_default_layers(&self.doc.layers) {
-                                    self.status_msg = format!("Error saving default layers: {}", e);
-                                } else {
-                                    self.status_msg = "Layer & material palette saved as startup default!".to_string();
+                        if ui.button(tr("+ Layer")).on_hover_text("Add a new color/cut layer").clicked() {
+                            for idx in 0..30 {
+                                if !self.doc.layers.contains_key(&idx) {
+                                    self.doc.get_or_create_layer(idx);
+                                    self.selected_layer = idx;
+                                    break;
                                 }
                             }
-                            if ui.add_enabled(can_remove_layer, egui::Button::new(tr("- Remove"))).on_hover_text("Remove currently selected layer").clicked() {
-                                layer_to_remove = Some(self.selected_layer);
-                            }
-                            if ui.button(tr("+ Tool")).on_hover_text("Add a guide/tool layer (T01, T02...)").clicked() {
-                                for idx in 30..33 {
-                                    if !self.doc.layers.contains_key(&idx) {
-                                        self.doc.get_or_create_layer(idx);
-                                        self.selected_layer = idx;
-                                        break;
-                                    }
+                        }
+                        if ui.button(tr("+ Tool")).on_hover_text("Add a guide/tool layer (T01, T02...)").clicked() {
+                            for idx in 30..33 {
+                                if !self.doc.layers.contains_key(&idx) {
+                                    self.doc.get_or_create_layer(idx);
+                                    self.selected_layer = idx;
+                                    break;
                                 }
                             }
-                            if ui.button(tr("+ Layer")).on_hover_text("Add a new color/cut layer").clicked() {
-                                for idx in 0..30 {
-                                    if !self.doc.layers.contains_key(&idx) {
-                                        self.doc.get_or_create_layer(idx);
-                                        self.selected_layer = idx;
-                                        break;
-                                    }
-                                }
+                        }
+                        if ui.add_enabled(can_remove_layer, egui::Button::new(tr("- Remove"))).on_hover_text("Remove currently selected layer").clicked() {
+                            layer_to_remove = Some(self.selected_layer);
+                        }
+                        if ui.button(tr("Save Palette")).on_hover_text("Save current layers & materials as startup default (~/.config/laser_burn/default_layers.json)").clicked() {
+                            if let Err(e) = Document::save_default_layers(&self.doc.layers) {
+                                self.status_msg = format!("Error saving default layers: {}", e);
+                            } else {
+                                self.status_msg = "Layer & material palette saved as startup default!".to_string();
                             }
-                        });
+                        }
+                        if ui.button(tr("Library")).on_hover_text("Open Material Library presets to apply to this layer or save new presets").clicked() {
+                            self.show_material_library = true;
+                        }
                     });
                     egui::ScrollArea::vertical().max_height(140.0).id_salt("layers_list_scroll").show(ui, |ui| {
                         for (idx, layer) in &mut self.doc.layers {
