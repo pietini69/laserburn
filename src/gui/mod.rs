@@ -426,6 +426,11 @@ impl LaserBurnApp {
         }
     }
 
+    /// Translates a given static string key into the active language
+    pub fn tr(&self, key: &'static str) -> &'static str {
+        crate::i18n::t(key, self.device.settings.language)
+    }
+
     /// Saves current document shapes onto the Undo stack (max 50 steps) and clears Redo
     pub fn push_undo(&mut self) {
         if self.undo_stack.len() >= 50 {
@@ -3776,144 +3781,146 @@ impl eframe::App for LaserBurnApp {
         // -------------------------------------------------------------
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             let cmd = Self::cmd_key();
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("New Project").clicked() {
+                ui.menu_button(tr("File"), |ui| {
+                    if ui.button(tr("New Project")).clicked() {
                         self.push_undo();
                         self.doc = Document::new("Untitled", self.device.settings.bed_width, self.device.settings.bed_height);
                         self.selected_shape_indices.clear();
                         self.selected_layer = 0;
                         ui.close_menu();
                     }
-                    if ui.button(format!("Open File / Project... ({}+O)", cmd)).clicked() {
+                    if ui.button(format!("{} ({}+O)", self.tr("Open File / Project..."), cmd)).clicked() {
                         self.prompt_open_project(ctx);
                         ui.close_menu();
                     }
-                    if ui.button(format!("Import / Merge File (DXF, PDF, SVG, Image)... ({}+I)", cmd)).clicked() {
+                    if ui.button(format!("{} ({}+I)", self.tr("Import / Merge File (DXF, PDF, SVG, Image)..."), cmd)).clicked() {
                         self.prompt_import_image(ctx);
                         ui.close_menu();
                     }
-                    if ui.button(format!("Save Project (.lbrn2)... ({}+S)", cmd)).clicked() {
+                    if ui.button(format!("{} ({}+S)", self.tr("Save Project (.lbrn2)..."), cmd)).clicked() {
                         self.prompt_save_project(ctx);
                         ui.close_menu();
                     }
                     ui.separator();
-                    ui.menu_button("Sample Files", |ui| {
-                        if ui.button("AutoCAD DXF (Mechanical Bracket)").clicked() {
+                    ui.menu_button(self.tr("Sample Files"), |ui| {
+                        if ui.button(self.tr("AutoCAD DXF (Mechanical Bracket)")).clicked() {
                             self.load_sample_dxf();
                             ui.close_menu();
                         }
-                        if ui.button("Vector PDF (Laser Test Card)").clicked() {
+                        if ui.button(self.tr("Vector PDF (Laser Test Card)")).clicked() {
                             self.load_sample_pdf();
                             ui.close_menu();
                         }
                     });
                     ui.separator();
-                    if ui.button("Export G-Code (GRBL)...").clicked() {
+                    if ui.button(self.tr("Export G-Code (GRBL)...")).clicked() {
                         self.prompt_export_gcode(ctx);
                         ui.close_menu();
                     }
-                    if ui.button("Export Ruida (.rd)...").clicked() {
+                    if ui.button(self.tr("Export Ruida (.rd)...")).clicked() {
                         self.prompt_export_ruida(ctx);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Export Settings Profile...").clicked() {
+                    if ui.button(self.tr("Export Settings Profile...")).clicked() {
                         self.prompt_export_settings(ctx);
                         ui.close_menu();
                     }
-                    if ui.button("Import Settings Profile...").clicked() {
+                    if ui.button(self.tr("Import Settings Profile...")).clicked() {
                         self.prompt_import_settings(ctx);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Connection Settings...").clicked() {
+                    if ui.button(self.tr("Connection Settings...")).clicked() {
                         self.show_connection_window = true;
                         ui.close_menu();
                     }
-                    if ui.button(format!("Settings... ({}+,)", cmd)).clicked() {
+                    if ui.button(format!("{} ({}+,)", self.tr("Settings..."), cmd)).clicked() {
                         self.show_settings_window = true;
                         ui.close_menu();
                     }
                 });
 
-                ui.menu_button("Edit", |ui| {
+                ui.menu_button(self.tr("Edit"), |ui| {
                     let has_selection = !self.selected_shape_indices.is_empty();
                     let has_clipboard = !self.clipboard_shapes.is_empty();
                     let can_undo = !self.undo_stack.is_empty();
                     let can_redo = !self.redo_stack.is_empty();
 
-                    if ui.add_enabled(can_undo, egui::Button::new(format!("Undo ({}+Z)", cmd))).clicked() {
+                    if ui.add_enabled(can_undo, egui::Button::new(format!("{} ({}+Z)", self.tr("Undo"), cmd))).clicked() {
                         self.undo();
                         ui.close_menu();
                     }
-                    if ui.add_enabled(can_redo, egui::Button::new(format!("Redo ({}+Shift+Z)", cmd))).clicked() {
+                    if ui.add_enabled(can_redo, egui::Button::new(format!("{} ({}+Shift+Z)", self.tr("Redo"), cmd))).clicked() {
                         self.redo();
                         ui.close_menu();
                     }
                     ui.separator();
 
-                    if ui.add_enabled(has_selection, egui::Button::new(format!("Cut ({}+X)", cmd))).clicked() {
+                    if ui.add_enabled(has_selection, egui::Button::new(format!("{} ({}+X)", self.tr("Cut"), cmd))).clicked() {
                         self.cut_selected();
                         ui.close_menu();
                     }
-                    if ui.add_enabled(has_selection, egui::Button::new(format!("Copy ({}+C)", cmd))).clicked() {
+                    if ui.add_enabled(has_selection, egui::Button::new(format!("{} ({}+C)", self.tr("Copy"), cmd))).clicked() {
                         self.copy_selected();
                         ui.close_menu();
                     }
-                    if ui.add_enabled(has_clipboard, egui::Button::new(format!("Paste ({}+V)", cmd))).clicked() {
+                    if ui.add_enabled(has_clipboard, egui::Button::new(format!("{} ({}+V)", self.tr("Paste"), cmd))).clicked() {
                         self.paste();
                         ui.close_menu();
                     }
-                    if ui.add_enabled(has_selection, egui::Button::new(format!("Duplicate ({}+D)", cmd))).clicked() {
+                    if ui.add_enabled(has_selection, egui::Button::new(format!("{} ({}+D)", self.tr("Duplicate"), cmd))).clicked() {
                         self.duplicate_selected();
                         ui.close_menu();
                     }
-                    if ui.add_enabled(has_selection, egui::Button::new("Delete (Del)")).clicked() {
+                    if ui.add_enabled(has_selection, egui::Button::new(format!("{} (Del)", self.tr("Delete")))).clicked() {
                         self.delete_selected();
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.add_enabled(has_selection, egui::Button::new("Offset Shapes (Contour)..."))
+                    if ui.add_enabled(has_selection, egui::Button::new(self.tr("Offset Shapes (Contour)...")))
                         .on_hover_text("Create outward or inward offset contours around selected shapes")
                         .clicked()
                     {
                         self.show_offset_window = true;
                         ui.close_menu();
                     }
-                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new(format!("Group ({}+G)", cmd))).clicked() {
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new(format!("{} ({}+G)", self.tr("Group"), cmd))).clicked() {
                         self.group_selected();
                         ui.close_menu();
                     }
-                    if ui.add_enabled(has_selection, egui::Button::new(format!("Ungroup ({}+U)", cmd))).clicked() {
+                    if ui.add_enabled(has_selection, egui::Button::new(format!("{} ({}+U)", self.tr("Ungroup"), cmd))).clicked() {
                         self.ungroup_selected();
                         ui.close_menu();
                     }
-                    if ui.add_enabled(has_selection, egui::Button::new(format!("Toggle Lock ({}+L)", cmd))).clicked() {
+                    if ui.add_enabled(has_selection, egui::Button::new(format!("{} ({}+L)", self.tr("Toggle Lock"), cmd))).clicked() {
                         self.toggle_lock_selected();
                         ui.close_menu();
                     }
-                    if ui.add_enabled(has_selection, egui::Button::new("Boolean Union / Weld")).clicked() {
+                    if ui.add_enabled(has_selection, egui::Button::new(self.tr("Boolean Union / Weld"))).clicked() {
                         self.boolean_selected(crate::geometry::BooleanOp::Union);
                         ui.close_menu();
                     }
-                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new("Boolean Subtract (A - B)")).clicked() {
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new(self.tr("Boolean Subtract (A - B)"))).clicked() {
                         self.boolean_selected(crate::geometry::BooleanOp::Subtract);
                         ui.close_menu();
                     }
-                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new("Boolean Intersect")).clicked() {
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new(self.tr("Boolean Intersect"))).clicked() {
                         self.boolean_selected(crate::geometry::BooleanOp::Intersect);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.add_enabled(has_selection, egui::Button::new("Grid Array (Matrix)..."))
+                    if ui.add_enabled(has_selection, egui::Button::new(self.tr("Grid Array (Matrix)...")))
                         .on_hover_text("Duplicate selected shape(s) in a rectangular grid of rows and columns")
                         .clicked()
                     {
                         self.show_grid_array_window = true;
                         ui.close_menu();
                     }
-                    if ui.add_enabled(has_selection, egui::Button::new("Radial Array (Circular)..."))
+                    if ui.add_enabled(has_selection, egui::Button::new(self.tr("Radial Array (Circular)...")))
                         .on_hover_text("Duplicate selected shape(s) in a circular pattern around a center point")
                         .clicked()
                     {
@@ -3921,23 +3928,23 @@ impl eframe::App for LaserBurnApp {
                         ui.close_menu();
                     }
                     let is_image_sel = self.selected_shape_indices.iter().any(|&i| i < self.doc.shapes.len() && matches!(self.doc.shapes[i], Shape::Image { .. }));
-                    if ui.add_enabled(is_image_sel, egui::Button::new("Trace Image (Bitmap to Vector)..."))
+                    if ui.add_enabled(is_image_sel, egui::Button::new(self.tr("Trace Image (Bitmap to Vector)...")))
                         .on_hover_text("Vectorize raster image into closed cutting / engraving paths")
                         .clicked()
                     {
                         self.open_trace_dialog();
                         ui.close_menu();
                     }
-                    if ui.button(format!("Add Text... ({}+T)", cmd)).clicked() {
+                    if ui.button(format!("{} ({}+T)", self.tr("Add Text..."), cmd)).clicked() {
                         self.show_text_dialog = true;
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button(format!("Select All ({}+A)", cmd)).clicked() {
+                    if ui.button(format!("{} ({}+A)", self.tr("Select All"), cmd)).clicked() {
                         self.selected_shape_indices = (0..self.doc.shapes.len()).collect();
                         ui.close_menu();
                     }
-                    if ui.button("Clear Canvas").clicked() {
+                    if ui.button(self.tr("Clear Canvas")).clicked() {
                         self.push_undo();
                         self.doc.shapes.clear();
                         self.selected_shape_indices.clear();
@@ -3945,96 +3952,96 @@ impl eframe::App for LaserBurnApp {
                     }
                 });
 
-                ui.menu_button("Laser", |ui| {
-                    if ui.button("Material Library (Presets)...").clicked() {
+                ui.menu_button(self.tr("Laser"), |ui| {
+                    if ui.button(self.tr("Material Library (Presets)...")).clicked() {
                         self.show_material_library = true;
                         ui.close_menu();
                     }
-                    if ui.button("Material Test Generator (Power vs. Speed)...").clicked() {
+                    if ui.button(self.tr("Material Test Generator (Power vs. Speed)...")).clicked() {
                         self.show_material_test_window = true;
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button(format!("Laser Control & Jogging ({}+M)", cmd)).clicked() {
+                    if ui.button(format!("{} ({}+M)", self.tr("Laser Control & Jogging"), cmd)).clicked() {
                         self.show_move_window = true;
                         ui.close_menu();
                     }
                     let is_on = self.device.is_weak_light_on;
-                    let weak_label = if is_on { "Turn Off Weak Beam" } else { "Turn On Weak Beam" };
+                    let weak_label = if is_on { self.tr("Turn Off Weak Beam") } else { self.tr("Turn On Weak Beam") };
                     if ui.button(weak_label).clicked() {
                         self.device.toggle_weak_light();
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Test Box Frame").clicked() {
+                    if ui.button(self.tr("Test Box Frame")).clicked() {
                         self.start_box_frame();
                         ui.close_menu();
                     }
-                    if ui.button("Test Cut Contour (Shapes)").clicked() {
+                    if ui.button(self.tr("Test Cut Contour (Shapes)")).clicked() {
                         self.start_contour_frame();
                         ui.close_menu();
                     }
                     ui.separator();
                     if self.device.settings.enable_limit_switches {
-                        if ui.button("Reset Origin to Limit Switches").clicked() {
+                        if ui.button(self.tr("Reset Origin to Limit Switches")).clicked() {
                             self.device.start_mechanical_home_reset();
                             ui.close_menu();
                         }
-                        if ui.button("Home Machine ($H)").clicked() {
+                        if ui.button(self.tr("Home Machine ($H)")).clicked() {
                             self.device.home();
                             ui.close_menu();
                         }
                     }
-                    if ui.button("Set Origin Here (G92)").clicked() {
+                    if ui.button(self.tr("Set Origin Here (G92)")).clicked() {
                         self.device.set_origin_here();
                         ui.close_menu();
                     }
                     ui.separator();
-                    let traffic_lbl = if self.show_traffic_panel { "Hide Data Traffic Log Panel" } else { "Show Data Traffic Log Panel" };
+                    let traffic_lbl = if self.show_traffic_panel { self.tr("Hide Data Traffic Log Panel") } else { self.tr("Show Data Traffic Log Panel") };
                     if ui.button(traffic_lbl).clicked() {
                         self.show_traffic_panel = !self.show_traffic_panel;
                         ui.close_menu();
                     }
                 });
 
-                ui.menu_button("Camera", |ui| {
-                    if ui.button(format!("Camera Feed... ({}+K)", cmd)).clicked() {
+                ui.menu_button(self.tr("Camera"), |ui| {
+                    if ui.button(format!("{} ({}+K)", self.tr("Camera Feed..."), cmd)).clicked() {
                         self.show_camera_window = true;
                         ui.close_menu();
                     }
-                    if ui.button("Scan Devices").clicked() {
+                    if ui.button(self.tr("Scan Devices")).clicked() {
                         self.camera_manager.refresh_devices();
                         ui.close_menu();
                     }
                     ui.separator();
                     if !self.camera_manager.is_streaming {
-                        if ui.button("Start Stream").clicked() {
+                        if ui.button(self.tr("Start Stream")).clicked() {
                             self.camera_manager.start_stream();
                             ui.close_menu();
                         }
                     } else {
-                        if ui.button("Stop Stream").clicked() {
+                        if ui.button(self.tr("Stop Stream")).clicked() {
                             self.camera_manager.stop_stream();
                             ui.close_menu();
                         }
                     }
-                    if ui.button("Update Bed Overlay (Cmd+U)").clicked() {
+                    if ui.button(self.tr("Update Bed Overlay (Cmd+U)")).clicked() {
                         self.trigger_update_overlay();
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Auto-Center Selection on Camera Tile").clicked() {
+                    if ui.button(self.tr("Auto-Center Selection on Camera Tile")).clicked() {
                         self.auto_fit_to_camera_tile(false, 2.0);
                         ui.close_menu();
                     }
-                    if ui.button("Auto-Fit & Scale Selection to Camera Tile (2mm Margin)").clicked() {
+                    if ui.button(self.tr("Auto-Fit & Scale Selection to Camera Tile (2mm Margin)")).clicked() {
                         self.auto_fit_to_camera_tile(true, 2.0);
                         ui.close_menu();
                     }
                 });
 
                 ui.separator();
-                let theme_btn_text = if self.device.settings.dark_mode { "Theme: Dark" } else { "Theme: Light" };
+                let theme_btn_text = if self.device.settings.dark_mode { self.tr("Theme: Dark") } else { self.tr("Theme: Light") };
                 if ui.button(egui::RichText::new(theme_btn_text).strong())
                     .on_hover_text("Toggle between Dark Mode and Light Mode")
                     .clicked()
@@ -4042,6 +4049,24 @@ impl eframe::App for LaserBurnApp {
                     self.device.settings.dark_mode = !self.device.settings.dark_mode;
                     let _ = self.device.settings.save();
                 }
+
+                ui.separator();
+                let lang_label = match self.device.settings.language {
+                    crate::i18n::Language::Finnish => "🌐 Suomi",
+                    crate::i18n::Language::English => "🌐 English",
+                };
+                ui.menu_button(egui::RichText::new(lang_label).strong(), |ui| {
+                    if ui.selectable_label(self.device.settings.language == crate::i18n::Language::Finnish, "Suomi (FI)").clicked() {
+                        self.device.settings.language = crate::i18n::Language::Finnish;
+                        let _ = self.device.settings.save();
+                        ui.close_menu();
+                    }
+                    if ui.selectable_label(self.device.settings.language == crate::i18n::Language::English, "English (EN)").clicked() {
+                        self.device.settings.language = crate::i18n::Language::English;
+                        let _ = self.device.settings.save();
+                        ui.close_menu();
+                    }
+                });
                 ui.separator();
                 ui.label(egui::RichText::new(concat!("LaserBurn v", env!("CARGO_PKG_VERSION"))).strong().color(egui::Color32::from_rgb(255, 140, 0)));
                 ui.label(egui::RichText::new(format!("(Arrows: Jog Laser | {}+Arrows: Nudge Selection)", cmd)).italics().color(egui::Color32::GRAY));
@@ -4051,17 +4076,17 @@ impl eframe::App for LaserBurnApp {
 
             // Main Action Toolbar (Wraps cleanly if screen is smaller)
             ui.horizontal_wrapped(|ui| {
-                ui.selectable_value(&mut self.active_tool, ActiveTool::Select, "Select / Move");
-                let node_btn = ui.selectable_value(&mut self.active_tool, ActiveTool::NodeEdit, "Edit Nodes (N)");
+                ui.selectable_value(&mut self.active_tool, ActiveTool::Select, tr("Select / Move"));
+                let node_btn = ui.selectable_value(&mut self.active_tool, ActiveTool::NodeEdit, tr("Edit Nodes (N)"));
                 if node_btn.clicked() {
                     self.convert_selected_to_path();
                 }
-                ui.selectable_value(&mut self.active_tool, ActiveTool::DrawRect, "Rect");
-                ui.selectable_value(&mut self.active_tool, ActiveTool::DrawCircle, "Circle / Oval");
-                ui.selectable_value(&mut self.active_tool, ActiveTool::DrawLine, "Line");
-                ui.selectable_value(&mut self.active_tool, ActiveTool::DrawText, "Text");
+                ui.selectable_value(&mut self.active_tool, ActiveTool::DrawRect, tr("Rect"));
+                ui.selectable_value(&mut self.active_tool, ActiveTool::DrawCircle, tr("Circle / Oval"));
+                ui.selectable_value(&mut self.active_tool, ActiveTool::DrawLine, tr("Line"));
+                ui.selectable_value(&mut self.active_tool, ActiveTool::DrawText, tr("Text"));
 
-                if ui.button("Import File").on_hover_text(format!("Import DXF, PDF, SVG vector or PNG, JPG image ({}+I)", cmd)).clicked() {
+                if ui.button(tr("Import File")).on_hover_text(format!("Import DXF, PDF, SVG vector or PNG, JPG image ({}+I)", cmd)).clicked() {
                     self.prompt_import_image(ctx);
                 }
 
@@ -4074,62 +4099,62 @@ impl eframe::App for LaserBurnApp {
                 let can_undo = !self.undo_stack.is_empty();
                 let can_redo = !self.redo_stack.is_empty();
 
-                if ui.add_enabled(can_undo, egui::Button::new("↩ Undo")).on_hover_text(format!("Undo last edit ({}+Z)", cmd)).clicked() {
+                if ui.add_enabled(can_undo, egui::Button::new(tr("↩ Undo"))).on_hover_text(format!("Undo last edit ({}+Z)", cmd)).clicked() {
                     self.undo();
                 }
-                if ui.add_enabled(can_redo, egui::Button::new("↪ Redo")).on_hover_text(format!("Redo edit ({}+Shift+Z)", cmd)).clicked() {
+                if ui.add_enabled(can_redo, egui::Button::new(tr("↪ Redo"))).on_hover_text(format!("Redo edit ({}+Shift+Z)", cmd)).clicked() {
                     self.redo();
                 }
 
-                if ui.add_enabled(has_selection, egui::Button::new("Copy")).on_hover_text(format!("Copy selected shapes to clipboard ({}+C)", cmd)).clicked() {
+                if ui.add_enabled(has_selection, egui::Button::new(tr("Copy"))).on_hover_text(format!("Copy selected shapes to clipboard ({}+C)", cmd)).clicked() {
                     self.copy_selected();
                 }
-                if ui.add_enabled(has_clipboard, egui::Button::new("Paste")).on_hover_text(format!("Paste shapes from clipboard ({}+V)", cmd)).clicked() {
+                if ui.add_enabled(has_clipboard, egui::Button::new(tr("Paste"))).on_hover_text(format!("Paste shapes from clipboard ({}+V)", cmd)).clicked() {
                     self.paste();
                 }
-                if ui.add_enabled(has_selection, egui::Button::new("Duplicate")).on_hover_text(format!("Duplicate selected shapes ({}+D)", cmd)).clicked() {
+                if ui.add_enabled(has_selection, egui::Button::new(tr("Duplicate"))).on_hover_text(format!("Duplicate selected shapes ({}+D)", cmd)).clicked() {
                     self.duplicate_selected();
                 }
-                if ui.add_enabled(has_selection, egui::Button::new("Delete")).on_hover_text("Delete selected shapes (Backspace/Delete)").clicked() {
+                if ui.add_enabled(has_selection, egui::Button::new(tr("Delete"))).on_hover_text("Delete selected shapes (Backspace/Delete)").clicked() {
                     self.delete_selected();
                 }
 
                 ui.separator();
 
                 // Offset, Group, Ungroup, Lock, Weld Buttons
-                if ui.add_enabled(has_selection, egui::Button::new("Offset")).on_hover_text("Create outward/inward contour offset around selected shapes").clicked() {
+                if ui.add_enabled(has_selection, egui::Button::new(tr("Offset"))).on_hover_text("Create outward/inward contour offset around selected shapes").clicked() {
                     self.show_offset_window = true;
                 }
-                if ui.add_enabled(multi_selected, egui::Button::new("Group")).on_hover_text(format!("Group selected shapes into a single item ({}+G)", cmd)).clicked() {
+                if ui.add_enabled(multi_selected, egui::Button::new(tr("Group"))).on_hover_text(format!("Group selected shapes into a single item ({}+G)", cmd)).clicked() {
                     self.group_selected();
                 }
-                if ui.add_enabled(has_selection, egui::Button::new("Ungroup")).on_hover_text(format!("Ungroup selected shapes into separate items ({}+U)", cmd)).clicked() {
+                if ui.add_enabled(has_selection, egui::Button::new(tr("Ungroup"))).on_hover_text(format!("Ungroup selected shapes into separate items ({}+U)", cmd)).clicked() {
                     self.ungroup_selected();
                 }
-                if ui.add_enabled(has_selection, egui::Button::new("Weld")).on_hover_text("Boolean Union / Weld overlapping shapes into a single outline").clicked() {
+                if ui.add_enabled(has_selection, egui::Button::new(tr("Weld"))).on_hover_text("Boolean Union / Weld overlapping shapes into a single outline").clicked() {
                     self.boolean_selected(crate::geometry::BooleanOp::Union);
                 }
-                if ui.add_enabled(multi_selected, egui::Button::new("Subtract")).on_hover_text("Boolean Subtract (A - B): subtract 2nd selected shape from 1st selected shape").clicked() {
+                if ui.add_enabled(multi_selected, egui::Button::new(tr("Subtract"))).on_hover_text("Boolean Subtract (A - B): subtract 2nd selected shape from 1st selected shape").clicked() {
                     self.boolean_selected(crate::geometry::BooleanOp::Subtract);
                 }
-                if ui.add_enabled(multi_selected, egui::Button::new("Intersect")).on_hover_text("Boolean Intersect: keep only the overlapping region of selected shapes").clicked() {
+                if ui.add_enabled(multi_selected, egui::Button::new(tr("Intersect"))).on_hover_text("Boolean Intersect: keep only the overlapping region of selected shapes").clicked() {
                     self.boolean_selected(crate::geometry::BooleanOp::Intersect);
                 }
-                if ui.add_enabled(has_selection, egui::Button::new("Grid Array")).on_hover_text("Duplicate selected shape(s) into a matrix of rows and columns").clicked() {
+                if ui.add_enabled(has_selection, egui::Button::new(tr("Grid Array"))).on_hover_text("Duplicate selected shape(s) into a matrix of rows and columns").clicked() {
                     self.show_grid_array_window = true;
                 }
-                if ui.add_enabled(has_selection, egui::Button::new("Radial Array")).on_hover_text("Duplicate selected shape(s) in a circular pattern around a center point").clicked() {
+                if ui.add_enabled(has_selection, egui::Button::new(tr("Radial Array"))).on_hover_text("Duplicate selected shape(s) in a circular pattern around a center point").clicked() {
                     self.show_radial_array_window = true;
                 }
                 let is_image_sel = self.selected_shape_indices.iter().any(|&i| i < self.doc.shapes.len() && matches!(self.doc.shapes[i], Shape::Image { .. }));
-                if ui.add_enabled(is_image_sel, egui::Button::new("Trace Image")).on_hover_text("Vectorize selected raster image into cutting / engraving paths").clicked() {
+                if ui.add_enabled(is_image_sel, egui::Button::new(tr("Trace Image"))).on_hover_text("Vectorize selected raster image into cutting / engraving paths").clicked() {
                     self.open_trace_dialog();
                 }
 
                 // Lock toggle button
                 if has_selection {
                     let is_locked = self.selected_shape_indices.iter().any(|&i| i < self.doc.shapes.len() && self.doc.shapes[i].is_locked());
-                    let lock_btn_text = if is_locked { format!("Unlock ({}+L)", cmd) } else { format!("Lock ({}+L)", cmd) };
+                    let lock_btn_text = if is_locked { format!("{} ({}+L)", tr("Unlock"), cmd) } else { format!("{} ({}+L)", tr("Lock"), cmd) };
                     if ui.button(lock_btn_text).on_hover_text("Lock or unlock selected shapes in place").clicked() {
                         self.toggle_lock_selected();
                     }
@@ -4137,7 +4162,7 @@ impl eframe::App for LaserBurnApp {
 
                 ui.separator();
 
-                if ui.button("Material Library").on_hover_text("Open Material Library presets (Cut, Engrave, Score for Wood, Tiles, Acrylic, etc.)").clicked() {
+                if ui.button(tr("Material Library")).on_hover_text("Open Material Library presets (Cut, Engrave, Score for Wood, Tiles, Acrylic, etc.)").clicked() {
                     self.show_material_library = true;
                 }
 
@@ -4455,13 +4480,15 @@ impl eframe::App for LaserBurnApp {
             .max_width(450.0)
             .default_width(380.0)
             .show(ctx, |ui| {
+                let lang = self.device.settings.language;
+                let tr = |k| crate::i18n::t(k, lang);
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                     // -------------------------------------------------
                     // 1. TRANSFORM & SIZE INSPECTOR
                     // -------------------------------------------------
-                    ui.heading("Transform & Size");
+                    ui.heading(tr("Transform & Size"));
                     ui.separator();
 
                     if let Some(bounds) = self.selection_bounds() {
@@ -4480,14 +4507,14 @@ impl eframe::App for LaserBurnApp {
                                 format!("{} Shapes Selected", count)
                             };
                             ui.label(egui::RichText::new(label).strong().color(egui::Color32::from_rgb(255, 140, 0)));
-                            if ui.button("Deselect").clicked() {
+                            if ui.button(tr("Deselect")).clicked() {
                                 self.selected_shape_indices.clear();
                             }
                         });
 
                         // Position controls (allows shapes anywhere, even beyond the bed)
                         ui.horizontal(|ui| {
-                            ui.label("X (mm):");
+                            ui.label(tr("X (mm):"));
                             if ui.add(egui::DragValue::new(&mut cur_x).speed(1.0).range(-2000.0..=5000.0)).changed() {
                                 let dx = cur_x - bounds.min_x;
                                 for &idx in &self.selected_shape_indices {
@@ -4497,7 +4524,7 @@ impl eframe::App for LaserBurnApp {
                                 }
                                 self.doc_version = self.doc_version.wrapping_add(1);
                             }
-                            ui.label("Y (mm):");
+                            ui.label(tr("Y (mm):"));
                             if ui.add(egui::DragValue::new(&mut cur_y).speed(1.0).range(-2000.0..=5000.0)).changed() {
                                 let dy = cur_y - bounds.min_y;
                                 for &idx in &self.selected_shape_indices {
@@ -4511,7 +4538,7 @@ impl eframe::App for LaserBurnApp {
 
                         // Size controls
                         ui.horizontal(|ui| {
-                            ui.label("Width (mm):");
+                            ui.label(tr("Width (mm):"));
                             if ui.add(egui::DragValue::new(&mut cur_w).speed(0.5).range(0.1..=5000.0)).changed() {
                                 let new_h = if self.lock_aspect_ratio && bounds.width() > 1e-4 {
                                     cur_w * (bounds.height() / bounds.width())
@@ -4528,7 +4555,7 @@ impl eframe::App for LaserBurnApp {
                                 self.doc_version = self.doc_version.wrapping_add(1);
                             }
 
-                            ui.label("Height (mm):");
+                            ui.label(tr("Height (mm):"));
                             if ui.add(egui::DragValue::new(&mut cur_h).speed(0.5).range(0.1..=5000.0)).changed() {
                                 let new_w = if self.lock_aspect_ratio && bounds.height() > 1e-4 {
                                     cur_h * (bounds.width() / bounds.height())
@@ -4546,11 +4573,11 @@ impl eframe::App for LaserBurnApp {
                             }
                         });
 
-                        ui.checkbox(&mut self.lock_aspect_ratio, "Lock Aspect Ratio");
+                        ui.checkbox(&mut self.lock_aspect_ratio, tr("Lock Aspect Ratio"));
 
                         // Nudge Buttons (also mention keyboard arrow keys!)
                         ui.horizontal(|ui| {
-                            ui.label("Nudge (5mm):");
+                            ui.label(tr("Nudge (5mm):"));
                             if ui.button("X-").clicked() {
                                 for &idx in &self.selected_shape_indices {
                                     if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
@@ -4796,7 +4823,7 @@ impl eframe::App for LaserBurnApp {
                     // -------------------------------------------------
                     // 2. OBJECTS / SHAPES LIST (100% Reliable selection!)
                     // -------------------------------------------------
-                    ui.heading("Objects List");
+                    ui.heading(tr("Objects List"));
                     egui::ScrollArea::vertical().max_height(80.0).show(ui, |ui| {
                         for (idx, shape) in self.doc.shapes.iter().enumerate() {
                             let is_sel = self.selected_shape_indices.contains(&idx);
@@ -4843,22 +4870,22 @@ impl eframe::App for LaserBurnApp {
                     let mut layer_to_remove: Option<usize> = None;
                     let can_remove_layer = self.doc.layers.len() > 1;
                     ui.horizontal_wrapped(|ui| {
-                        ui.heading("Cut & Layer Settings");
+                        ui.heading(tr("Cut & Layer Settings"));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Library").on_hover_text("Open Material Library presets to apply to this layer or save new presets").clicked() {
+                            if ui.button(tr("Library")).on_hover_text("Open Material Library presets to apply to this layer or save new presets").clicked() {
                                 self.show_material_library = true;
                             }
-                            if ui.button("Save Palette").on_hover_text("Save current layers & materials as startup default (~/.config/laser_burn/default_layers.json)").clicked() {
+                            if ui.button(tr("Save Palette")).on_hover_text("Save current layers & materials as startup default (~/.config/laser_burn/default_layers.json)").clicked() {
                                 if let Err(e) = Document::save_default_layers(&self.doc.layers) {
                                     self.status_msg = format!("Error saving default layers: {}", e);
                                 } else {
                                     self.status_msg = "Layer & material palette saved as startup default!".to_string();
                                 }
                             }
-                            if ui.add_enabled(can_remove_layer, egui::Button::new("- Remove")).on_hover_text("Remove currently selected layer").clicked() {
+                            if ui.add_enabled(can_remove_layer, egui::Button::new(tr("- Remove"))).on_hover_text("Remove currently selected layer").clicked() {
                                 layer_to_remove = Some(self.selected_layer);
                             }
-                            if ui.button("+ Tool").on_hover_text("Add a guide/tool layer (T01, T02...)").clicked() {
+                            if ui.button(tr("+ Tool")).on_hover_text("Add a guide/tool layer (T01, T02...)").clicked() {
                                 for idx in 30..33 {
                                     if !self.doc.layers.contains_key(&idx) {
                                         self.doc.get_or_create_layer(idx);
@@ -4867,7 +4894,7 @@ impl eframe::App for LaserBurnApp {
                                     }
                                 }
                             }
-                            if ui.button("+ Layer").on_hover_text("Add a new color/cut layer").clicked() {
+                            if ui.button(tr("+ Layer")).on_hover_text("Add a new color/cut layer").clicked() {
                                 for idx in 0..30 {
                                     if !self.doc.layers.contains_key(&idx) {
                                         self.doc.get_or_create_layer(idx);
@@ -5260,26 +5287,26 @@ impl eframe::App for LaserBurnApp {
                     // 4. LASER JOGGING & CONTROL
                     // -------------------------------------------------
                     ui.horizontal(|ui| {
-                        ui.heading("Laser Jogging");
-                        if ui.button("Open Jog Window").on_hover_text("Open full laser control & jog window (Cmd+M)").clicked() {
+                        ui.heading(tr("Laser Jogging"));
+                        if ui.button(tr("Open Jog Window")).on_hover_text("Open full laser control & jog window (Cmd+M)").clicked() {
                             self.show_move_window = true;
                         }
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Step:");
+                        ui.label(tr("Step:"));
                         ui.selectable_value(&mut self.jog_step, 1.0, "1mm");
                         ui.selectable_value(&mut self.jog_step, 10.0, "10mm");
                         ui.selectable_value(&mut self.jog_step, 50.0, "50mm");
                     });
 
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.keyboard_jog_laser, "Keyboard Arrow Jogging");
+                        ui.checkbox(&mut self.keyboard_jog_laser, tr("Keyboard Arrow Jogging"));
                     });
 
                     if self.device.is_physically_connected() || self.device.settings.enable_limit_switches {
                         ui.horizontal(|ui| {
-                            ui.label("Switches:");
+                            ui.label(tr("Switches:"));
                             let x_active = self.device.pin_limit_x;
                             let y_active = self.device.pin_limit_y;
 
@@ -5591,19 +5618,19 @@ impl eframe::App for LaserBurnApp {
 
                     ui.add_space(6.0);
                     ui.separator();
-                    ui.heading("Job Execution (G-Code)");
+                    ui.heading(tr("Job Execution (G-Code)"));
 
                     if !self.device.is_job_running {
                         let est = self.get_job_estimate();
                         ui.label(
-                            egui::RichText::new(format!("Estimated Time: ~{}", est.formatted_time))
+                            egui::RichText::new(format!("{} ~{}", tr("Estimated Time:"), est.formatted_time))
                                 .strong()
                                 .color(self.color_blue()),
                         );
                         ui.add_space(2.0);
 
                         let start_btn = egui::Button::new(
-                            egui::RichText::new(" START JOB (CUT) ").strong().color(egui::Color32::WHITE),
+                            egui::RichText::new(tr(" START JOB (CUT) ")).strong().color(egui::Color32::WHITE),
                         ).fill(egui::Color32::from_rgb(34, 139, 34));
                         if ui.add_sized([ui.available_width(), 32.0], start_btn).on_hover_text("Optimize and run cut job with laser").clicked() {
                             self.start_job();
@@ -5612,14 +5639,14 @@ impl eframe::App for LaserBurnApp {
                         ui.horizontal(|ui| {
                             if self.device.is_job_paused {
                                 let resume_btn = egui::Button::new(
-                                    egui::RichText::new(" RESUME ").strong().color(egui::Color32::WHITE),
+                                    egui::RichText::new(tr(" RESUME ")).strong().color(egui::Color32::WHITE),
                                 ).fill(egui::Color32::from_rgb(0, 140, 255));
                                 if ui.add_sized([ui.available_width() * 0.5 - 4.0, 30.0], resume_btn).clicked() {
                                     self.device.resume_job();
                                 }
                             } else {
                                 let pause_btn = egui::Button::new(
-                                    egui::RichText::new(" PAUSE ").strong().color(egui::Color32::BLACK),
+                                    egui::RichText::new(tr(" PAUSE ")).strong().color(egui::Color32::BLACK),
                                 ).fill(egui::Color32::from_rgb(255, 193, 7));
                                 if ui.add_sized([ui.available_width() * 0.5 - 4.0, 30.0], pause_btn).clicked() {
                                     self.device.pause_job();
@@ -5627,7 +5654,7 @@ impl eframe::App for LaserBurnApp {
                             }
 
                             let stop_btn = egui::Button::new(
-                                egui::RichText::new(" STOP ").strong().color(egui::Color32::WHITE),
+                                egui::RichText::new(tr(" STOP ")).strong().color(egui::Color32::WHITE),
                             ).fill(egui::Color32::RED);
                             if ui.add_sized([ui.available_width(), 30.0], stop_btn).clicked() {
                                 self.device.stop_job();
@@ -5652,13 +5679,13 @@ impl eframe::App for LaserBurnApp {
 
                             let c_blue = self.color_blue();
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(format!("Elapsed: {}", elapsed_str)).size(11.5));
+                                ui.label(egui::RichText::new(format!("{} {}", tr("Elapsed:"), elapsed_str)).size(11.5));
                                 ui.label("|");
-                                ui.label(egui::RichText::new(format!("Remaining: ~{}", rem_str)).strong().color(c_blue).size(11.5));
+                                ui.label(egui::RichText::new(format!("{} ~{}", tr("Remaining:"), rem_str)).strong().color(c_blue).size(11.5));
                             });
                         }
                         if self.device.is_job_paused {
-                            ui.label(egui::RichText::new("JOB PAUSED").strong().color(self.color_orange()));
+                            ui.label(egui::RichText::new(tr("JOB PAUSED")).strong().color(self.color_orange()));
                         }
                     }
 
@@ -8324,18 +8351,38 @@ impl eframe::App for LaserBurnApp {
             let mut close_settings = false;
             let mut do_export_settings = false;
             let mut do_import_settings = false;
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
 
-            egui::Window::new("Device & Bed Settings")
+            egui::Window::new(tr("Device & Bed Settings"))
                 .collapsible(false)
                 .resizable(false)
                 .default_width(420.0)
                 .open(&mut self.show_settings_window)
                 .show(ctx, |ui| {
-                    ui.heading("LaserBurn Settings");
+                    ui.heading(tr("LaserBurn Settings"));
                     ui.add_space(4.0);
 
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Machine Profile:").strong());
+                        ui.label(egui::RichText::new(tr("Language:")).strong());
+                        egui::ComboBox::from_id_salt("settings_language_combo")
+                            .selected_text(self.device.settings.language.label())
+                            .show_ui(ui, |ui| {
+                                if ui.selectable_label(self.device.settings.language == crate::i18n::Language::Finnish, "Suomi (FI)").clicked() {
+                                    self.device.settings.language = crate::i18n::Language::Finnish;
+                                    let _ = self.device.settings.save();
+                                }
+                                if ui.selectable_label(self.device.settings.language == crate::i18n::Language::English, "English (EN)").clicked() {
+                                    self.device.settings.language = crate::i18n::Language::English;
+                                    let _ = self.device.settings.save();
+                                }
+                            });
+                    });
+                    ui.add_space(4.0);
+                    ui.separator();
+
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(tr("Machine Profile:")).strong());
                         let cur_prof = self.device.settings.current_profile_name.clone();
                         egui::ComboBox::from_id_salt("settings_machine_profile_combo")
                             .selected_text(&cur_prof)
@@ -8350,27 +8397,27 @@ impl eframe::App for LaserBurnApp {
                                     }
                                 }
                             });
-                        if ui.button("Manage Profiles...").clicked() {
+                        if ui.button(tr("Manage Profiles...")).clicked() {
                             self.show_device_profiles_window = true;
                         }
                     });
                     ui.add_space(4.0);
                     ui.separator();
 
-                    ui.label(egui::RichText::new("Bed Dimensions (mm):").strong());
+                    ui.label(egui::RichText::new(tr("Bed Dimensions (mm):")).strong());
                     ui.horizontal(|ui| {
-                        ui.label("Width:");
+                        ui.label(tr("Width:"));
                         if ui.add(egui::DragValue::new(&mut self.device.settings.bed_width).speed(1.0).range(50.0..=2000.0).suffix(" mm")).changed() {
                             self.doc.width = self.device.settings.bed_width;
                         }
-                        ui.label("Height:");
+                        ui.label(tr("Height:"));
                         if ui.add(egui::DragValue::new(&mut self.device.settings.bed_height).speed(1.0).range(50.0..=2000.0).suffix(" mm")).changed() {
                             self.doc.height = self.device.settings.bed_height;
                         }
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Origin Corner:");
+                        ui.label(tr("Origin Corner:"));
                         egui::ComboBox::from_id_salt("settings_origin_picker")
                             .selected_text(match self.device.settings.origin_corner {
                                 crate::device::OriginCorner::TopLeft => "Top-Left (Rear-Left)",
@@ -8389,9 +8436,9 @@ impl eframe::App for LaserBurnApp {
                     ui.add_space(6.0);
                     ui.separator();
 
-                    ui.label(egui::RichText::new("Laser & Beam Parameters:").strong());
+                    ui.label(egui::RichText::new(tr("Laser & Beam Parameters:")).strong());
                     ui.horizontal(|ui| {
-                        ui.label("Laser Type:");
+                        ui.label(tr("Laser Type:"));
                         egui::ComboBox::from_id_salt("settings_laser_type")
                             .selected_text(match self.device.settings.laser_type {
                                 crate::device::LaserType::Diode => "Diode Laser (Blue 450nm)",
@@ -8406,17 +8453,17 @@ impl eframe::App for LaserBurnApp {
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Max Power ($30 / S-max):");
+                        ui.label(tr("Max Power ($30 / S-max):"));
                         ui.add(egui::DragValue::new(&mut self.device.settings.max_s_value).speed(10.0).range(1.0..=10000.0));
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Weak Beam Power for Alignment:");
+                        ui.label(tr("Weak Beam Power for Alignment:"));
                         ui.add(egui::Slider::new(&mut self.device.settings.weak_light_percent, 0.2..=5.0).suffix(" %"));
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Beam Kerf (Full Width):");
+                        ui.label(tr("Beam Kerf (Full Width):"));
                         ui.add(
                             egui::DragValue::new(&mut self.device.settings.default_kerf)
                                 .speed(0.005)
@@ -8431,31 +8478,31 @@ impl eframe::App for LaserBurnApp {
                     ui.add_space(6.0);
                     ui.separator();
 
-                    ui.label(egui::RichText::new("Speed Limits:").strong());
+                    ui.label(egui::RichText::new(tr("Speed Limits:")).strong());
                     ui.horizontal(|ui| {
-                        ui.label("Rapid Speed G0:");
+                        ui.label(tr("Rapid Speed G0:"));
                         ui.add(egui::DragValue::new(&mut self.device.settings.rapid_speed).speed(50.0).suffix(" mm/min"));
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Jog Speed:");
+                        ui.label(tr("Jog Speed:"));
                         ui.add(egui::DragValue::new(&mut self.device.settings.jog_speed).speed(50.0).suffix(" mm/min"));
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Framing Test Speed:");
+                        ui.label(tr("Framing Test Speed:"));
                         ui.add(egui::DragValue::new(&mut self.device.settings.frame_speed).speed(50.0).suffix(" mm/min"));
                     });
 
                     ui.add_space(8.0);
                     ui.separator();
 
-                    ui.label(egui::RichText::new("Limit Switches:").strong());
-                    ui.checkbox(&mut self.device.settings.enable_limit_switches, "Enable physical limit switches (Switches installed)");
+                    ui.label(egui::RichText::new(tr("Limit Switches:")).strong());
+                    ui.checkbox(&mut self.device.settings.enable_limit_switches, tr("Enable physical limit switches (Switches installed)"));
                     if !self.device.settings.enable_limit_switches {
                         ui.label(egui::RichText::new("Switch-related buttons and homing are disabled by default for machine protection.").small().weak());
                     } else {
                         ui.label(egui::RichText::new("Ensure your machine has working switches and wiring before homing.").small().color(egui::Color32::from_rgb(220, 160, 40)));
                         ui.horizontal(|ui| {
-                            ui.label("Homing / Seek Speed:");
+                            ui.label(tr("Homing / Seek Speed:"));
                             if ui.add(egui::Slider::new(&mut self.device.settings.homing_speed, 100.0..=1200.0).suffix(" mm/min")).on_hover_text("Gentle seek speed for mechanical switch calibration (default 400 mm/min = 6.6 mm/s)").changed() {
                                 let _ = self.device.settings.save();
                             }
@@ -8465,11 +8512,11 @@ impl eframe::App for LaserBurnApp {
                     ui.add_space(8.0);
                     ui.separator();
 
-                    ui.checkbox(&mut self.device.settings.auto_connect, "Auto-connect to laser port on startup");
+                    ui.checkbox(&mut self.device.settings.auto_connect, tr("Auto-connect to laser port on startup"));
 
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        if ui.button(egui::RichText::new("Save & Close").strong()).clicked() {
+                        if ui.button(egui::RichText::new(tr("Save & Close")).strong()).clicked() {
                             if let Err(e) = self.device.settings.save() {
                                 self.status_msg = format!("Error saving settings: {}", e);
                             } else {
@@ -8481,11 +8528,11 @@ impl eframe::App for LaserBurnApp {
 
                         ui.separator();
 
-                        if ui.button("Export Profile...").on_hover_text("Save all machine, camera, and layer settings into an exportable profile file (.json)").clicked() {
+                        if ui.button(tr("Export Profile...")).on_hover_text("Save all machine, camera, and layer settings into an exportable profile file (.json)").clicked() {
                             do_export_settings = true;
                         }
 
-                        if ui.button("Import Profile...").on_hover_text("Load and restore machine settings, camera calibration, and layer materials from an exported profile (.json)").clicked() {
+                        if ui.button(tr("Import Profile...")).on_hover_text("Load and restore machine settings, camera calibration, and layer materials from an exported profile (.json)").clicked() {
                             do_import_settings = true;
                         }
                     });
@@ -10124,5 +10171,25 @@ mod tests {
         if let Shape::Path { ref polyline, .. } = app.doc.shapes[0] {
             assert!(polyline.is_closed, "Must be closed after toggling again");
         }
+    }
+
+    #[test]
+    fn test_gui_language_switching() {
+        let mut app = LaserBurnApp::default();
+        // Default is Finnish
+        assert_eq!(app.device.settings.language, crate::i18n::Language::Finnish);
+        assert_eq!(app.tr("File"), "Tiedosto");
+        assert_eq!(app.tr("Edit"), "Muokkaa");
+        assert_eq!(app.tr("Select / Move"), "Valitse / Siirrä");
+        assert_eq!(app.tr("Transform & Size"), "Muunnos & Koko");
+        assert_eq!(app.tr("Job Execution (G-Code)"), "Työn ajo (G-koodi)");
+
+        // Switch to English
+        app.device.settings.language = crate::i18n::Language::English;
+        assert_eq!(app.tr("File"), "File");
+        assert_eq!(app.tr("Edit"), "Edit");
+        assert_eq!(app.tr("Select / Move"), "Select / Move");
+        assert_eq!(app.tr("Transform & Size"), "Transform & Size");
+        assert_eq!(app.tr("Job Execution (G-Code)"), "Job Execution (G-Code)");
     }
 }

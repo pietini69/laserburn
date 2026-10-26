@@ -213,6 +213,10 @@ pub struct DeviceSettings {
     pub current_profile_name: String,
     #[serde(default = "default_profiles_list")]
     pub profiles: Vec<DeviceProfile>,
+
+    // Localization
+    #[serde(default)]
+    pub language: crate::i18n::Language,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -504,6 +508,7 @@ impl Default for DeviceSettings {
 
             current_profile_name: default_current_profile_name(),
             profiles: default_profiles_list(),
+            language: crate::i18n::Language::Finnish,
         }
     }
 }
