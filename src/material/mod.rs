@@ -130,7 +130,7 @@ fn default_version() -> u32 {
 }
 
 fn default_profile() -> String {
-    "10W Optical Diode (Standard)".to_string()
+    "LaserBurn Oletus (10W-20W)".to_string()
 }
 
 impl Default for MaterialLibrary {
@@ -153,12 +153,37 @@ impl MaterialLibrary {
         }
     }
 
+    /// Migrates any legacy material categories ("Wood & Plywood", "Ceramics & Stone", etc.)
+    /// to the unified default library category "LaserBurn Oletus (10W-20W)".
+    pub fn migrate_legacy_categories(&mut self) -> bool {
+        let legacy_categories = [
+            "Wood & Plywood",
+            "Ceramics & Stone",
+            "Paper & Packaging",
+            "Plastics & Acrylic",
+            "Leather & Textiles",
+        ];
+        let mut changed = false;
+        for mat in &mut self.materials {
+            if legacy_categories.iter().any(|&c| c.eq_ignore_ascii_case(&mat.category)) {
+                mat.category = "LaserBurn Oletus (10W-20W)".to_string();
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Load existing library from default path, or return fresh default factory library.
     pub fn load_or_default() -> Self {
         let path = Self::default_path();
         if path.exists() {
             match Self::load_from_path(&path) {
-                Ok(lib) => return lib,
+                Ok(mut lib) => {
+                    if lib.migrate_legacy_categories() {
+                        let _ = lib.save_to_path(&path);
+                    }
+                    return lib;
+                }
                 Err(e) => {
                     eprintln!("[LaserBurn] Failed to load {}: {}. Using default library.", path.display(), e);
                 }
@@ -207,6 +232,20 @@ impl MaterialLibrary {
         self.materials.iter_mut().find(|m| m.name.eq_ignore_ascii_case(name))
     }
 
+    /// Find material by category and name.
+    pub fn find_material_in_category(&self, category: &str, name: &str) -> Option<&MaterialEntry> {
+        self.materials.iter().find(|m| {
+            m.name.eq_ignore_ascii_case(name) && m.category.eq_ignore_ascii_case(category)
+        })
+    }
+
+    /// Find material mutably by category and name.
+    pub fn find_material_in_category_mut(&mut self, category: &str, name: &str) -> Option<&mut MaterialEntry> {
+        self.materials.iter_mut().find(|m| {
+            m.name.eq_ignore_ascii_case(name) && m.category.eq_ignore_ascii_case(category)
+        })
+    }
+
     /// Insert or update an operation preset.
     pub fn add_or_update_operation(
         &mut self,
@@ -216,7 +255,7 @@ impl MaterialLibrary {
         thickness_label: &str,
         operation: MaterialOperation,
     ) {
-        if let Some(mat) = self.find_material_mut(material_name) {
+        if let Some(mat) = self.find_material_in_category_mut(category, material_name) {
             if let Some(thick) = mat.find_thickness_mut(thickness_mm) {
                 if let Some(op) = thick.find_operation_mut(&operation.name) {
                     *op = operation;
@@ -240,6 +279,18 @@ impl MaterialLibrary {
             );
             self.materials.push(new_mat);
         }
+    }
+
+    /// Delete an operation preset within a specific category.
+    pub fn delete_operation_in_category(&mut self, category: &str, material_name: &str, thickness_mm: f64, op_name: &str) -> bool {
+        if let Some(mat) = self.find_material_in_category_mut(category, material_name) {
+            if let Some(thick) = mat.find_thickness_mut(thickness_mm) {
+                let initial = thick.operations.len();
+                thick.operations.retain(|o| !o.name.eq_ignore_ascii_case(op_name));
+                return thick.operations.len() < initial;
+            }
+        }
+        false
     }
 
     /// Delete an operation preset.
@@ -275,7 +326,10 @@ impl MaterialLibrary {
     /// and appending new materials, thicknesses, and operations.
     pub fn merge(&mut self, other: MaterialLibrary) {
         for other_mat in other.materials {
-            if let Some(existing_mat) = self.find_material_mut(&other_mat.name) {
+            if let Some(existing_mat) = self.materials.iter_mut().find(|m| {
+                m.name.eq_ignore_ascii_case(&other_mat.name)
+                    && (m.category.eq_ignore_ascii_case(&other_mat.category) || other_mat.category.is_empty() || m.category.is_empty())
+            }) {
                 if existing_mat.category.is_empty() && !other_mat.category.is_empty() {
                     existing_mat.category = other_mat.category.clone();
                 }
@@ -554,6 +608,7 @@ impl MaterialLibrary {
 
     /// Built-in curated library with factory presets for standard 10W-20W diode lasers.
     pub fn default_library() -> Self {
+        const DEFAULT_CAT: &str = "LaserBurn Oletus (10W-20W)";
         let mut materials = Vec::new();
 
         // 1. Wood & Plywood (Birch Plywood)
@@ -622,7 +677,7 @@ impl MaterialLibrary {
 
             materials.push(MaterialEntry::new(
                 "Birch Plywood (Koivuvaneri)",
-                "Wood & Plywood",
+                DEFAULT_CAT,
                 "Finnish birch plywood (AB/B grade). Optimal for furniture, puzzle boxes, and wall art.",
                 vec![thick_3mm, thick_4mm],
             ));
@@ -669,7 +724,7 @@ impl MaterialLibrary {
 
             materials.push(MaterialEntry::new(
                 "Ceramic Tile (Keramiikkalaatta)",
-                "Ceramics & Stone",
+                DEFAULT_CAT,
                 "Glazed white bathroom/kitchen tiles with spray paint or TiO2 coating for photo engraving.",
                 vec![tile_thick],
             ));
@@ -719,7 +774,7 @@ impl MaterialLibrary {
 
             materials.push(MaterialEntry::new(
                 "Cardboard & Paper (Pahvi)",
-                "Paper & Packaging",
+                DEFAULT_CAT,
                 "Corrugated shipping boxes, kraft paper, and chipboard for architectural prototyping.",
                 vec![thick_2mm_card, thick_05mm],
             ));
@@ -754,7 +809,7 @@ impl MaterialLibrary {
 
             materials.push(MaterialEntry::new(
                 "Cast Acrylic (Valuakryyli)",
-                "Plastics & Acrylic",
+                DEFAULT_CAT,
                 "Opaque black and dark colored acrylic sheet. Note: Diode lasers require opaque/colored acrylic.",
                 vec![thick_3mm_acryl],
             ));
@@ -788,7 +843,7 @@ impl MaterialLibrary {
 
             materials.push(MaterialEntry::new(
                 "Slate Stone (Liuskekivi)",
-                "Ceramics & Stone",
+                DEFAULT_CAT,
                 "Natural grey/black slate drink coasters and signage. Fractures into brilliant white marks.",
                 vec![slate_thick],
             ));
@@ -822,7 +877,7 @@ impl MaterialLibrary {
 
             materials.push(MaterialEntry::new(
                 "Vegetable Tanned Leather (Nahka)",
-                "Leather & Textiles",
+                DEFAULT_CAT,
                 "Natural tooling leather for wallets, patches, belts, and craft items.",
                 vec![thick_leather],
             ));
@@ -847,7 +902,7 @@ mod tests {
         assert!(lib.materials.len() >= 6);
 
         let birch = lib.find_material("Birch Plywood (Koivuvaneri)").expect("Birch Plywood must exist");
-        assert_eq!(birch.category, "Wood & Plywood");
+        assert_eq!(birch.category, "LaserBurn Oletus (10W-20W)");
         let thick_3 = birch.find_thickness(3.0).expect("3.0 mm must exist");
         let cut = thick_3.find_operation("Clean Cut").expect("Clean Cut must exist");
         assert_eq!(cut.cut_setting.speed, 3.0);
@@ -1043,7 +1098,7 @@ mod tests {
         custom_setting.speed = 99.0;
         let op = MaterialOperation::new("Super Cut", custom_setting, "");
         let thick = ThicknessEntry::new(3.0, "3.0 mm", vec![op]);
-        let mat = MaterialEntry::new("Birch Plywood (Koivuvaneri)", "Wood & Plywood", "", vec![thick]);
+        let mat = MaterialEntry::new("Birch Plywood (Koivuvaneri)", "LaserBurn Oletus (10W-20W)", "", vec![thick]);
         incoming_lib.materials.push(mat);
 
         base_lib.merge(incoming_lib);
@@ -1052,5 +1107,26 @@ mod tests {
         let birch = base_lib.find_material("Birch Plywood (Koivuvaneri)").unwrap();
         let thick_3 = birch.find_thickness(3.0).unwrap();
         assert!(thick_3.find_operation("Super Cut").is_some(), "Super Cut must be merged into existing 3mm thickness");
+    }
+
+    #[test]
+    fn test_migrate_legacy_categories() {
+        let mut lib = MaterialLibrary {
+            version: 1,
+            laser_profile: "Legacy".to_string(),
+            materials: vec![
+                MaterialEntry::new("Birch Plywood", "Wood & Plywood", "", Vec::new()),
+                MaterialEntry::new("Tile", "Ceramics & Stone", "", Vec::new()),
+                MaterialEntry::new("Acrylic", "Plastics & Acrylic", "", Vec::new()),
+                MaterialEntry::new("Custom", "My Custom Machine", "", Vec::new()),
+            ],
+        };
+
+        assert!(lib.migrate_legacy_categories());
+        assert_eq!(lib.materials[0].category, "LaserBurn Oletus (10W-20W)");
+        assert_eq!(lib.materials[1].category, "LaserBurn Oletus (10W-20W)");
+        assert_eq!(lib.materials[2].category, "LaserBurn Oletus (10W-20W)");
+        assert_eq!(lib.materials[3].category, "My Custom Machine");
+        assert!(!lib.migrate_legacy_categories(), "Second run should make no changes");
     }
 }

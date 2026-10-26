@@ -189,6 +189,7 @@ pub struct LaserBurnApp {
     pub show_material_library: bool,
     pub mat_lib_search: String,
     pub mat_lib_category_filter: String,
+    pub mat_lib_selected_category: Option<String>,
     pub mat_lib_selected_material: Option<String>,
     pub mat_lib_selected_thickness: Option<f64>,
     pub mat_lib_selected_op: Option<String>,
@@ -295,11 +296,12 @@ impl Default for LaserBurnApp {
             show_material_library: false,
             mat_lib_search: String::new(),
             mat_lib_category_filter: "All Categories".to_string(),
+            mat_lib_selected_category: None,
             mat_lib_selected_material: None,
             mat_lib_selected_thickness: None,
             mat_lib_selected_op: None,
             show_save_material_dialog: false,
-            save_mat_category: "Wood & Plywood".to_string(),
+            save_mat_category: "LaserBurn Oletus (10W-20W)".to_string(),
             save_mat_name: "Birch Plywood".to_string(),
             save_mat_thickness_mm: 3.0,
             save_mat_thickness_label: "3.0 mm".to_string(),
@@ -2188,6 +2190,11 @@ impl LaserBurnApp {
 
     /// Opens the Save Preset dialog, pre-populating fields with active layer info
     pub fn open_save_layer_dialog(&mut self) {
+        if let Some(ref cat) = self.mat_lib_selected_category {
+            self.save_mat_category = cat.clone();
+        } else if self.save_mat_category.is_empty() {
+            self.save_mat_category = "LaserBurn Oletus (10W-20W)".to_string();
+        }
         if let Some(layer) = self.doc.layers.get(&self.selected_layer) {
             if !layer.name.is_empty() && layer.name != format!("L{:02}", self.selected_layer) {
                 self.save_mat_name = layer.name.clone();
@@ -2212,16 +2219,17 @@ impl LaserBurnApp {
 
         let mut is_open = true;
         let mut op_to_apply: Option<crate::material::MaterialOperation> = None;
-        let mut op_to_delete: Option<(String, f64, String)> = None;
+        let mut op_to_delete: Option<(String, String, f64, String)> = None;
         let mut test_grid_params: Option<(f64, f64, bool)> = None;
         let mut open_save_dialog = false;
         let mut do_reset_defaults = false;
-        let mut new_selection: Option<(String, f64, String)> = None;
+        let mut new_selection: Option<(String, String, f64, String)> = None;
         let mut do_prompt_export = false;
         let mut do_prompt_import = false;
 
         let mut search = std::mem::take(&mut self.mat_lib_search);
         let mut cat_filter = std::mem::take(&mut self.mat_lib_category_filter);
+        let selected_cat = self.mat_lib_selected_category.clone();
         let selected_mat = self.mat_lib_selected_material.clone();
         let selected_thick = self.mat_lib_selected_thickness;
         let selected_op = self.mat_lib_selected_op.clone();
@@ -2322,7 +2330,8 @@ impl LaserBurnApp {
                                                 let text = format!("{} {} {} {}", mat.name, mat.category, thick.label, op.name).to_lowercase();
                                                 if text.contains(&search_term) {
                                                     match_count += 1;
-                                                    let is_sel = selected_mat.as_deref() == Some(&mat.name)
+                                                    let is_sel = selected_cat.as_deref() == Some(&mat.category)
+                                                        && selected_mat.as_deref() == Some(&mat.name)
                                                         && selected_thick == Some(thick.thickness_mm)
                                                         && selected_op.as_deref() == Some(&op.name);
 
@@ -2334,7 +2343,7 @@ impl LaserBurnApp {
                                                     };
 
                                                     if ui.selectable_label(is_sel, format!("{} {}", icon, op.name)).clicked() {
-                                                        new_selection = Some((mat.name.clone(), thick.thickness_mm, op.name.clone()));
+                                                        new_selection = Some((mat.category.clone(), mat.name.clone(), thick.thickness_mm, op.name.clone()));
                                                     }
                                                     ui.label(egui::RichText::new(format!("  📁 {} • 📦 {} • {}", mat.category, mat.name, thick.label)).small().weak());
                                                 }
@@ -2366,7 +2375,8 @@ impl LaserBurnApp {
                                                             ui.label(egui::RichText::new(&thick.label).small().weak());
                                                         });
                                                         for op in &thick.operations {
-                                                            let is_sel = selected_mat.as_deref() == Some(&mat.name)
+                                                            let is_sel = selected_cat.as_deref() == Some(&category)
+                                                                && selected_mat.as_deref() == Some(&mat.name)
                                                                 && selected_thick == Some(thick.thickness_mm)
                                                                 && selected_op.as_deref() == Some(&op.name);
 
@@ -2379,7 +2389,7 @@ impl LaserBurnApp {
                                                                     crate::document::CutMode::Image => "🖼",
                                                                 };
                                                                 if ui.selectable_label(is_sel, format!("{} {}", icon, op.name)).clicked() {
-                                                                    new_selection = Some((mat.name.clone(), thick.thickness_mm, op.name.clone()));
+                                                                    new_selection = Some((category.clone(), mat.name.clone(), thick.thickness_mm, op.name.clone()));
                                                                 }
                                                             });
                                                         }
@@ -2402,7 +2412,12 @@ impl LaserBurnApp {
                             selected_thick,
                             &selected_op,
                         ) {
-                            if let Some(mat) = self.material_lib.find_material(mat_name) {
+                            let mat_opt = if let Some(ref cat) = selected_cat {
+                                self.material_lib.find_material_in_category(cat, mat_name)
+                            } else {
+                                self.material_lib.find_material(mat_name)
+                            };
+                            if let Some(mat) = mat_opt {
                                 if let Some(thick) = mat.find_thickness(thick_mm) {
                                     if let Some(op) = thick.find_operation(op_name) {
                                         Some((mat.clone(), thick.clone(), op.clone()))
@@ -2418,7 +2433,7 @@ impl LaserBurnApp {
                                 ui.heading(&op.name);
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     if ui.small_button("🗑 Delete Preset").on_hover_text("Delete this preset from library").clicked() {
-                                        op_to_delete = Some((mat.name.clone(), thick.thickness_mm, op.name.clone()));
+                                        op_to_delete = Some((mat.category.clone(), mat.name.clone(), thick.thickness_mm, op.name.clone()));
                                     }
                                 });
                             });
@@ -2537,7 +2552,8 @@ impl LaserBurnApp {
         self.mat_lib_category_filter = cat_filter;
         self.show_material_library = is_open;
 
-        if let Some((mat, thick, op)) = new_selection {
+        if let Some((cat, mat, thick, op)) = new_selection {
+            self.mat_lib_selected_category = Some(cat);
             self.mat_lib_selected_material = Some(mat);
             self.mat_lib_selected_thickness = Some(thick);
             self.mat_lib_selected_op = Some(op);
@@ -2552,8 +2568,8 @@ impl LaserBurnApp {
             }
         }
 
-        if let Some((mat, thick, op)) = op_to_delete {
-            self.material_lib.delete_operation(&mat, thick, &op);
+        if let Some((cat, mat, thick, op)) = op_to_delete {
+            self.material_lib.delete_operation_in_category(&cat, &mat, thick, &op);
             let _ = self.material_lib.save();
             self.mat_lib_selected_op = None;
             self.status_msg = format!("Deleted preset \"{}\" from Material Library", op);
@@ -2676,6 +2692,7 @@ impl LaserBurnApp {
                 );
                 let _ = self.material_lib.save();
                 self.status_msg = format!("Saved preset \"{}\" to Material Library!", self.save_mat_op_name);
+                self.mat_lib_selected_category = Some(self.save_mat_category.clone());
                 self.mat_lib_selected_material = Some(self.save_mat_name.clone());
                 self.mat_lib_selected_thickness = Some(self.save_mat_thickness_mm);
                 self.mat_lib_selected_op = Some(self.save_mat_op_name.clone());
