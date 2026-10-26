@@ -1277,6 +1277,45 @@ impl LaserBurnApp {
         Ok(())
     }
 
+    /// Imports vector shapes from a DXF, PDF, SVG, or LBRN2 file and appends them to the current project
+    pub fn import_vector_file<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<(), String> {
+        let p = path.as_ref();
+        let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+        let imported_doc = match ext.as_str() {
+            "dxf" => crate::formats::DxfFormat::load_from_file(p)?,
+            "pdf" => crate::formats::PdfFormat::load_from_file(p)?,
+            "svg" => crate::formats::SvgFormat::load_from_file(p)?,
+            "lbrn2" | "lbrn" => crate::formats::Lbrn2File::load_from_file(p)?,
+            _ => return Err(format!("Unsupported vector format: .{}", ext)),
+        };
+
+        self.push_undo();
+        let shapes_count = imported_doc.shapes.len();
+        let mut new_indices = Vec::new();
+
+        // Merge imported layers into current document
+        for (layer_idx, layer) in imported_doc.layers {
+            if !self.doc.layers.contains_key(&layer_idx) {
+                self.doc.layers.insert(layer_idx, layer);
+            }
+        }
+
+        // Add imported shapes to current document
+        for s in imported_doc.shapes {
+            self.doc.add_shape(s);
+            new_indices.push(self.doc.shapes.len() - 1);
+        }
+
+        self.selected_shape_indices = new_indices;
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.status_msg = format!(
+            "Imported: {} ({} vector shapes added)",
+            p.file_name().unwrap_or_default().to_string_lossy(),
+            shapes_count
+        );
+        Ok(())
+    }
+
     /// Asynchronously prompts the user to open any supported project or graphic file
     pub fn prompt_open_project(&self, ctx: &egui::Context) {
         let tx = self.file_dialog_tx.clone();
@@ -1284,12 +1323,21 @@ impl LaserBurnApp {
         std::thread::spawn(move || {
             pollster::block_on(async move {
                 if let Some(handle) = rfd::AsyncFileDialog::new()
-                    .add_filter("All Supported Files (*.lbrn2, *.lbrn, *.svg, *.dxf, *.pdf, *.png, *.jpg, *.bmp)", &["lbrn2", "lbrn", "svg", "dxf", "pdf", "png", "jpg", "jpeg", "bmp"])
-                    .add_filter("CAD Vector Drawing (*.dxf)", &["dxf"])
-                    .add_filter("Adobe / Vector PDF (*.pdf)", &["pdf"])
-                    .add_filter("LightBurn Projects (*.lbrn2, *.lbrn)", &["lbrn2", "lbrn"])
-                    .add_filter("Vector SVG (*.svg)", &["svg"])
-                    .add_filter("Raster Images (*.png, *.jpg, *.jpeg, *.bmp)", &["png", "jpg", "jpeg", "bmp"])
+                    .add_filter(
+                        "All Supported Files (*.lbrn2, *.svg, *.dxf, *.pdf, *.png, *.jpg, *.bmp)",
+                        &[
+                            "lbrn2", "LBRN2", "lbrn", "LBRN", "svg", "SVG", "dxf", "DXF", "pdf", "PDF",
+                            "png", "PNG", "jpg", "JPG", "jpeg", "JPEG", "bmp", "BMP",
+                        ],
+                    )
+                    .add_filter("CAD Vector Drawing (*.dxf)", &["dxf", "DXF"])
+                    .add_filter("Adobe / Vector PDF (*.pdf)", &["pdf", "PDF"])
+                    .add_filter("LightBurn Projects (*.lbrn2, *.lbrn)", &["lbrn2", "LBRN2", "lbrn", "LBRN"])
+                    .add_filter("Vector SVG (*.svg)", &["svg", "SVG"])
+                    .add_filter(
+                        "Raster Images (*.png, *.jpg, *.jpeg, *.bmp)",
+                        &["png", "PNG", "jpg", "JPG", "jpeg", "JPEG", "bmp", "BMP"],
+                    )
                     .pick_file()
                     .await
                 {
@@ -1300,14 +1348,27 @@ impl LaserBurnApp {
         });
     }
 
-    /// Asynchronously prompts the user to import an image for laser engraving
+    /// Asynchronously prompts the user to import an image or vector graphic into the current document
     pub fn prompt_import_image(&self, ctx: &egui::Context) {
         let tx = self.file_dialog_tx.clone();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             pollster::block_on(async move {
                 if let Some(handle) = rfd::AsyncFileDialog::new()
-                    .add_filter("Raster Images (*.png, *.jpg, *.jpeg, *.bmp)", &["png", "jpg", "jpeg", "bmp"])
+                    .add_filter(
+                        "All Graphic & Vector Files (*.dxf, *.pdf, *.svg, *.png, *.jpg, *.bmp)",
+                        &[
+                            "dxf", "DXF", "pdf", "PDF", "svg", "SVG", "png", "PNG", "jpg", "JPG", "jpeg",
+                            "JPEG", "bmp", "BMP",
+                        ],
+                    )
+                    .add_filter("CAD Vector Drawing (*.dxf)", &["dxf", "DXF"])
+                    .add_filter("Adobe / Vector PDF (*.pdf)", &["pdf", "PDF"])
+                    .add_filter("Vector SVG (*.svg)", &["svg", "SVG"])
+                    .add_filter(
+                        "Raster Images (*.png, *.jpg, *.jpeg, *.bmp)",
+                        &["png", "PNG", "jpg", "JPG", "jpeg", "JPEG", "bmp", "BMP"],
+                    )
                     .pick_file()
                     .await
                 {
@@ -3327,10 +3388,19 @@ impl eframe::App for LaserBurnApp {
         while let Ok(action) = self.file_dialog_rx.try_recv() {
             match action {
                 FileDialogAction::OpenProject(path) => {
-                    let _ = self.open_file(&path);
+                    if let Err(e) = self.open_file(&path) {
+                        self.status_msg = format!("Open Error: {}", e);
+                    }
                 }
                 FileDialogAction::ImportImage(path) => {
-                    let _ = self.import_image(&path);
+                    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+                    if matches!(ext.as_str(), "dxf" | "pdf" | "svg" | "lbrn2" | "lbrn") {
+                        if let Err(e) = self.import_vector_file(&path) {
+                            self.status_msg = format!("Import Error: {}", e);
+                        }
+                    } else if let Err(e) = self.import_image(&path) {
+                        self.status_msg = format!("Import Error: {}", e);
+                    }
                 }
                 FileDialogAction::SaveProject(path) => {
                     let save_path = if path.extension().is_none() {
@@ -3477,11 +3547,13 @@ impl eframe::App for LaserBurnApp {
             }
         }
 
-        // Drag-and-drop file loading support (.lbrn2, .lbrn, .svg)
+        // Drag-and-drop file loading support (.lbrn2, .lbrn, .svg, .dxf, .pdf, images)
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         for df in dropped {
             if let Some(ref path) = df.path {
-                let _ = self.open_file(path);
+                if let Err(e) = self.open_file(path) {
+                    self.status_msg = format!("Open Error: {}", e);
+                }
             }
         }
 
@@ -3717,7 +3789,7 @@ impl eframe::App for LaserBurnApp {
                         self.prompt_open_project(ctx);
                         ui.close_menu();
                     }
-                    if ui.button(format!("Import Image (PNG, JPG, BMP)... ({}+I)", cmd)).clicked() {
+                    if ui.button(format!("Import / Merge File (DXF, PDF, SVG, Image)... ({}+I)", cmd)).clicked() {
                         self.prompt_import_image(ctx);
                         ui.close_menu();
                     }
@@ -3989,7 +4061,7 @@ impl eframe::App for LaserBurnApp {
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawLine, "Line");
                 ui.selectable_value(&mut self.active_tool, ActiveTool::DrawText, "Text");
 
-                if ui.button("Import Image").on_hover_text(format!("Import PNG, JPG, BMP raster image for laser engraving ({}+I)", cmd)).clicked() {
+                if ui.button("Import File").on_hover_text(format!("Import DXF, PDF, SVG vector or PNG, JPG image ({}+I)", cmd)).clicked() {
                     self.prompt_import_image(ctx);
                 }
 
@@ -9980,6 +10052,26 @@ mod tests {
         assert!(app.open_file(&pdf_path).is_ok());
         assert_eq!(app.doc.shapes.len(), 1);
         let _ = std::fs::remove_file(&pdf_path);
+    }
+
+    #[test]
+    fn test_gui_import_vector_file_merging() {
+        let mut app = LaserBurnApp::default();
+        app.doc.shapes.clear();
+
+        // Start with a circle in the document
+        app.doc.add_shape(Shape::Circle { layer_index: 0, center: Point2D::new(50.0, 50.0), radius: 20.0 });
+        assert_eq!(app.doc.shapes.len(), 1);
+
+        let tmp = std::env::temp_dir();
+        let dxf_path = tmp.join("test_merge_dxf.dxf");
+        let dxf_content = "0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0.0\n20\n0.0\n11\n50.0\n21\n50.0\n0\nENDSEC\n0\nEOF";
+        std::fs::write(&dxf_path, dxf_content).unwrap();
+
+        assert!(app.import_vector_file(&dxf_path).is_ok());
+        // Document should now contain both the original circle and the imported line!
+        assert_eq!(app.doc.shapes.len(), 2);
+        let _ = std::fs::remove_file(&dxf_path);
     }
 
     #[test]

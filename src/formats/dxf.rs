@@ -54,15 +54,79 @@ enum DxfEntity {
     },
 }
 
+impl DxfEntity {
+    fn transformed(&self, ins_x: f64, ins_y: f64, sx: f64, sy: f64, rot_deg: f64) -> Self {
+        let rad = rot_deg.to_radians();
+        let cos_a = rad.cos();
+        let sin_a = rad.sin();
+        let transform_pt = |p: Point2D| -> Point2D {
+            let px = p.x * sx;
+            let py = p.y * sy;
+            let rx = px * cos_a - py * sin_a + ins_x;
+            let ry = px * sin_a + py * cos_a + ins_y;
+            Point2D::new(rx, ry)
+        };
+
+        match self {
+            DxfEntity::Line { start, end, layer, color_index } => DxfEntity::Line {
+                start: transform_pt(*start),
+                end: transform_pt(*end),
+                layer: layer.clone(),
+                color_index: *color_index,
+            },
+            DxfEntity::Polyline { vertices, is_closed, layer, color_index } => DxfEntity::Polyline {
+                vertices: vertices
+                    .iter()
+                    .map(|v| DxfVertex {
+                        point: transform_pt(v.point),
+                        bulge: v.bulge,
+                    })
+                    .collect(),
+                is_closed: *is_closed,
+                layer: layer.clone(),
+                color_index: *color_index,
+            },
+            DxfEntity::Circle { center, radius, layer, color_index } => DxfEntity::Circle {
+                center: transform_pt(*center),
+                radius: radius * ((sx.abs() + sy.abs()) * 0.5),
+                layer: layer.clone(),
+                color_index: *color_index,
+            },
+            DxfEntity::Arc { center, radius, start_angle_deg, end_angle_deg, layer, color_index } => DxfEntity::Arc {
+                center: transform_pt(*center),
+                radius: radius * ((sx.abs() + sy.abs()) * 0.5),
+                start_angle_deg: start_angle_deg + rot_deg,
+                end_angle_deg: end_angle_deg + rot_deg,
+                layer: layer.clone(),
+                color_index: *color_index,
+            },
+            DxfEntity::Ellipse { center, major_axis, ratio, start_param, end_param, layer, color_index } => DxfEntity::Ellipse {
+                center: transform_pt(*center),
+                major_axis: Point2D::new(
+                    major_axis.x * sx * cos_a - major_axis.y * sy * sin_a,
+                    major_axis.x * sx * sin_a + major_axis.y * sy * cos_a,
+                ),
+                ratio: *ratio,
+                start_param: *start_param,
+                end_param: *end_param,
+                layer: layer.clone(),
+                color_index: *color_index,
+            },
+        }
+    }
+}
+
 impl DxfFormat {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Document, String> {
-        let content = std::fs::read_to_string(path.as_ref())
-            .map_err(|e| format!("Failed to read DXF file: {}", e))?;
+        let bytes = std::fs::read(path.as_ref())
+            .map_err(|e| format!("Failed to read DXF file {}: {}", path.as_ref().display(), e))?;
+        let content = String::from_utf8_lossy(&bytes);
         Self::load_from_str(&content)
     }
 
     pub fn load_from_str(content: &str) -> Result<Document, String> {
-        let lines: Vec<&str> = content.lines().map(|l| l.trim()).collect();
+        let clean = content.strip_prefix('\u{feff}').unwrap_or(content);
+        let lines: Vec<&str> = clean.lines().map(|l| l.trim()).collect();
         if lines.is_empty() {
             return Err("Empty DXF file".to_string());
         }
@@ -79,9 +143,10 @@ impl DxfFormat {
             idx += 2;
         }
 
+        let layer_colors = Self::parse_layer_table(&pairs);
         let entities = Self::parse_entities(&pairs)?;
         if entities.is_empty() {
-            return Err("No supported 2D geometric entities found in DXF ENTITIES section".to_string());
+            return Err("No supported 2D geometric entities found in DXF file (ensure file contains LINE, POLYLINE, CIRCLE, ARC, or SPLINE entities)".to_string());
         }
 
         let mut doc = Document::new("DXF Import", 400.0, 400.0);
@@ -93,7 +158,12 @@ impl DxfFormat {
         let mut bbox = BoundingBox::empty();
 
         for ent in entities {
-            let (shape, layer_name, color) = Self::convert_entity_to_shape(ent);
+            let (shape, layer_name, mut color) = Self::convert_entity_to_shape(ent);
+            if color == 0 || color == 256 {
+                if let Some(&tbl_color) = layer_colors.get(&layer_name) {
+                    color = tbl_color;
+                }
+            }
             bbox = bbox.union(&shape.bounds());
 
             // Layer mapping (AutoCAD Color Index 1=Red, 2=Yellow, 3=Green, 4=Cyan, 5=Blue, 7=White/Black)
@@ -141,11 +211,105 @@ impl DxfFormat {
         Ok(doc)
     }
 
+    fn parse_layer_table(pairs: &[(i32, String)]) -> HashMap<String, i32> {
+        let mut map = HashMap::new();
+        let mut in_layer_table = false;
+        let mut i = 0;
+        while i < pairs.len() {
+            if pairs[i].0 == 0 && pairs[i].1.eq_ignore_ascii_case("TABLE") {
+                if i + 1 < pairs.len() && pairs[i + 1].0 == 2 && pairs[i + 1].1.eq_ignore_ascii_case("LAYER") {
+                    in_layer_table = true;
+                    i += 2;
+                    continue;
+                }
+            } else if in_layer_table && pairs[i].0 == 0 && pairs[i].1.eq_ignore_ascii_case("ENDTAB") {
+                break;
+            }
+
+            if in_layer_table && pairs[i].0 == 0 && pairs[i].1.eq_ignore_ascii_case("LAYER") {
+                i += 1;
+                let mut layer_name = String::new();
+                let mut color_idx = 7;
+                while i < pairs.len() && pairs[i].0 != 0 {
+                    if pairs[i].0 == 2 {
+                        layer_name = pairs[i].1.clone();
+                    } else if pairs[i].0 == 62 {
+                        color_idx = pairs[i].1.trim().parse::<i32>().unwrap_or(7).abs();
+                    }
+                    i += 1;
+                }
+                if !layer_name.is_empty() {
+                    map.insert(layer_name, color_idx);
+                }
+                continue;
+            }
+            i += 1;
+        }
+        map
+    }
+
     fn parse_entities(pairs: &[(i32, String)]) -> Result<Vec<DxfEntity>, String> {
-        let mut in_entities = false;
+        let mut blocks: HashMap<String, Vec<DxfEntity>> = HashMap::new();
         let mut entities = Vec::new();
+
+        // 1. Parse BLOCKS section
+        let mut in_blocks = false;
+        let mut current_block_name: Option<String> = None;
+        let mut current_block_ents = Vec::new();
         let mut i = 0;
 
+        while i < pairs.len() {
+            let (code, val) = &pairs[i];
+            if *code == 0 && val.eq_ignore_ascii_case("SECTION") {
+                if i + 1 < pairs.len() && pairs[i + 1].0 == 2 && pairs[i + 1].1.eq_ignore_ascii_case("BLOCKS") {
+                    in_blocks = true;
+                    i += 2;
+                    continue;
+                }
+            } else if *code == 0 && val.eq_ignore_ascii_case("ENDSEC") {
+                if in_blocks {
+                    in_blocks = false;
+                }
+            }
+
+            if in_blocks && *code == 0 {
+                let tag = val.to_ascii_uppercase();
+                if tag == "BLOCK" {
+                    if let Some(name) = current_block_name.take() {
+                        blocks.insert(name, std::mem::take(&mut current_block_ents));
+                    }
+                    i += 1;
+                    while i < pairs.len() && pairs[i].0 != 0 {
+                        if pairs[i].0 == 2 {
+                            current_block_name = Some(pairs[i].1.clone());
+                        }
+                        i += 1;
+                    }
+                    continue;
+                } else if tag == "ENDBLK" {
+                    if let Some(name) = current_block_name.take() {
+                        blocks.insert(name, std::mem::take(&mut current_block_ents));
+                    }
+                    i += 1;
+                    continue;
+                } else {
+                    let (ent, next_i) = Self::parse_single_entity(&tag, pairs, i + 1);
+                    i = next_i;
+                    if let Some(e) = ent {
+                        current_block_ents.push(e);
+                    }
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        if let Some(name) = current_block_name.take() {
+            blocks.insert(name, current_block_ents);
+        }
+
+        // 2. Parse ENTITIES section
+        let mut in_entities = false;
+        i = 0;
         while i < pairs.len() {
             let (code, val) = &pairs[i];
             if *code == 0 && val.eq_ignore_ascii_case("SECTION") {
@@ -162,45 +326,150 @@ impl DxfFormat {
 
             if in_entities && *code == 0 {
                 let ent_type = val.to_ascii_uppercase();
-                i += 1;
-                // Parse entity attributes until next '0' code
-                let mut ent_pairs = Vec::new();
-                while i < pairs.len() && pairs[i].0 != 0 {
-                    ent_pairs.push((pairs[i].0, pairs[i].1.clone()));
+                if ent_type == "INSERT" {
                     i += 1;
-                }
-
-                if let Some(entity) = Self::build_entity(&ent_type, &ent_pairs) {
-                    entities.push(entity);
-                }
-                continue;
-            }
-
-            i += 1;
-        }
-
-        // If no explicit SECTION ENTITIES was found, try parsing top-level entities
-        if entities.is_empty() {
-            let mut j = 0;
-            while j < pairs.len() {
-                if pairs[j].0 == 0 {
-                    let ent_type = pairs[j].1.to_ascii_uppercase();
-                    j += 1;
-                    let mut ent_pairs = Vec::new();
-                    while j < pairs.len() && pairs[j].0 != 0 {
-                        ent_pairs.push((pairs[j].0, pairs[j].1.clone()));
-                        j += 1;
+                    let mut bname = String::new();
+                    let mut ins_x = 0.0;
+                    let mut ins_y = 0.0;
+                    let mut sx = 1.0;
+                    let mut sy = 1.0;
+                    let mut rot_deg = 0.0;
+                    while i < pairs.len() && pairs[i].0 != 0 {
+                        match pairs[i].0 {
+                            2 => bname = pairs[i].1.clone(),
+                            10 => ins_x = pairs[i].1.trim().parse().unwrap_or(0.0),
+                            20 => ins_y = pairs[i].1.trim().parse().unwrap_or(0.0),
+                            41 => sx = pairs[i].1.trim().parse().unwrap_or(1.0),
+                            42 => sy = pairs[i].1.trim().parse().unwrap_or(1.0),
+                            50 => rot_deg = pairs[i].1.trim().parse().unwrap_or(0.0),
+                            _ => {}
+                        }
+                        i += 1;
                     }
-                    if let Some(entity) = Self::build_entity(&ent_type, &ent_pairs) {
-                        entities.push(entity);
+                    if let Some(block_ents) = blocks.get(&bname) {
+                        for bent in block_ents {
+                            entities.push(bent.transformed(ins_x, ins_y, sx, sy, rot_deg));
+                        }
+                    }
+                    continue;
+                } else {
+                    let (ent, next_i) = Self::parse_single_entity(&ent_type, pairs, i + 1);
+                    i = next_i;
+                    if let Some(e) = ent {
+                        entities.push(e);
                     }
                     continue;
                 }
-                j += 1;
+            }
+            i += 1;
+        }
+
+        // 3. Fallbacks: if no entities found, check *Model_Space or all non-empty blocks
+        if entities.is_empty() {
+            for (bname, bents) in &blocks {
+                if bname.eq_ignore_ascii_case("*Model_Space") || bname.eq_ignore_ascii_case("Model") {
+                    entities.extend(bents.clone());
+                }
+            }
+        }
+        if entities.is_empty() && !blocks.is_empty() {
+            for (bname, bents) in &blocks {
+                if !bname.starts_with('*') {
+                    entities.extend(bents.clone());
+                }
+            }
+        }
+        if entities.is_empty() {
+            // Try parsing top-level pairs without SECTION
+            i = 0;
+            while i < pairs.len() {
+                if pairs[i].0 == 0 {
+                    let ent_type = pairs[i].1.to_ascii_uppercase();
+                    if ent_type != "SECTION" && ent_type != "ENDSEC" && ent_type != "EOF" {
+                        let (ent, next_i) = Self::parse_single_entity(&ent_type, pairs, i + 1);
+                        i = next_i;
+                        if let Some(e) = ent {
+                            entities.push(e);
+                        }
+                        continue;
+                    }
+                }
+                i += 1;
             }
         }
 
         Ok(entities)
+    }
+
+    fn parse_single_entity(ent_type: &str, pairs: &[(i32, String)], start_idx: usize) -> (Option<DxfEntity>, usize) {
+        let mut i = start_idx;
+
+        if ent_type == "POLYLINE" {
+            let mut poly_pairs = Vec::new();
+            while i < pairs.len() && pairs[i].0 != 0 {
+                poly_pairs.push((pairs[i].0, pairs[i].1.clone()));
+                i += 1;
+            }
+            let mut layer = "0".to_string();
+            let mut color_index = 0i32;
+            let mut is_closed = false;
+            for (c, v) in &poly_pairs {
+                if *c == 8 {
+                    layer = v.clone();
+                } else if *c == 62 {
+                    color_index = v.trim().parse().unwrap_or(0);
+                } else if *c == 70 {
+                    let f: i32 = v.trim().parse().unwrap_or(0);
+                    is_closed = (f & 1) != 0;
+                }
+            }
+
+            let mut vertices = Vec::new();
+            while i < pairs.len() {
+                if pairs[i].0 == 0 {
+                    let sub_tag = pairs[i].1.to_ascii_uppercase();
+                    if sub_tag == "SEQEND" || sub_tag == "ENDSEC" {
+                        i += 1;
+                        break;
+                    } else if sub_tag == "VERTEX" {
+                        i += 1;
+                        let mut vx = 0.0;
+                        let mut vy = 0.0;
+                        let mut bulge = 0.0;
+                        while i < pairs.len() && pairs[i].0 != 0 {
+                            match pairs[i].0 {
+                                10 => vx = pairs[i].1.trim().parse().unwrap_or(0.0),
+                                20 => vy = pairs[i].1.trim().parse().unwrap_or(0.0),
+                                42 => bulge = pairs[i].1.trim().parse().unwrap_or(0.0),
+                                _ => {}
+                            }
+                            i += 1;
+                        }
+                        vertices.push(DxfVertex { point: Point2D::new(vx, vy), bulge });
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                i += 1;
+            }
+
+            let entity = if vertices.len() >= 2 {
+                Some(DxfEntity::Polyline { vertices, is_closed, layer, color_index })
+            } else {
+                None
+            };
+            return (entity, i);
+        }
+
+        let mut ent_pairs = Vec::new();
+        while i < pairs.len() && pairs[i].0 != 0 {
+            ent_pairs.push((pairs[i].0, pairs[i].1.clone()));
+            i += 1;
+        }
+
+        let entity = Self::build_entity(ent_type, &ent_pairs);
+        (entity, i)
     }
 
     fn build_entity(ent_type: &str, pairs: &[(i32, String)]) -> Option<DxfEntity> {
@@ -211,7 +480,7 @@ impl DxfFormat {
             if *code == 8 {
                 layer = val.clone();
             } else if *code == 62 {
-                color_index = val.parse().unwrap_or(0);
+                color_index = val.trim().parse().unwrap_or(0);
             }
         }
 
@@ -223,10 +492,10 @@ impl DxfFormat {
                 let mut y2 = 0.0;
                 for (code, val) in pairs {
                     match *code {
-                        10 => x1 = val.parse().unwrap_or(0.0),
-                        20 => y1 = val.parse().unwrap_or(0.0),
-                        11 => x2 = val.parse().unwrap_or(0.0),
-                        21 => y2 = val.parse().unwrap_or(0.0),
+                        10 => x1 = val.trim().parse().unwrap_or(0.0),
+                        20 => y1 = val.trim().parse().unwrap_or(0.0),
+                        11 => x2 = val.trim().parse().unwrap_or(0.0),
+                        21 => y2 = val.trim().parse().unwrap_or(0.0),
                         _ => {}
                     }
                 }
@@ -247,7 +516,7 @@ impl DxfFormat {
                 for (code, val) in pairs {
                     match *code {
                         70 => {
-                            let flags: i32 = val.parse().unwrap_or(0);
+                            let flags: i32 = val.trim().parse().unwrap_or(0);
                             is_closed = (flags & 1) != 0;
                         }
                         10 => {
@@ -258,13 +527,13 @@ impl DxfFormat {
                                 });
                                 cur_bulge = 0.0;
                             }
-                            cur_x = val.parse().ok();
+                            cur_x = val.trim().parse().ok();
                         }
                         20 => {
-                            cur_y = val.parse().ok();
+                            cur_y = val.trim().parse().ok();
                         }
                         42 => {
-                            cur_bulge = val.parse().unwrap_or(0.0);
+                            cur_bulge = val.trim().parse().unwrap_or(0.0);
                         }
                         _ => {}
                     }
@@ -292,9 +561,9 @@ impl DxfFormat {
                 let mut r = 0.0;
                 for (code, val) in pairs {
                     match *code {
-                        10 => cx = val.parse().unwrap_or(0.0),
-                        20 => cy = val.parse().unwrap_or(0.0),
-                        40 => r = val.parse().unwrap_or(0.0),
+                        10 => cx = val.trim().parse().unwrap_or(0.0),
+                        20 => cy = val.trim().parse().unwrap_or(0.0),
+                        40 => r = val.trim().parse().unwrap_or(0.0),
                         _ => {}
                     }
                 }
@@ -317,11 +586,11 @@ impl DxfFormat {
                 let mut end_deg = 360.0;
                 for (code, val) in pairs {
                     match *code {
-                        10 => cx = val.parse().unwrap_or(0.0),
-                        20 => cy = val.parse().unwrap_or(0.0),
-                        40 => r = val.parse().unwrap_or(0.0),
-                        50 => start_deg = val.parse().unwrap_or(0.0),
-                        51 => end_deg = val.parse().unwrap_or(360.0),
+                        10 => cx = val.trim().parse().unwrap_or(0.0),
+                        20 => cy = val.trim().parse().unwrap_or(0.0),
+                        40 => r = val.trim().parse().unwrap_or(0.0),
+                        50 => start_deg = val.trim().parse().unwrap_or(0.0),
+                        51 => end_deg = val.trim().parse().unwrap_or(360.0),
                         _ => {}
                     }
                 }
@@ -349,13 +618,13 @@ impl DxfFormat {
 
                 for (code, val) in pairs {
                     match *code {
-                        10 => cx = val.parse().unwrap_or(0.0),
-                        20 => cy = val.parse().unwrap_or(0.0),
-                        11 => mx = val.parse().unwrap_or(10.0),
-                        21 => my = val.parse().unwrap_or(0.0),
-                        40 => ratio = val.parse().unwrap_or(0.5),
-                        41 => start_p = val.parse().unwrap_or(0.0),
-                        42 => end_p = val.parse().unwrap_or(std::f64::consts::TAU),
+                        10 => cx = val.trim().parse().unwrap_or(0.0),
+                        20 => cy = val.trim().parse().unwrap_or(0.0),
+                        11 => mx = val.trim().parse().unwrap_or(10.0),
+                        21 => my = val.trim().parse().unwrap_or(0.0),
+                        40 => ratio = val.trim().parse().unwrap_or(0.5),
+                        41 => start_p = val.trim().parse().unwrap_or(0.0),
+                        42 => end_p = val.trim().parse().unwrap_or(std::f64::consts::TAU),
                         _ => {}
                     }
                 }
@@ -365,6 +634,88 @@ impl DxfFormat {
                     ratio,
                     start_param: start_p,
                     end_param: end_p,
+                    layer,
+                    color_index,
+                })
+            }
+            "SPLINE" => {
+                let mut is_closed = false;
+                let mut fit_pts = Vec::new();
+                let mut ctrl_pts = Vec::new();
+                let mut cur_fx: Option<f64> = None;
+                let mut cur_cx: Option<f64> = None;
+
+                for (code, val) in pairs {
+                    match *code {
+                        70 => {
+                            let f: i32 = val.trim().parse().unwrap_or(0);
+                            is_closed = (f & 1) != 0;
+                        }
+                        11 => cur_fx = val.trim().parse().ok(),
+                        21 => {
+                            if let Some(x) = cur_fx.take() {
+                                if let Ok(y) = val.trim().parse::<f64>() {
+                                    fit_pts.push(Point2D::new(x, y));
+                                }
+                            }
+                        }
+                        10 => cur_cx = val.trim().parse().ok(),
+                        20 => {
+                            if let Some(x) = cur_cx.take() {
+                                if let Ok(y) = val.trim().parse::<f64>() {
+                                    ctrl_pts.push(Point2D::new(x, y));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                let pts = if fit_pts.len() >= 2 {
+                    fit_pts
+                } else if ctrl_pts.len() >= 2 {
+                    ctrl_pts
+                } else {
+                    Vec::new()
+                };
+
+                if pts.len() >= 2 {
+                    Some(DxfEntity::Polyline {
+                        vertices: pts.into_iter().map(|p| DxfVertex { point: p, bulge: 0.0 }).collect(),
+                        is_closed,
+                        layer,
+                        color_index,
+                    })
+                } else {
+                    None
+                }
+            }
+            "SOLID" | "3DFACE" | "TRACE" => {
+                let mut x0 = 0.0; let mut y0 = 0.0;
+                let mut x1 = 0.0; let mut y1 = 0.0;
+                let mut x2 = 0.0; let mut y2 = 0.0;
+                let mut x3 = 0.0; let mut y3 = 0.0;
+                let mut has3 = false;
+                for (code, val) in pairs {
+                    match *code {
+                        10 => x0 = val.trim().parse().unwrap_or(0.0),
+                        20 => y0 = val.trim().parse().unwrap_or(0.0),
+                        11 => x1 = val.trim().parse().unwrap_or(0.0),
+                        21 => y1 = val.trim().parse().unwrap_or(0.0),
+                        12 => x2 = val.trim().parse().unwrap_or(0.0),
+                        22 => y2 = val.trim().parse().unwrap_or(0.0),
+                        13 => { x3 = val.trim().parse().unwrap_or(0.0); has3 = true; }
+                        23 => { y3 = val.trim().parse().unwrap_or(0.0); has3 = true; }
+                        _ => {}
+                    }
+                }
+                let mut pts = vec![Point2D::new(x0, y0), Point2D::new(x1, y1), Point2D::new(x2, y2)];
+                if has3 && (Point2D::new(x3, y3).distance_to(&Point2D::new(x2, y2)) > 1e-4) {
+                    pts.push(Point2D::new(x3, y3));
+                }
+                Some(DxfEntity::Polyline {
+                    vertices: pts.into_iter().map(|p| DxfVertex { point: p, bulge: 0.0 }).collect(),
+                    is_closed: true,
                     layer,
                     color_index,
                 })
@@ -578,5 +929,120 @@ EOF"#;
         let doc = DxfFormat::load_from_str(sample_str).expect("Sample bracket DXF must load");
         assert!(doc.shapes.len() >= 10, "Bracket DXF has perimeter, circles, and lines");
         assert!(doc.layers.len() >= 3, "Has CUT, HOLES, ENGRAVE layers");
+    }
+
+    #[test]
+    fn test_dxf_polyline_with_vertex_seqend() {
+        let dxf = r#"0
+SECTION
+2
+ENTITIES
+0
+POLYLINE
+8
+CUT
+70
+1
+0
+VERTEX
+10
+10.0
+20
+10.0
+42
+0.0
+0
+VERTEX
+10
+50.0
+20
+10.0
+42
+0.5
+0
+VERTEX
+10
+50.0
+20
+50.0
+42
+0.0
+0
+VERTEX
+10
+10.0
+20
+50.0
+42
+0.0
+0
+SEQEND
+0
+ENDSEC
+0
+EOF"#;
+        let doc = DxfFormat::load_from_str(dxf).expect("Classic POLYLINE with VERTEX/SEQEND should parse");
+        assert_eq!(doc.shapes.len(), 1);
+        if let Shape::Path { polyline, .. } = &doc.shapes[0] {
+            assert!(polyline.is_closed);
+            assert!(polyline.points.len() > 4);
+        } else {
+            panic!("Expected Shape::Path");
+        }
+    }
+
+    #[test]
+    fn test_dxf_blocks_and_insert() {
+        let dxf = r#"0
+SECTION
+2
+BLOCKS
+0
+BLOCK
+2
+HOLE_BLOCK
+0
+CIRCLE
+8
+HOLES
+10
+0.0
+20
+0.0
+40
+5.0
+0
+ENDBLK
+0
+ENDSEC
+0
+SECTION
+2
+ENTITIES
+0
+INSERT
+2
+HOLE_BLOCK
+10
+30.0
+20
+40.0
+41
+1.0
+42
+1.0
+50
+0.0
+0
+ENDSEC
+0
+EOF"#;
+        let doc = DxfFormat::load_from_str(dxf).expect("DXF with BLOCKS and INSERT should instantiate");
+        assert_eq!(doc.shapes.len(), 1);
+        if let Shape::Circle { radius, .. } = &doc.shapes[0] {
+            assert_eq!(*radius, 5.0);
+        } else {
+            panic!("Expected Shape::Circle");
+        }
     }
 }

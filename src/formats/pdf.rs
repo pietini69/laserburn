@@ -58,7 +58,8 @@ impl PdfFormat {
     }
 
     pub fn load_from_bytes(bytes: &[u8]) -> Result<Document, String> {
-        if bytes.len() < 8 || !bytes.starts_with(b"%PDF-") {
+        let max_hdr = bytes.len().min(1024);
+        if bytes.len() < 8 || find_subsequence(&bytes[..max_hdr], b"%PDF-").is_none() {
             return Err("Not a valid PDF file (missing %PDF- header)".to_string());
         }
 
@@ -84,7 +85,7 @@ impl PdfFormat {
         }
 
         if raw_shapes.is_empty() {
-            return Err("No vector paths found in PDF content streams".to_string());
+            return Err("No vector paths found in PDF content streams (file might contain only scanned raster images or text fonts)".to_string());
         }
 
         // PDF coordinates have (0, 0) at bottom-left with Y+ going upwards.
@@ -129,22 +130,40 @@ impl PdfFormat {
             // Find endstream
             if let Some(end_idx) = find_subsequence(&bytes[data_start..], b"endstream") {
                 let data_end = data_start + end_idx;
-                let stream_data = &bytes[data_start..data_end];
+                let raw_stream = &bytes[data_start..data_end];
+
+                let mut clean_data = raw_stream;
+                while !clean_data.is_empty() && (clean_data[clean_data.len() - 1] == b'\n' || clean_data[clean_data.len() - 1] == b'\r') {
+                    clean_data = &clean_data[..clean_data.len() - 1];
+                }
 
                 // Check preceding dictionary for /FlateDecode
-                let dict_window_start = abs_stream.saturating_sub(400);
+                let dict_window_start = abs_stream.saturating_sub(600);
                 let dict_window = &bytes[dict_window_start..abs_stream];
                 let is_flate = find_subsequence(dict_window, b"/FlateDecode").is_some()
                     || find_subsequence(dict_window, b"/Fl").is_some();
 
-                if is_flate {
-                    if let Ok(decompressed) = miniz_oxide::inflate::decompress_to_vec_zlib(stream_data) {
-                        streams.push(decompressed);
-                    } else if let Ok(decompressed) = miniz_oxide::inflate::decompress_to_vec(stream_data) {
-                        streams.push(decompressed);
+                let mut decompressed_opt = None;
+                if is_flate
+                    || clean_data.starts_with(&[0x78, 0x9c])
+                    || clean_data.starts_with(&[0x78, 0x01])
+                    || clean_data.starts_with(&[0x78, 0xda])
+                {
+                    if let Ok(decompressed) = miniz_oxide::inflate::decompress_to_vec_zlib(clean_data) {
+                        decompressed_opt = Some(decompressed);
+                    } else if let Ok(decompressed) = miniz_oxide::inflate::decompress_to_vec(clean_data) {
+                        decompressed_opt = Some(decompressed);
+                    } else if let Ok(decompressed) = miniz_oxide::inflate::decompress_to_vec_zlib(raw_stream) {
+                        decompressed_opt = Some(decompressed);
+                    } else if let Ok(decompressed) = miniz_oxide::inflate::decompress_to_vec(raw_stream) {
+                        decompressed_opt = Some(decompressed);
                     }
-                } else {
-                    streams.push(stream_data.to_vec());
+                }
+
+                if let Some(decompressed) = decompressed_opt {
+                    streams.push(decompressed);
+                } else if !is_flate {
+                    streams.push(clean_data.to_vec());
                 }
 
                 pos = data_end + 9;
@@ -363,9 +382,9 @@ impl PdfFormat {
                     }
                     stack.clear();
                 }
-                // Paint path: S (stroke), s (close & stroke), f / F (fill), B / b (fill & stroke)
-                "S" | "s" | "f" | "F" | "b" | "B" => {
-                    let should_close = tok == "s" || tok == "b";
+                // Paint path: S (stroke), s (close & stroke), f / F / f* (fill), B / b / B* / b* (fill & stroke)
+                "S" | "s" | "f" | "F" | "f*" | "b" | "B" | "b*" | "B*" => {
+                    let should_close = tok == "s" || tok == "b" || tok == "b*";
                     if !current_subpath.is_empty() {
                         active_subpaths.push((std::mem::take(&mut current_subpath), should_close));
                     }
@@ -379,6 +398,10 @@ impl PdfFormat {
                             });
                         }
                     }
+                    stack.clear();
+                }
+                "W" | "W*" => {
+                    // Clipping path operator in PDF
                     stack.clear();
                 }
                 "n" => {
