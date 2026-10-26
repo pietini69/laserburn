@@ -372,6 +372,7 @@ fn translate_fi<'a>(key: &'a str) -> &'a str {
         "Shapes:" => "Muotoja:",
         "Selected:" => "Valittu:",
         "Arrows: Jog Laser" => "Nuolet: Siirrä laseria",
+        "Arrows" => "Nuolet",
         "Nudge Selection" => "Hienosäädä valintaa",
         "Origin (0, 0)" => "Origo (0, 0)",
         "Safe Work Envelope (Soft Limits)" => "Turva-alue (Ohjelmarajat)",

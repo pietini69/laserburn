@@ -4074,7 +4074,7 @@ impl eframe::App for LaserBurnApp {
                 });
                 ui.separator();
                 ui.label(egui::RichText::new(concat!("LaserBurn v", env!("CARGO_PKG_VERSION"))).strong().color(egui::Color32::from_rgb(255, 140, 0)));
-                ui.label(egui::RichText::new(format!("({} | {}+{})", tr("Arrows: Jog Laser"), cmd, tr("Nudge Selection"))).italics().color(egui::Color32::GRAY));
+                ui.label(egui::RichText::new(format!("({} | {}+{}: {})", tr("Arrows: Jog Laser"), cmd, tr("Arrows"), tr("Nudge Selection"))).italics().color(egui::Color32::GRAY));
             });
 
             ui.separator();
