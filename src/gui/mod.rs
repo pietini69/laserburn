@@ -2817,8 +2817,10 @@ impl LaserBurnApp {
         };
 
         let color_blue = self.color_blue();
+        let lang = self.device.settings.language;
+        let tr = |k| crate::i18n::t(k, lang);
 
-        egui::Window::new("📚 Material Library & Database")
+        egui::Window::new(tr("Material Library & Database"))
             .open(&mut is_open)
             .default_size([820.0, 560.0])
             .min_width(680.0)
@@ -3196,7 +3198,10 @@ impl LaserBurnApp {
             "No active layer".to_string()
         };
 
-        egui::Window::new("Save Layer to Material Library")
+        let lang = self.device.settings.language;
+        let tr = |k| crate::i18n::t(k, lang);
+
+        egui::Window::new(tr("Save Layer to Material Library"))
             .open(&mut is_open)
             .collapsible(false)
             .resizable(false)
@@ -4069,7 +4074,7 @@ impl eframe::App for LaserBurnApp {
                 });
                 ui.separator();
                 ui.label(egui::RichText::new(concat!("LaserBurn v", env!("CARGO_PKG_VERSION"))).strong().color(egui::Color32::from_rgb(255, 140, 0)));
-                ui.label(egui::RichText::new(format!("(Arrows: Jog Laser | {}+Arrows: Nudge Selection)", cmd)).italics().color(egui::Color32::GRAY));
+                ui.label(egui::RichText::new(format!("({} | {}+{})", tr("Arrows: Jog Laser"), cmd, tr("Nudge Selection"))).italics().color(egui::Color32::GRAY));
             });
 
             ui.separator();
@@ -4166,16 +4171,16 @@ impl eframe::App for LaserBurnApp {
                     self.show_material_library = true;
                 }
 
-                if ui.button("Material Test").on_hover_text("Generate calibrated Power vs. Speed test matrix for tiles or cutting").clicked() {
+                if ui.button(tr("Material Test")).on_hover_text("Generate calibrated Power vs. Speed test matrix for tiles or cutting").clicked() {
                     self.show_material_test_window = true;
                 }
 
-                if ui.button("+ Gear").clicked() {
+                if ui.button(tr("+ Gear")).clicked() {
                     self.load_sample_gear(180.0, 180.0, 12, 40.0, 50.0);
                     self.selected_shape_indices = vec![self.doc.shapes.len() - 1];
                     self.status_msg = "Added gear".to_string();
                 }
-                if ui.button("+ Square").clicked() {
+                if ui.button(tr("+ Square")).clicked() {
                     self.push_undo();
                     self.doc.add_shape(Shape::Rect {
                         layer_index: self.selected_layer,
@@ -4188,7 +4193,7 @@ impl eframe::App for LaserBurnApp {
                     self.selected_shape_indices = vec![self.doc.shapes.len() - 1];
                     self.status_msg = "Added square".to_string();
                 }
-                if ui.button("+ Circle").clicked() {
+                if ui.button(tr("+ Circle")).clicked() {
                     self.push_undo();
                     self.doc.add_shape(Shape::Circle {
                         layer_index: self.selected_layer,
@@ -4198,7 +4203,7 @@ impl eframe::App for LaserBurnApp {
                     self.selected_shape_indices = vec![self.doc.shapes.len() - 1];
                     self.status_msg = "Added circle".to_string();
                 }
-                if ui.button("+ Text").on_hover_text("Create new text with TrueType or Single-Line font (Cmd+T)").clicked() {
+                if ui.button(tr("+ Text")).on_hover_text("Create new text with TrueType or Single-Line font (Cmd+T)").clicked() {
                     if self.text_pos_x == 50.0 && self.text_pos_y == 50.0 {
                         self.text_pos_x = self.doc.width * 0.25;
                         self.text_pos_y = self.doc.height * 0.35;
@@ -4211,7 +4216,7 @@ impl eframe::App for LaserBurnApp {
                 // Laser Execution Buttons (Start / Pause / Resume / Stop)
                 if !self.device.is_job_running {
                     let start_btn = egui::Button::new(
-                        egui::RichText::new(" START ").strong().color(egui::Color32::WHITE),
+                        egui::RichText::new(tr(" START ")).strong().color(egui::Color32::WHITE),
                     ).fill(egui::Color32::from_rgb(34, 139, 34));
                     if ui.add(start_btn).on_hover_text("Start cut job (send G-code to laser)").clicked() {
                         self.start_job();
@@ -4219,14 +4224,14 @@ impl eframe::App for LaserBurnApp {
                 } else {
                     if self.device.is_job_paused {
                         let resume_btn = egui::Button::new(
-                            egui::RichText::new(" RESUME ").strong().color(egui::Color32::WHITE),
+                            egui::RichText::new(tr(" RESUME ")).strong().color(egui::Color32::WHITE),
                         ).fill(egui::Color32::from_rgb(0, 140, 255));
                         if ui.add(resume_btn).on_hover_text("Resume paused job").clicked() {
                             self.device.resume_job();
                         }
                     } else {
                         let pause_btn = egui::Button::new(
-                            egui::RichText::new(" PAUSE ").strong().color(egui::Color32::BLACK),
+                            egui::RichText::new(tr(" PAUSE ")).strong().color(egui::Color32::BLACK),
                         ).fill(egui::Color32::from_rgb(255, 193, 7));
                         if ui.add(pause_btn).on_hover_text("Pause job temporarily").clicked() {
                             self.device.pause_job();
@@ -4234,7 +4239,7 @@ impl eframe::App for LaserBurnApp {
                     }
 
                     let stop_btn = egui::Button::new(
-                        egui::RichText::new(" STOP ").strong().color(egui::Color32::WHITE),
+                        egui::RichText::new(tr(" STOP ")).strong().color(egui::Color32::WHITE),
                     ).fill(egui::Color32::RED);
                     if ui.add(stop_btn).on_hover_text("Emergency stop cut job (M5)").clicked() {
                         self.device.stop_job();
@@ -4244,14 +4249,14 @@ impl eframe::App for LaserBurnApp {
                 ui.separator();
 
                 // Move / Jog Window
-                if ui.button("Jog").on_hover_text("Open laser control and jog window (Cmd+M)").clicked() {
+                if ui.button(tr("Jog")).on_hover_text("Open laser control and jog window (Cmd+M)").clicked() {
                     self.show_move_window = !self.show_move_window;
                 }
 
                 // Weak light button
                 let is_weak_on = self.device.is_weak_light_on;
                 let valo_btn = egui::Button::new(
-                    egui::RichText::new(if is_weak_on { "Beam ON" } else { "Weak Beam" })
+                    egui::RichText::new(if is_weak_on { tr("Beam ON") } else { tr("Weak Beam") })
                         .strong()
                         .color(if is_weak_on { egui::Color32::WHITE } else { egui::Color32::from_rgb(200, 230, 255) }),
                 ).fill(if is_weak_on { egui::Color32::from_rgb(255, 69, 0) } else { egui::Color32::from_rgb(40, 70, 110) });
@@ -4261,21 +4266,21 @@ impl eframe::App for LaserBurnApp {
                 }
 
                 // Frame tests
-                if ui.button("Box Frame").on_hover_text("Test bounding box frame with weak beam").clicked() {
+                if ui.button(tr("Box Frame")).on_hover_text("Test bounding box frame with weak beam").clicked() {
                     self.start_box_frame();
                 }
-                if ui.button("Contour").on_hover_text("Test cut contour with weak beam").clicked() {
+                if ui.button(tr("Contour")).on_hover_text("Test cut contour with weak beam").clicked() {
                     self.start_contour_frame();
                 }
 
                 if self.device.settings.enable_limit_switches {
-                    if ui.button("Home").on_hover_text("Home laser machine to physical switches ($H)").clicked() {
+                    if ui.button(tr("Home")).on_hover_text("Home laser machine to physical switches ($H)").clicked() {
                         self.device.home();
                     }
                 }
 
                 ui.separator();
-                if ui.button("Connection").on_hover_text("Device connection & serial console").clicked() {
+                if ui.button(tr("Connection")).on_hover_text("Device connection & serial console").clicked() {
                     self.show_connection_window = true;
                 }
                 let c_blue = self.color_blue();
@@ -4284,13 +4289,13 @@ impl eframe::App for LaserBurnApp {
                 } else {
                     egui::Color32::GRAY
                 };
-                if ui.button(egui::RichText::new("Traffic Log").strong().color(traffic_color)).on_hover_text("Toggle live Serial / G-code Data Traffic Log panel").clicked() {
+                if ui.button(egui::RichText::new(tr("Traffic Log")).strong().color(traffic_color)).on_hover_text("Toggle live Serial / G-code Data Traffic Log panel").clicked() {
                     self.show_traffic_panel = !self.show_traffic_panel;
                 }
-                if ui.button("Camera").on_hover_text(format!("Open Camera Feed & Alignment window ({}+K)", cmd)).clicked() {
+                if ui.button(tr("Camera")).on_hover_text(format!("Open Camera Feed & Alignment window ({}+K)", cmd)).clicked() {
                     self.show_camera_window = !self.show_camera_window;
                 }
-                let bg_btn_text = if self.camera_calibration.show_on_canvas { "Cam BG" } else { "Cam BG" };
+                let bg_btn_text = if self.camera_calibration.show_on_canvas { tr("Cam BG") } else { tr("Cam BG") };
                 let bg_btn_color = if self.camera_calibration.show_on_canvas {
                     c_blue
                 } else {
@@ -4303,7 +4308,7 @@ impl eframe::App for LaserBurnApp {
 
                 let is_capturing = self.oneshot_snapshot.is_some();
                 let snap_btn = egui::Button::new(
-                    egui::RichText::new(if is_capturing { "Capturing..." } else { "Update Overlay" })
+                    egui::RichText::new(if is_capturing { tr("Capturing...") } else { tr("Update Overlay") })
                         .strong()
                         .color(if is_capturing { egui::Color32::from_rgb(255, 230, 80) } else { egui::Color32::WHITE })
                 ).fill(if is_capturing { egui::Color32::from_rgb(180, 100, 20) } else { egui::Color32::from_rgb(33, 115, 185) });
@@ -4311,14 +4316,14 @@ impl eframe::App for LaserBurnApp {
                 if ui.add(snap_btn).on_hover_text(format!("Capture a fresh photo of the bed with your material (Cmd+U / {}+Shift+U)", cmd)).clicked() {
                     self.trigger_update_overlay();
                 }
-                if ui.button("Snap to Tile").on_hover_text("Auto-detect ceramic tile / workpiece on camera bed and center/fit selection onto it (Right-click to also scale to fit)").clicked() {
+                if ui.button(tr("Snap to Tile")).on_hover_text("Auto-detect ceramic tile / workpiece on camera bed and center/fit selection onto it (Right-click to also scale to fit)").clicked() {
                     self.auto_fit_to_camera_tile(false, 2.0);
                 }
 
                 // Laser Machine Profile Dropdown
                 let cur_prof = self.device.settings.current_profile_name.clone();
                 egui::ComboBox::from_id_salt("topbar_laser_profile_combo")
-                    .selected_text(format!("Laser: {}", cur_prof))
+                    .selected_text(format!("{}: {}", tr("Laser"), cur_prof))
                     .show_ui(ui, |ui| {
                         let names: Vec<String> = self.device.settings.profiles.iter().map(|p| p.name.clone()).collect();
                         for name in names {
@@ -4332,17 +4337,17 @@ impl eframe::App for LaserBurnApp {
                             }
                         }
                         ui.separator();
-                        if ui.button("Manage Laser Profiles...").clicked() {
+                        if ui.button(tr("Manage Laser Profiles...")).clicked() {
                             self.show_device_profiles_window = true;
                         }
                     });
 
-                if ui.button("Settings").on_hover_text(format!("Device & bed settings ({}+,)", cmd)).clicked() {
+                if ui.button(tr("Settings")).on_hover_text(format!("Device & bed settings ({}+,)", cmd)).clicked() {
                     self.show_settings_window = true;
                 }
 
                 ui.separator();
-                if ui.button("Fit").on_hover_text("Fit bed to view").clicked() {
+                if ui.button(tr("Fit")).on_hover_text("Fit bed to view").clicked() {
                     self.zoom = 1.8;
                     self.pan = egui::Vec2::new(100.0, 80.0);
                 }
@@ -4359,9 +4364,12 @@ impl eframe::App for LaserBurnApp {
         // BOTTOM STATUS BAR & QUICK LAYER PALETTE
         // -------------------------------------------------------------
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
+
             // Quick Color & Tool Palette (LightBurn style: L00..L07, T01, T02)
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Layer:").size(11.0).weak());
+                ui.label(egui::RichText::new(tr("Layer:")).size(11.0).weak());
                 for (&idx, layer) in &self.doc.layers {
                     let color = egui::Color32::from_rgb(
                         u8::from_str_radix(&layer.color_hex[1..3], 16).unwrap_or(0),
@@ -4417,29 +4425,29 @@ impl eframe::App for LaserBurnApp {
                 let is_conn = self.device.status == crate::device::ConnectionStatus::Connected;
                 let (badge_color, badge_text) = if is_conn {
                     if self.device.is_physically_connected() {
-                        (c_green, "Connected (USB)")
+                        (c_green, tr("Connected (USB)"))
                     } else {
-                        (c_orange, "Simulator (Demo)")
+                        (c_orange, tr("Simulator (Demo)"))
                     }
                 } else {
-                    (c_red, "Disconnected")
+                    (c_red, tr("Disconnected"))
                 };
 
                 if ui.button(egui::RichText::new(badge_text).strong().color(badge_color)).on_hover_text("Open device connection & console window").clicked() {
                     self.show_connection_window = true;
                 }
-                ui.label(format!("Controller: {}", self.device.controller_type.name()));
+                ui.label(format!("{}: {}", tr("Controller:"), self.device.controller_type.name()));
                 ui.separator();
 
-                ui.label(format!("Machine Pos: X: {:.1} mm, Y: {:.1} mm", self.device.machine_x, self.device.machine_y));
+                ui.label(format!("{}: X: {:.1} mm, Y: {:.1} mm", tr("Machine Pos:"), self.device.machine_x, self.device.machine_y));
                 ui.separator();
 
                 if self.device.is_job_running {
                     let pct = self.device.job_progress * 100.0;
                     ui.label(
                         egui::RichText::new(format!(
-                            "CUTTING: {:.1}% ({}/{})",
-                            pct, self.device.job_idx, self.device.job_total_lines
+                            "{}: {:.1}% ({}/{})",
+                            tr("CUTTING:"), pct, self.device.job_idx, self.device.job_total_lines
                         ))
                         .strong()
                         .color(c_orange),
@@ -4447,7 +4455,7 @@ impl eframe::App for LaserBurnApp {
                     ui.separator();
                 } else if self.device.is_weak_light_on {
                     ui.label(
-                        egui::RichText::new("WEAK BEAM (1.0%)")
+                        egui::RichText::new(tr("WEAK BEAM (1.0%)"))
                             .strong()
                             .color(c_blue),
                     );
@@ -4456,17 +4464,22 @@ impl eframe::App for LaserBurnApp {
 
                 if self.device.is_framing_active {
                     ui.label(
-                        egui::RichText::new("FRAMING IN PROGRESS...")
+                        egui::RichText::new(tr("FRAMING IN PROGRESS..."))
                             .strong()
                             .color(c_orange),
                     );
                     ui.separator();
                 }
 
-                ui.label(egui::RichText::new(&self.status_msg).strong());
+                let disp_status = if self.status_msg == "LaserBurn Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog" {
+                    tr("LaserBurn Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog")
+                } else {
+                    &self.status_msg
+                };
+                ui.label(egui::RichText::new(disp_status).strong());
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(format!("Bed: {:.0} x {:.0} mm | Shapes: {} | Selected: {}", self.doc.width, self.doc.height, self.doc.shapes.len(), self.selected_shape_indices.len()));
+                    ui.label(format!("{}: {:.0} x {:.0} mm | {}: {} | {}: {}", tr("Bed:"), self.doc.width, self.doc.height, tr("Shapes:"), self.doc.shapes.len(), tr("Selected:"), self.selected_shape_indices.len()));
                 });
             });
         });
@@ -4502,9 +4515,10 @@ impl eframe::App for LaserBurnApp {
                             let label = if count == 1 {
                                 let idx = self.selected_shape_indices[0];
                                 let is_locked = self.doc.shapes[idx].is_locked();
-                                format!("Shape #{} {} Selected", idx + 1, if is_locked { "[LOCKED]" } else { "" })
+                                let locked_str = if is_locked { format!(" [{}]", tr("Locked")) } else { "".to_string() };
+                                format!("{} #{}{} {}", tr("Shape"), idx + 1, locked_str, tr("Selected"))
                             } else {
-                                format!("{} Shapes Selected", count)
+                                format!("{} {}", count, tr("Shapes Selected"))
                             };
                             ui.label(egui::RichText::new(label).strong().color(egui::Color32::from_rgb(255, 140, 0)));
                             if ui.button(tr("Deselect")).clicked() {
@@ -4608,11 +4622,11 @@ impl eframe::App for LaserBurnApp {
                             }
                         });
 
-                        ui.label(egui::RichText::new("Tip: You can nudge directly with arrow keys (Shift = 10mm, Alt = 0.1mm)").italics().size(11.0).color(egui::Color32::from_rgb(100, 160, 255)));
+                        ui.label(egui::RichText::new(tr("Tip: You can nudge directly with arrow keys (Shift = 10mm, Alt = 0.1mm)")).italics().size(11.0).color(egui::Color32::from_rgb(100, 160, 255)));
 
                         // Quick Scaling and Rotation
                         ui.horizontal(|ui| {
-                            ui.label("Scale:");
+                            ui.label(tr("Scale:"));
                             let c = bounds.center();
                             if ui.button("+10%").clicked() {
                                 for &idx in &self.selected_shape_indices {
@@ -4646,7 +4660,7 @@ impl eframe::App for LaserBurnApp {
 
                         // Rotation controls (1°, 5°, 15°, 45°, 90°, custom step)
                         ui.horizontal(|ui| {
-                            ui.label("Rotate (fine):");
+                            ui.label(tr("Rotate (fine):"));
                             if ui.button("-1°").on_hover_text("Rotate -1° counter-clockwise (Keys: Q, Comma ,, or Option+8)").clicked() {
                                 self.rotate_selected(-1.0);
                             }
@@ -4662,7 +4676,7 @@ impl eframe::App for LaserBurnApp {
                         });
 
                         ui.horizontal(|ui| {
-                            ui.label("Rotate (coarse):");
+                            ui.label(tr("Rotate (coarse):"));
                             if ui.button("-15°").on_hover_text("Rotate -15° counter-clockwise").clicked() {
                                 self.rotate_selected(-15.0);
                             }
@@ -4684,7 +4698,7 @@ impl eframe::App for LaserBurnApp {
                         });
 
                         ui.horizontal(|ui| {
-                            ui.label("Angle Step:");
+                            ui.label(tr("Angle Step:"));
                             ui.add(
                                 egui::DragValue::new(&mut self.custom_rot_angle)
                                     .speed(0.1)
@@ -4700,11 +4714,11 @@ impl eframe::App for LaserBurnApp {
                         });
 
                         ui.horizontal(|ui| {
-                            ui.label("Flip:");
-                            if ui.button("Flip H").on_hover_text("Flip selected shapes horizontally").clicked() {
+                            ui.label(tr("Flip:"));
+                            if ui.button(tr("Flip H")).on_hover_text("Flip selected shapes horizontally").clicked() {
                                 self.flip_selected_h();
                             }
-                            if ui.button("Flip V").on_hover_text("Flip selected shapes vertically").clicked() {
+                            if ui.button(tr("Flip V")).on_hover_text("Flip selected shapes vertically").clicked() {
                                 self.flip_selected_v();
                             }
                         });
@@ -4714,7 +4728,7 @@ impl eframe::App for LaserBurnApp {
                             let first_idx = self.selected_shape_indices[0];
                             let cur_layer = self.doc.shapes[first_idx].layer_index();
                             ui.horizontal(|ui| {
-                                ui.label("Layer:");
+                                ui.label(tr("Layer:"));
                                 let cur_label = self.doc.layers.get(&cur_layer).map(|l| l.display_label()).unwrap_or_else(|| format!("[L{:02}]", cur_layer));
                                 let mut new_target_layer = None;
                                 egui::ComboBox::from_id_salt("shape_layer_combo")
@@ -4752,8 +4766,8 @@ impl eframe::App for LaserBurnApp {
                                     ui.add_space(6.0);
                                     ui.group(|ui| {
                                         ui.horizontal(|ui| {
-                                            ui.label(egui::RichText::new("Image Adjustments (Preprocess)").strong().color(egui::Color32::from_rgb(100, 210, 255)));
-                                            if ui.small_button("Reset").on_hover_text("Reset Brightness, Contrast, Gamma, and Sharpen to neutral").clicked() {
+                                            ui.label(egui::RichText::new(tr("Image Adjustments (Preprocess)")).strong().color(egui::Color32::from_rgb(100, 210, 255)));
+                                            if ui.small_button(tr("Reset")).on_hover_text("Reset Brightness, Contrast, Gamma, and Sharpen to neutral").clicked() {
                                                 *brightness = 0.0;
                                                 *contrast = 0.0;
                                                 *gamma = 1.0;
@@ -4768,25 +4782,25 @@ impl eframe::App for LaserBurnApp {
                                             .num_columns(2)
                                             .spacing([8.0, 4.0])
                                             .show(ui, |ui| {
-                                                ui.label("Brightness:");
+                                                ui.label(tr("Brightness:"));
                                                 if ui.add(egui::Slider::new(brightness, -100.0..=100.0).suffix("%")).changed() {
                                                     img_changed = true;
                                                 }
                                                 ui.end_row();
 
-                                                ui.label("Contrast:");
+                                                ui.label(tr("Contrast:"));
                                                 if ui.add(egui::Slider::new(contrast, -100.0..=100.0).suffix("%")).changed() {
                                                     img_changed = true;
                                                 }
                                                 ui.end_row();
 
-                                                ui.label("Gamma:");
+                                                ui.label(tr("Gamma:"));
                                                 if ui.add(egui::Slider::new(gamma, 0.20..=3.00)).changed() {
                                                     img_changed = true;
                                                 }
                                                 ui.end_row();
 
-                                                ui.label("Sharpen:");
+                                                ui.label(tr("Sharpen:"));
                                                 if ui.add(egui::Slider::new(sharpen, 0.0..=100.0).suffix("%")).changed() {
                                                     img_changed = true;
                                                 }
@@ -4795,7 +4809,7 @@ impl eframe::App for LaserBurnApp {
 
                                         ui.add_space(4.0);
                                         let trace_btn = egui::Button::new(
-                                            egui::RichText::new(" Trace Image to Vectors... ").strong().color(egui::Color32::WHITE),
+                                            egui::RichText::new(tr(" Trace Image to Vectors... ")).strong().color(egui::Color32::WHITE),
                                         ).fill(egui::Color32::from_rgb(0, 140, 255));
                                         if ui.add(trace_btn).on_hover_text("Vectorize this bitmap graphic into cutting or engraving paths").clicked() {
                                             open_trace = true;
@@ -4813,8 +4827,8 @@ impl eframe::App for LaserBurnApp {
                             }
                         }
                     } else {
-                        ui.label(egui::RichText::new("No shape selected.").italics().color(egui::Color32::GRAY));
-                        ui.label("Click directly INSIDE any shape or click on the Objects List below.");
+                        ui.label(egui::RichText::new(tr("No shape selected.")).italics().color(egui::Color32::GRAY));
+                        ui.label(tr("Click directly INSIDE any shape or click on the Objects List below."));
                     }
 
                     ui.add_space(8.0);
@@ -4828,18 +4842,18 @@ impl eframe::App for LaserBurnApp {
                         for (idx, shape) in self.doc.shapes.iter().enumerate() {
                             let is_sel = self.selected_shape_indices.contains(&idx);
                             let b = shape.bounds();
-                            let lock_str = if shape.is_locked() { " [Locked]" } else { "" };
+                            let lock_str = if shape.is_locked() { format!(" [{}]", tr("Locked")) } else { "".to_string() };
                             let layer_tag = if shape.layer_index() >= 30 {
                                 format!("[T{:02}]", shape.layer_index() - 29)
                             } else {
                                 format!("[L{:02}]", shape.layer_index())
                             };
                             let desc = match shape {
-                                Shape::Group { shapes, .. } => format!("#{}: Group ({} shapes) {}{}", idx + 1, shapes.len(), layer_tag, lock_str),
-                                Shape::Path { .. } => format!("#{}: Path ({:.1}x{:.1}mm) {}{}", idx + 1, b.width(), b.height(), layer_tag, lock_str),
-                                Shape::Rect { .. } => format!("#{}: Rect ({:.1}x{:.1}mm) {}{}", idx + 1, b.width(), b.height(), layer_tag, lock_str),
-                                Shape::Circle { radius, .. } => format!("#{}: Circle (D={:.1}mm) {}{}", idx + 1, radius * 2.0, layer_tag, lock_str),
-                                Shape::Image { .. } => format!("#{}: Image ({:.1}x{:.1}mm) {}{}", idx + 1, b.width(), b.height(), layer_tag, lock_str),
+                                Shape::Group { shapes, .. } => format!("#{}: {} ({} {}) {}{}", idx + 1, tr("Group (Shape)"), shapes.len(), tr("shapes"), layer_tag, lock_str),
+                                Shape::Path { .. } => format!("#{}: {} ({:.1}x{:.1}mm) {}{}", idx + 1, tr("Path"), b.width(), b.height(), layer_tag, lock_str),
+                                Shape::Rect { .. } => format!("#{}: {} ({:.1}x{:.1}mm) {}{}", idx + 1, tr("Rect"), b.width(), b.height(), layer_tag, lock_str),
+                                Shape::Circle { radius, .. } => format!("#{}: {} (D={:.1}mm) {}{}", idx + 1, tr("Circle"), radius * 2.0, layer_tag, lock_str),
+                                Shape::Image { .. } => format!("#{}: {} ({:.1}x{:.1}mm) {}{}", idx + 1, tr("Image"), b.width(), b.height(), layer_tag, lock_str),
                             };
 
                             let shift_held = ui.input(|i| i.modifiers.shift);
@@ -4931,7 +4945,7 @@ impl eframe::App for LaserBurnApp {
                                         }
                                     }
                                     if is_tool {
-                                        ui.label(egui::RichText::new("No Output").color(egui::Color32::from_rgb(255, 140, 0)).small())
+                                        ui.label(egui::RichText::new(tr("No Output")).color(egui::Color32::from_rgb(255, 140, 0)).small())
                                             .on_hover_text("Tool layer: used for visual guides/alignment, laser will never cut");
                                     } else {
                                         ui.label(format!("{:.0}mm/s | {:.0}%", layer.cut_setting.speed, layer.cut_setting.power_max));
@@ -4966,7 +4980,7 @@ impl eframe::App for LaserBurnApp {
                         ui.group(|ui| {
                             if layer.is_tool() {
                                 ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new("Name:").strong());
+                                    ui.label(egui::RichText::new(tr("Name:")).strong());
                                     ui.add(
                                         egui::TextEdit::singleline(&mut layer.name)
                                             .desired_width(140.0)
@@ -4978,26 +4992,32 @@ impl eframe::App for LaserBurnApp {
                                 ui.label(egui::RichText::new("Shapes on this layer are used as visual alignment frames, jigs, material outlines, and notes. The laser will never cut or burn this layer.").small());
                             } else {
                                 ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new("Name:").strong());
+                                    ui.label(egui::RichText::new(tr("Name:")).strong());
                                     ui.add(
                                         egui::TextEdit::singleline(&mut layer.name)
                                             .desired_width(140.0)
                                             .hint_text("e.g. Vaneri, Pahvi"),
                                     ).on_hover_text("Custom name for this layer (e.g. Vaneri, Pahvi, Leikkaus, Kaiverrus)");
-                                    ui.checkbox(&mut layer.output, "Output").on_hover_text("When unchecked, shapes on this layer will not be cut by the laser");
+                                    ui.checkbox(&mut layer.output, tr("Output")).on_hover_text("When unchecked, shapes on this layer will not be cut by the laser");
                                 });
 
                                 ui.add_space(2.0);
 
                                 ui.horizontal(|ui| {
-                                    egui::ComboBox::from_label("Mode")
-                                        .selected_text(format!("{:?}", layer.cut_setting.mode))
+                                    egui::ComboBox::from_label(tr("Mode"))
+                                        .selected_text(match layer.cut_setting.mode {
+                                            CutMode::Line => tr("Line (Cut/Score)"),
+                                            CutMode::Fill => tr("Fill (Engrave)"),
+                                            CutMode::OffsetFill => tr("Offset Fill"),
+                                            CutMode::Image => tr("Image (Dither)"),
+                                        })
                                         .show_ui(ui, |ui| {
-                                            ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Line, "Line (Cut/Score)");
-                                            ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Fill, "Fill (Engrave)");
-                                            ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Image, "Image (Dither)");
+                                            ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Line, tr("Line (Cut/Score)"));
+                                            ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Fill, tr("Fill (Engrave)"));
+                                            ui.selectable_value(&mut layer.cut_setting.mode, CutMode::OffsetFill, tr("Offset Fill"));
+                                            ui.selectable_value(&mut layer.cut_setting.mode, CutMode::Image, tr("Image (Dither)"));
                                         });
-                                    ui.checkbox(&mut layer.cut_setting.air_assist, "Air Assist");
+                                    ui.checkbox(&mut layer.cut_setting.air_assist, tr("Air Assist"));
                                 });
 
                             ui.add_space(4.0);
@@ -5007,7 +5027,7 @@ impl eframe::App for LaserBurnApp {
                                 .spacing([6.0, 6.0])
                                 .show(ui, |ui| {
                                     // 1. Speed (Numeric input + Slider)
-                                    ui.label("Speed:");
+                                    ui.label(tr("Speed:"));
                                     ui.add(
                                         egui::DragValue::new(&mut layer.cut_setting.speed)
                                             .speed(1.0)
@@ -5025,7 +5045,7 @@ impl eframe::App for LaserBurnApp {
                                     let is_grayscale_power = layer.cut_setting.mode == CutMode::Image
                                         && layer.cut_setting.dither_mode == DitherMode::GrayscalePower;
 
-                                    let power_label = if is_grayscale_power { "Max Power:" } else { "Power:" };
+                                    let power_label = if is_grayscale_power { tr("Max Power:") } else { tr("Power:") };
                                     ui.label(power_label);
                                     if ui.add(
                                         egui::DragValue::new(&mut layer.cut_setting.power_max)
@@ -5045,7 +5065,7 @@ impl eframe::App for LaserBurnApp {
 
                                     // Min Power (Only shown for GrayscalePower)
                                     if is_grayscale_power {
-                                        ui.label("Min Power:");
+                                        ui.label(tr("Min Power:"));
                                         if ui.add(
                                             egui::DragValue::new(&mut layer.cut_setting.power_min)
                                                 .speed(0.5)
@@ -5064,7 +5084,7 @@ impl eframe::App for LaserBurnApp {
                                     }
 
                                     // 3. Passes (Numeric input + Slider)
-                                    ui.label("Passes:");
+                                    ui.label(tr("Passes:"));
                                     ui.add(
                                         egui::DragValue::new(&mut layer.cut_setting.num_passes)
                                             .speed(1)
@@ -5078,7 +5098,7 @@ impl eframe::App for LaserBurnApp {
                                     ui.end_row();
 
                                     // 4. Kerf (Full width + calculated offset)
-                                    ui.label("Kerf (Width):");
+                                    ui.label(tr("Kerf (Width):"));
                                     ui.add(
                                         egui::DragValue::new(&mut layer.cut_setting.kerf)
                                             .speed(0.005)
@@ -5097,7 +5117,7 @@ impl eframe::App for LaserBurnApp {
 
                                     // 5. Dither Algorithm (Visible when Mode is Image)
                                     if layer.cut_setting.mode == CutMode::Image {
-                                        ui.label("Dither:");
+                                        ui.label(tr("Dither:"));
                                         egui::ComboBox::from_id_salt("layer_dither_algo_dropdown")
                                             .selected_text(match layer.cut_setting.dither_mode {
                                                 DitherMode::Atkinson => "Atkinson (Best Detail)",
@@ -5123,7 +5143,7 @@ impl eframe::App for LaserBurnApp {
                                         ui.end_row();
 
                                         if layer.cut_setting.dither_mode == DitherMode::GrayscalePower {
-                                            ui.label("Invert:");
+                                            ui.label(tr("Invert:"));
                                             if ui.checkbox(&mut layer.cut_setting.invert_image, "Negative / Invert")
                                                 .on_hover_text("Invert light/dark mapping (e.g. for ceramics where laser removes dark coat to reveal light coat)")
                                                 .changed()
@@ -5133,7 +5153,7 @@ impl eframe::App for LaserBurnApp {
                                             ui.label(egui::RichText::new("For layered tiles / glass").small().weak());
                                             ui.end_row();
 
-                                            ui.label("Overscan:");
+                                            ui.label(tr("Overscan:"));
                                             ui.add(
                                                 egui::DragValue::new(&mut layer.cut_setting.overscan)
                                                     .speed(0.1)
@@ -5147,7 +5167,7 @@ impl eframe::App for LaserBurnApp {
 
                                     // 6. Line Interval / Resolution (Visible for Image & Fill modes)
                                     if layer.cut_setting.mode == CutMode::Image || layer.cut_setting.mode == CutMode::Fill {
-                                        ui.label("Interval:");
+                                        ui.label(tr("Interval:"));
                                         ui.add(
                                             egui::DragValue::new(&mut layer.cut_setting.line_interval)
                                                 .speed(0.005)
@@ -5245,7 +5265,7 @@ impl eframe::App for LaserBurnApp {
                                             }
                                         }
                                         if layer.cut_setting.ceramic_bands.len() < 8 {
-                                            if ui.small_button("+ Add Paint Coat").clicked() {
+                                            if ui.small_button(tr("+ Add Paint Coat")).clicked() {
                                                 layer.cut_setting.ceramic_bands.push(crate::document::CeramicColorBand {
                                                     label: format!("Coat {}", layer.cut_setting.ceramic_bands.len() + 1),
                                                     max_power_pct: 90.0,
@@ -5259,10 +5279,10 @@ impl eframe::App for LaserBurnApp {
 
                                 ui.add_space(6.0);
                                 ui.horizontal(|ui| {
-                                    if ui.button("⬇ Assign from Library").on_hover_text("Open Material Library to apply a calibrated preset to this layer").clicked() {
+                                    if ui.button(tr("⬇ Assign from Library")).on_hover_text("Open Material Library to apply a calibrated preset to this layer").clicked() {
                                         open_mat_lib = true;
                                     }
-                                    if ui.button("⬆ Save to Library").on_hover_text("Save this layer's speed, power, and passes into the Material Library").clicked() {
+                                    if ui.button(tr("⬆ Save to Library")).on_hover_text("Save this layer's speed, power, and passes into the Material Library").clicked() {
                                         open_save_mat_dialog = true;
                                     }
                                 });
@@ -5329,7 +5349,7 @@ impl eframe::App for LaserBurnApp {
                         });
 
                         ui.horizontal(|ui| {
-                            ui.label("Home Speed:");
+                            ui.label(tr("Home Speed:"));
                             if ui.add(egui::Slider::new(&mut self.device.settings.homing_speed, 100.0..=1200.0).suffix(" mm/min")).on_hover_text("Gentle seek speed for mechanical switch calibration (default 400 mm/min = 6.6 mm/s)").changed() {
                                 let _ = self.device.settings.save();
                             }
@@ -5339,7 +5359,7 @@ impl eframe::App for LaserBurnApp {
                     if self.device.grbl_state.starts_with("Alarm") {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(format!("Status: {}", self.device.grbl_state)).color(egui::Color32::from_rgb(255, 60, 60)).strong());
-                            if ui.button("Unlock ($X)").clicked() {
+                            if ui.button(tr("Unlock ($X)")).clicked() {
                                 self.device.send_raw("$X");
                                 self.device.send_raw("$21=1");
                             }
@@ -5422,14 +5442,14 @@ impl eframe::App for LaserBurnApp {
                     });
 
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new("Go to Corner:").strong());
+                    ui.label(egui::RichText::new(tr("Go to Corner:")).strong());
 
                     let corner_btn_w = (ui.available_width() - 4.0) * 0.5;
                     let corner_btn_size = egui::vec2(corner_btn_w, 24.0);
 
                     ui.horizontal(|ui| {
                         let (tl_x, tl_y) = self.device.get_corner_coordinates("top_left");
-                        let tl_text = format!("Top-Left ({:.0},{:.0})", tl_x, tl_y);
+                        let tl_text = format!("{} ({:.0},{:.0})", tr("Top-Left"), tl_x, tl_y);
                         if ui.add_sized(corner_btn_size, egui::Button::new(tl_text))
                             .on_hover_text(format!("Move laser head directly to top-left corner (X={:.1}, Y={:.1} mm)", tl_x, tl_y))
                             .clicked()
@@ -5439,7 +5459,7 @@ impl eframe::App for LaserBurnApp {
                         }
 
                         let (tr_x, tr_y) = self.device.get_corner_coordinates("top_right");
-                        let tr_text = format!("Top-Right ({:.0},{:.0})", tr_x, tr_y);
+                        let tr_text = format!("{} ({:.0},{:.0})", tr("Top-Right"), tr_x, tr_y);
                         if ui.add_sized(corner_btn_size, egui::Button::new(tr_text))
                             .on_hover_text(format!("Move laser head directly to top-right corner (X={:.1}, Y={:.1} mm)", tr_x, tr_y))
                             .clicked()
@@ -5451,7 +5471,7 @@ impl eframe::App for LaserBurnApp {
 
                     ui.horizontal(|ui| {
                         let (bl_x, bl_y) = self.device.get_corner_coordinates("bottom_left");
-                        let bl_text = format!("Bottom-Left ({:.0},{:.0})", bl_x, bl_y);
+                        let bl_text = format!("{} ({:.0},{:.0})", tr("Bottom-Left"), bl_x, bl_y);
                         if ui.add_sized(corner_btn_size, egui::Button::new(bl_text))
                             .on_hover_text(format!("Move laser head directly to bottom-left corner (X={:.1}, Y={:.1} mm)", bl_x, bl_y))
                             .clicked()
@@ -5461,7 +5481,7 @@ impl eframe::App for LaserBurnApp {
                         }
 
                         let (br_x, br_y) = self.device.get_corner_coordinates("bottom_right");
-                        let br_text = format!("Bottom-Right ({:.0},{:.0})", br_x, br_y);
+                        let br_text = format!("{} ({:.0},{:.0})", tr("Bottom-Right"), br_x, br_y);
                         if ui.add_sized(corner_btn_size, egui::Button::new(br_text))
                             .on_hover_text(format!("Move laser head directly to bottom-right corner (X={:.1}, Y={:.1} mm)", br_x, br_y))
                             .clicked()
@@ -5474,7 +5494,7 @@ impl eframe::App for LaserBurnApp {
                     ui.add_space(3.0);
                     ui.horizontal(|ui| {
                         let set_origin_btn = egui::Button::new(
-                            egui::RichText::new("Set Origin (0,0)").strong().color(egui::Color32::WHITE)
+                            egui::RichText::new(tr("Set Origin (0,0)")).strong().color(egui::Color32::WHITE)
                         ).fill(egui::Color32::from_rgb(46, 125, 50)); // Forest green
 
                         let has_switches = self.device.settings.enable_limit_switches;
@@ -5491,7 +5511,7 @@ impl eframe::App for LaserBurnApp {
                             }
 
                             let reset_btn = egui::Button::new(
-                                egui::RichText::new(if is_homing { "Abort" } else { "Switches" })
+                                egui::RichText::new(if is_homing { tr("Abort") } else { tr("Switches") })
                                     .strong()
                                     .color(egui::Color32::WHITE)
                             ).fill(if is_homing { egui::Color32::from_rgb(220, 50, 40) } else { egui::Color32::from_rgb(33, 115, 185) });
@@ -5520,7 +5540,7 @@ impl eframe::App for LaserBurnApp {
                     ui.horizontal(|ui| {
                         let is_on = self.device.is_weak_light_on;
                         let weak_btn = egui::Button::new(
-                            egui::RichText::new(if is_on { "Beam ON" } else { "Weak Beam" })
+                            egui::RichText::new(if is_on { tr("Beam ON") } else { tr("Weak Beam") })
                                 .color(if is_on { egui::Color32::WHITE } else { egui::Color32::from_rgb(200, 230, 255) }),
                         ).fill(if is_on { egui::Color32::from_rgb(255, 69, 0) } else { egui::Color32::from_rgb(40, 70, 110) });
 
@@ -5528,11 +5548,11 @@ impl eframe::App for LaserBurnApp {
                             self.device.toggle_weak_light();
                         }
 
-                        if ui.button("Box Frame").clicked() {
+                        if ui.button(tr("Box Frame")).clicked() {
                             self.start_box_frame();
                         }
 
-                        if ui.button("Contour").clicked() {
+                        if ui.button(tr("Contour")).clicked() {
                             self.start_contour_frame();
                         }
                     });
@@ -5540,7 +5560,7 @@ impl eframe::App for LaserBurnApp {
                     ui.add_space(2.0);
                     let is_capturing = self.oneshot_snapshot.is_some();
                     let snap_btn = egui::Button::new(
-                        egui::RichText::new(if is_capturing { "Capturing Bed Photo..." } else { "Update Bed Overlay (Camera)" })
+                        egui::RichText::new(if is_capturing { tr("Capturing Bed Photo...") } else { tr("Update Bed Overlay (Camera)") })
                             .strong()
                             .color(if is_capturing { egui::Color32::from_rgb(255, 230, 80) } else { egui::Color32::WHITE })
                     ).fill(if is_capturing { egui::Color32::from_rgb(180, 100, 20) } else { egui::Color32::from_rgb(33, 115, 185) });
@@ -5553,23 +5573,23 @@ impl eframe::App for LaserBurnApp {
                     }
 
                     ui.add_space(3.0);
-                    ui.collapsing("Custom Soft Limits (Corners)", |ui| {
-                        if ui.checkbox(&mut self.device.settings.custom_boundaries.enabled, "Enforce learned soft limits").changed() {
+                    ui.collapsing(tr("Custom Soft Limits (Corners)"), |ui| {
+                        if ui.checkbox(&mut self.device.settings.custom_boundaries.enabled, tr("Enforce learned soft limits")).changed() {
                             let _ = self.device.settings.save();
                         }
-                        ui.label("Jog laser to corner and save:");
+                        ui.label(tr("Jog laser to corner and save:"));
                         ui.horizontal_wrapped(|ui| {
                             let bl_label = match self.device.settings.custom_boundaries.corner_bottom_left {
-                                Some((x, y)) => format!("[Set] Bottom-Left ({:.0},{:.0})", x, y),
-                                None => "Bottom-Left".to_string(),
+                                Some((x, y)) => format!("[{}] {} ({:.0},{:.0})", tr("Set"), tr("Bottom-Left"), x, y),
+                                None => tr("Bottom-Left").to_string(),
                             };
                             if ui.button(bl_label).on_hover_text("Save current position as bottom-left corner").clicked() {
                                 self.device.save_boundary_corner("bottom_left");
                             }
 
                             let br_label = match self.device.settings.custom_boundaries.corner_bottom_right {
-                                Some((x, y)) => format!("[Set] Bottom-Right ({:.0},{:.0})", x, y),
-                                None => "Bottom-Right".to_string(),
+                                Some((x, y)) => format!("[{}] {} ({:.0},{:.0})", tr("Set"), tr("Bottom-Right"), x, y),
+                                None => tr("Bottom-Right").to_string(),
                             };
                             if ui.button(br_label).on_hover_text("Save current position as bottom-right corner").clicked() {
                                 self.device.save_boundary_corner("bottom_right");
@@ -5578,16 +5598,16 @@ impl eframe::App for LaserBurnApp {
 
                         ui.horizontal_wrapped(|ui| {
                             let tl_label = match self.device.settings.custom_boundaries.corner_top_left {
-                                Some((x, y)) => format!("[Set] Top-Left ({:.0},{:.0})", x, y),
-                                None => "Top-Left".to_string(),
+                                Some((x, y)) => format!("[{}] {} ({:.0},{:.0})", tr("Set"), tr("Top-Left"), x, y),
+                                None => tr("Top-Left").to_string(),
                             };
                             if ui.button(tl_label).on_hover_text("Save current position as top-left corner").clicked() {
                                 self.device.save_boundary_corner("top_left");
                             }
 
                             let tr_label = match self.device.settings.custom_boundaries.corner_top_right {
-                                Some((x, y)) => format!("[Set] Top-Right ({:.0},{:.0})", x, y),
-                                None => "Top-Right".to_string(),
+                                Some((x, y)) => format!("[{}] {} ({:.0},{:.0})", tr("Set"), tr("Top-Right"), x, y),
+                                None => tr("Top-Right").to_string(),
                             };
                             if ui.button(tr_label).on_hover_text("Save current position as top-right corner").clicked() {
                                 self.device.save_boundary_corner("top_right");
@@ -5611,7 +5631,7 @@ impl eframe::App for LaserBurnApp {
                             )).color(b_color).strong());
                         }
 
-                        if ui.button("Clear Custom Limits").clicked() {
+                        if ui.button(tr("Clear Custom Limits")).clicked() {
                             self.device.clear_boundary_corners();
                         }
                     });
@@ -5692,7 +5712,7 @@ impl eframe::App for LaserBurnApp {
                     #[cfg(target_os = "macos")]
                     {
                         ui.add_space(4.0);
-                        ui.collapsing("Apple Shortcuts Automation (macOS)", |ui| {
+                        ui.collapsing(tr("Apple Shortcuts Automation (macOS)"), |ui| {
                             ui.label(
                                 egui::RichText::new("Automatically trigger macOS Shortcuts (e.g. smart plug, exhaust fan, or notification) when a burn job starts or finishes.")
                                     .small()
@@ -5778,12 +5798,12 @@ impl eframe::App for LaserBurnApp {
 
                     ui.add_space(8.0);
                     ui.separator();
-                    ui.heading("Simulation Stats");
+                    ui.heading(tr("Simulation Stats"));
 
                     let stats = self.get_job_estimate();
-                    ui.label(format!("Cut Distance: {:.1} mm", stats.total_cut_distance_mm));
-                    ui.label(format!("Rapid Distance: {:.1} mm", stats.total_rapid_distance_mm));
-                    ui.label(egui::RichText::new(format!("Est. Time: {}", stats.formatted_time)).strong().color(egui::Color32::from_rgb(0, 180, 255)));
+                    ui.label(format!("{} {:.1} mm", tr("Cut Distance:"), stats.total_cut_distance_mm));
+                    ui.label(format!("{} {:.1} mm", tr("Rapid Distance:"), stats.total_rapid_distance_mm));
+                    ui.label(egui::RichText::new(format!("{} {}", tr("Est. Time:"), stats.formatted_time)).strong().color(egui::Color32::from_rgb(0, 180, 255)));
                 });
             });
 
@@ -5797,13 +5817,15 @@ impl eframe::App for LaserBurnApp {
                 .min_width(190.0)
                 .max_width(420.0)
                 .show(ctx, |ui| {
+                    let lang = self.device.settings.language;
+                    let tr = |k| crate::i18n::t(k, lang);
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Data Traffic (TX / RX)").strong());
+                        ui.label(egui::RichText::new(tr("Data Traffic (TX / RX)")).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.small_button("✖").on_hover_text("Hide Data Traffic panel").clicked() {
                                 self.show_traffic_panel = false;
                             }
-                            if ui.small_button("Clear").on_hover_text("Clear traffic history").clicked() {
+                            if ui.small_button(tr("Clear")).on_hover_text("Clear traffic history").clicked() {
                                 self.device.console_history.clear();
                             }
                         });
@@ -5816,7 +5838,7 @@ impl eframe::App for LaserBurnApp {
                         let log_path_str = crate::device::DeviceSettings::traffic_log_path()
                             .map(|p| p.display().to_string())
                             .unwrap_or_else(|| "~/Documents/LaserBurn_traffic.log".to_string());
-                        if ui.checkbox(&mut self.device.settings.save_traffic_log, "Save to Log File")
+                        if ui.checkbox(&mut self.device.settings.save_traffic_log, tr("Save to Log File"))
                             .on_hover_text(format!("Record all TX/RX data traffic to:\n{}", log_path_str))
                             .changed()
                         {
@@ -5829,7 +5851,7 @@ impl eframe::App for LaserBurnApp {
                         }
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("Open Log").on_hover_text(format!("Open log file:\n{}", log_path_str)).clicked() {
+                            if ui.small_button(tr("Open Log")).on_hover_text(format!("Open log file:\n{}", log_path_str)).clicked() {
                                 if let Some(path) = crate::device::DeviceSettings::traffic_log_path() {
                                     if !path.exists() {
                                         let _ = std::fs::write(&path, "# LaserBurn Data Traffic Log\n");
@@ -5847,7 +5869,7 @@ impl eframe::App for LaserBurnApp {
 
                     // Filter options
                     ui.horizontal_wrapped(|ui| {
-                        ui.checkbox(&mut self.explain_traffic_codes, "Explain")
+                        ui.checkbox(&mut self.explain_traffic_codes, tr("Explain"))
                             .on_hover_text("Append human-readable English descriptions after G-code and GRBL commands/responses");
                         if ui.checkbox(&mut self.device.settings.log_status_polls, "<Status>")
                             .on_hover_text("Include periodic GRBL status frames (<Idle|MPos:...>) in log")
@@ -5855,7 +5877,7 @@ impl eframe::App for LaserBurnApp {
                         {
                             let _ = self.device.settings.save();
                         }
-                        ui.checkbox(&mut self.hide_ok_in_traffic_log, "Hide 'ok'")
+                        ui.checkbox(&mut self.hide_ok_in_traffic_log, tr("Hide 'ok'"))
                             .on_hover_text("Hide routine '< ok' acknowledgements to keep view clean");
                     });
 
@@ -5900,7 +5922,7 @@ impl eframe::App for LaserBurnApp {
                             bottom: 10,
                         }))
                         .show_inside(ui, |ui| {
-                            ui.label(egui::RichText::new("Send G-code Command:").small().strong());
+                            ui.label(egui::RichText::new(tr("Send G-code Command:")).small().strong());
                             ui.add_space(3.0);
                             ui.horizontal(|ui| {
                                 let send_btn_w = 54.0;
@@ -5910,7 +5932,7 @@ impl eframe::App for LaserBurnApp {
                                     egui::TextEdit::singleline(&mut self.command_input)
                                         .hint_text("e.g. $$, $X, G0 X10..."),
                                 );
-                                let send_clicked = ui.add_sized([send_btn_w, 24.0], egui::Button::new("Send")).clicked();
+                                let send_clicked = ui.add_sized([send_btn_w, 24.0], egui::Button::new(tr("Send"))).clicked();
                                 if (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                                     || send_clicked
                                 {
@@ -5997,6 +6019,8 @@ impl eframe::App for LaserBurnApp {
         // CENTER 2D CAD CANVAS (Full interactive moving, sizing, drawing)
         // -------------------------------------------------------------
         egui::CentralPanel::default().show(ctx, |ui| {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
             // Pan canvas with right mouse or middle mouse
             if response.dragged_by(egui::PointerButton::Secondary) || response.dragged_by(egui::PointerButton::Middle) {
@@ -6211,7 +6235,7 @@ impl eframe::App for LaserBurnApp {
             painter.text(
                 origin_pos + egui::vec2(if is_right { -12.0 } else { 12.0 }, if is_bot { -8.0 } else { 8.0 }),
                 if is_right { egui::Align2::RIGHT_CENTER } else { egui::Align2::LEFT_CENTER },
-                "Origin (0, 0)",
+                tr("Origin (0, 0)"),
                 egui::FontId::proportional(11.0),
                 egui::Color32::RED,
             );
@@ -6265,7 +6289,7 @@ impl eframe::App for LaserBurnApp {
                     painter.text(
                         label_pos,
                         align,
-                        "Safe Work Envelope (Soft Limits)",
+                        tr("Safe Work Envelope (Soft Limits)"),
                         egui::FontId::proportional(11.0),
                         egui::Color32::from_rgb(46, 125, 50),
                     );
@@ -7089,17 +7113,19 @@ impl eframe::App for LaserBurnApp {
         // TEXT TOOL DIALOG WINDOW
         // -------------------------------------------------------------
         if self.show_text_dialog {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             let mut close_dialog = false;
             let mut do_add_text = false;
             let mut is_open = true;
 
-            egui::Window::new("Text Tool")
+            egui::Window::new(tr("Text Tool"))
                 .collapsible(false)
                 .resizable(false)
                 .default_width(380.0)
                 .open(&mut is_open)
                 .show(ctx, |ui| {
-                    ui.heading("Text Creation for Laser");
+                    ui.heading(tr("Text Creation for Laser"));
                     ui.add_space(4.0);
 
                     ui.label(egui::RichText::new("Enter Text:").strong());
@@ -7237,17 +7263,19 @@ impl eframe::App for LaserBurnApp {
         // OFFSET SHAPES (CONTOUR) DIALOG WINDOW
         // -------------------------------------------------------------
         if self.show_offset_window {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             let mut close_offset = false;
             let mut do_apply_offset = false;
             let mut is_open = true;
 
-            egui::Window::new("Offset Shapes (Contour)")
+            egui::Window::new(tr("Offset Shapes (Contour)"))
                 .collapsible(false)
                 .resizable(false)
                 .default_width(340.0)
                 .open(&mut is_open)
                 .show(ctx, |ui| {
-                    ui.heading("Create Contour Offset");
+                    ui.heading(tr("Create Contour Offset"));
                     ui.label(egui::RichText::new("Generate outward or inward cutting borders around selected shapes, text, or images.").small().weak());
                     ui.add_space(6.0);
 
@@ -7308,11 +7336,13 @@ impl eframe::App for LaserBurnApp {
         // GRID ARRAY WINDOW
         // -------------------------------------------------------------
         if self.show_grid_array_window {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             let mut close_grid = false;
             let mut do_apply = false;
             let mut is_open = true;
 
-            egui::Window::new("Grid Array")
+            egui::Window::new(tr("Grid Array"))
                 .collapsible(false)
                 .resizable(false)
                 .default_width(340.0)
@@ -7378,17 +7408,19 @@ impl eframe::App for LaserBurnApp {
         // RADIAL ARRAY WINDOW
         // -------------------------------------------------------------
         if self.show_radial_array_window {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             let mut close_radial = false;
             let mut do_apply = false;
             let mut is_open = true;
 
-            egui::Window::new("Radial Array (Circular)")
+            egui::Window::new(tr("Radial Array (Circular)"))
                 .collapsible(false)
                 .resizable(false)
                 .default_width(340.0)
                 .open(&mut is_open)
                 .show(ctx, |ui| {
-                    ui.heading("Duplicate Radial Array");
+                    ui.heading(tr("Duplicate Radial Array"));
                     ui.label(egui::RichText::new("Duplicate selected shape(s) in a circular pattern around a center point.").small().weak());
                     ui.add_space(6.0);
 
@@ -7448,6 +7480,8 @@ impl eframe::App for LaserBurnApp {
         // IMAGE TRACE (BITMAP TO VECTOR) WINDOW
         // -------------------------------------------------------------
         if self.show_trace_window {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             let mut close_trace = false;
             let mut do_trace = false;
             let mut is_open = true;
@@ -7460,13 +7494,13 @@ impl eframe::App for LaserBurnApp {
             let count = self.trace_preview_polylines.len();
             let total_pts: usize = self.trace_preview_polylines.iter().map(|p| p.points.len()).sum();
 
-            egui::Window::new("Trace Image (Bitmap to Vector)")
+            egui::Window::new(tr("Trace Image (Bitmap to Vector)"))
                 .collapsible(false)
                 .resizable(false)
                 .default_width(400.0)
                 .open(&mut is_open)
                 .show(ctx, |ui| {
-                    ui.heading("Trace Raster Image to Vectors");
+                    ui.heading(tr("Trace Raster Image to Vectors"));
                     ui.label(egui::RichText::new("Convert logos, silhouettes, and bitmap graphics into sharp cutting and engraving vector paths.").small().weak());
                     ui.add_space(6.0);
 
@@ -7601,10 +7635,12 @@ impl eframe::App for LaserBurnApp {
         // MANAGE MACHINE PROFILES WINDOW
         // -------------------------------------------------------------
         if self.show_device_profiles_window {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             let mut close_profiles = false;
             let mut is_open = true;
 
-            egui::Window::new("Manage Machine Profiles")
+            egui::Window::new(tr("Manage Machine Profiles"))
                 .collapsible(false)
                 .resizable(true)
                 .default_width(460.0)
@@ -7694,11 +7730,13 @@ impl eframe::App for LaserBurnApp {
         // MATERIAL TEST GENERATOR WINDOW
         // -------------------------------------------------------------
         if self.show_material_test_window {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             let mut close_mat = false;
             let mut do_gen_mat = false;
             let mut is_open = true;
 
-            egui::Window::new("Material Test Generator")
+            egui::Window::new(tr("Material Test Generator"))
                 .collapsible(false)
                 .resizable(false)
                 .default_width(390.0)
@@ -7785,16 +7823,18 @@ impl eframe::App for LaserBurnApp {
         // 1. DEVICE CONNECTION & CONSOLE WINDOW
         // -------------------------------------------------------------
         if self.show_connection_window {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             let c_green = self.color_green();
             let c_orange = self.color_orange();
-            egui::Window::new("Device Connection & Console")
+            egui::Window::new(tr("Device Connection & Console"))
                 .collapsible(false)
                 .resizable(true)
                 .default_width(450.0)
                 .default_height(480.0)
                 .open(&mut self.show_connection_window)
                 .show(ctx, |ui| {
-                    ui.heading("Serial Port & Controller Connection");
+                    ui.heading(tr("Serial Port & Controller Connection"));
                     ui.add_space(4.0);
 
                     ui.horizontal(|ui| {
@@ -7953,19 +7993,21 @@ impl eframe::App for LaserBurnApp {
         // 2. LASER CONTROL & POSITIONING WINDOW (MOVE & WEAK LIGHT)
         // -------------------------------------------------------------
         if self.show_move_window {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             let sel_center = self.selection_bounds().map(|b| b.center());
             let mut do_start_box_frame = false;
             let mut do_start_contour_frame = false;
             let c_green = self.color_green();
             let c_orange = self.color_orange();
 
-            egui::Window::new("Laser Control & Positioning")
+            egui::Window::new(tr("Laser Control & Positioning"))
                 .collapsible(false)
                 .resizable(false)
                 .default_width(380.0)
                 .open(&mut self.show_move_window)
                 .show(ctx, |ui| {
-                    ui.heading("Laser Head Positioning & Jog");
+                    ui.heading(tr("Laser Head Positioning & Jog"));
                     ui.add_space(4.0);
 
                     // Coordinates box
@@ -8024,7 +8066,7 @@ impl eframe::App for LaserBurnApp {
                         });
 
                         ui.horizontal(|ui| {
-                            ui.label("Home Speed:");
+                            ui.label(tr("Home Speed:"));
                             if ui.add(egui::Slider::new(&mut self.device.settings.homing_speed, 100.0..=1200.0).suffix(" mm/min")).on_hover_text("Gentle seek speed for mechanical switch calibration (default 400 mm/min = 6.6 mm/s)").changed() {
                                 let _ = self.device.settings.save();
                             }
@@ -8034,7 +8076,7 @@ impl eframe::App for LaserBurnApp {
                     if self.device.grbl_state.starts_with("Alarm") {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(format!("Status: {}", self.device.grbl_state)).color(egui::Color32::from_rgb(255, 60, 60)).strong());
-                            if ui.button("Unlock ($X)").clicked() {
+                            if ui.button(tr("Unlock ($X)")).clicked() {
                                 self.device.send_raw("$X");
                                 self.device.send_raw("$21=1");
                             }
@@ -8553,13 +8595,15 @@ impl eframe::App for LaserBurnApp {
         // 4. KAMERA-IKKUNA (CAMERA FEED & ALIGNMENT)
         // -------------------------------------------------------------
         if self.show_camera_window {
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
             let mut is_open = self.show_camera_window;
             let mut need_stream_restart = false;
 
             let max_w = (ctx.screen_rect().width() - 40.0).max(450.0);
             let max_h = (ctx.screen_rect().height() - 40.0).max(520.0);
 
-            egui::Window::new("Camera Feed & Alignment")
+            egui::Window::new(tr("Camera Feed & Alignment"))
                 .open(&mut is_open)
                 .default_size([500.0, 640.0])
                 .min_size([400.0, 480.0])
