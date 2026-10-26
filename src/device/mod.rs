@@ -191,6 +191,10 @@ pub struct DeviceSettings {
     pub default_port: String,
     pub default_baud: u32,
     pub auto_connect: bool,
+    #[serde(default)]
+    pub save_traffic_log: bool,
+    #[serde(default)]
+    pub log_status_polls: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,6 +258,18 @@ impl DeviceSettings {
             Err("Could not locate home directory to save settings".to_string())
         }
     }
+
+    pub fn traffic_log_path() -> Option<PathBuf> {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .ok()?;
+        let docs = PathBuf::from(&home).join("Documents");
+        if docs.exists() {
+            Some(docs.join("LaserBurn_traffic.log"))
+        } else {
+            Some(PathBuf::from(home).join("LaserBurn_traffic.log"))
+        }
+    }
 }
 
 impl Default for DeviceSettings {
@@ -279,6 +295,8 @@ impl Default for DeviceSettings {
             default_port: "".to_string(),
             default_baud: 115200,
             auto_connect: false,
+            save_traffic_log: false,
+            log_status_polls: false,
         }
     }
 }
@@ -396,7 +414,7 @@ impl DeviceManager {
             job_estimated_total_sec: 0.0,
 
             console_history: VecDeque::new(),
-            max_history: 100,
+            max_history: 2000,
 
             #[cfg(feature = "gui")]
             active_port: None,
@@ -407,13 +425,13 @@ impl DeviceManager {
         // Auto-connect to previous device if enabled and port exists
         if dm.settings.auto_connect && !default_port.trim().is_empty() {
             if std::path::Path::new(&default_port).exists() {
-                dm.log(&format!("[AUTO-CONNECT] ⚡ Connecting to previous device: {} ({} baud)...", default_port, default_baud));
+                dm.log(&format!("[AUTO-CONNECT] Connecting to previous device: {} ({} baud)...", default_port, default_baud));
                 let _ = dm.connect(&default_port, default_baud);
             } else {
-                dm.log(&format!("[AUTO-CONNECT] ○ Previous port {} is not connected. Connect laser USB and power.", default_port));
+                dm.log(&format!("[AUTO-CONNECT] Previous port {} is not connected. Connect laser USB and power.", default_port));
             }
         } else {
-            dm.log("[CONNECTION] ○ No device connected. Connect laser power and USB cable, then click Connect.");
+            dm.log("[CONNECTION] No device connected. Connect laser power and USB cable, then click Connect.");
         }
 
         dm
@@ -428,6 +446,21 @@ impl DeviceManager {
         use std::io::Write;
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/laserburn.log") {
             let _ = writeln!(f, "{}", line);
+        }
+
+        if self.settings.save_traffic_log && !cfg!(test) {
+            if let Some(log_path) = DeviceSettings::traffic_log_path() {
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+                    let secs = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let s = secs % 60;
+                    let m = (secs / 60) % 60;
+                    let h = (secs / 3600) % 24;
+                    let _ = writeln!(f, "[{:02}:{:02}:{:02} UTC] {}", h, m, s, line);
+                }
+            }
         }
     }
 
@@ -1247,19 +1280,22 @@ impl DeviceManager {
                     }
                     if line.starts_with('<') && line.ends_with('>') {
                         self.parse_grbl_status(&line);
+                        if self.settings.log_status_polls {
+                            self.log(&format!("< {}", line));
+                        }
                     } else {
-                        self.log(&line);
+                        self.log(&format!("< {}", line));
                         if line == "ok" {
                             self.pending_ok_count = self.pending_ok_count.saturating_sub(1);
                         } else if line.contains("ALARM:1") || line.contains("ALARM") {
                             self.grbl_state = "Alarm".to_string();
 
                             if matches!(self.homing_phase, Some(SwitchHomingPhase::MovingX { .. })) {
-                                self.log("[RESET] 🛑 X limit switch triggered (ALARM). Halting motion instantly with soft reset...");
+                                self.log("[RESET] X limit switch triggered (ALARM). Halting motion instantly with soft reset...");
                                 self.send_realtime(0x18);
                                 self.homing_phase = Some(SwitchHomingPhase::ResettingX { started_at: Instant::now() });
                             } else if matches!(self.homing_phase, Some(SwitchHomingPhase::MovingY { .. })) {
-                                self.log("[RESET] 🛑 Y limit switch triggered (ALARM). Halting motion instantly with soft reset...");
+                                self.log("[RESET] Y limit switch triggered (ALARM). Halting motion instantly with soft reset...");
                                 self.send_realtime(0x18);
                                 self.homing_phase = Some(SwitchHomingPhase::ResettingY { started_at: Instant::now() });
                             }

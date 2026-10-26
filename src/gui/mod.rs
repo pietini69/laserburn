@@ -172,6 +172,10 @@ pub struct LaserBurnApp {
     pub mat_test_max_power: f64,
     pub mat_test_box_size: f64,
     pub mat_test_is_engrave: bool,
+
+    // Serial Traffic Panel State
+    pub show_traffic_panel: bool,
+    pub hide_ok_in_traffic_log: bool,
 }
 
 #[cfg(feature = "gui")]
@@ -257,6 +261,8 @@ impl Default for LaserBurnApp {
             mat_test_max_power: 95.0,
             mat_test_box_size: 10.0,
             mat_test_is_engrave: true,
+            show_traffic_panel: true,
+            hide_ok_in_traffic_log: false,
             file_dialog_tx,
             file_dialog_rx,
         };
@@ -2679,6 +2685,12 @@ impl eframe::App for LaserBurnApp {
                         self.device.set_origin_here();
                         ui.close_menu();
                     }
+                    ui.separator();
+                    let traffic_lbl = if self.show_traffic_panel { "Hide Data Traffic Log Panel" } else { "Show Data Traffic Log Panel" };
+                    if ui.button(traffic_lbl).clicked() {
+                        self.show_traffic_panel = !self.show_traffic_panel;
+                        ui.close_menu();
+                    }
                 });
 
                 ui.menu_button("Camera", |ui| {
@@ -2909,6 +2921,14 @@ impl eframe::App for LaserBurnApp {
                 ui.separator();
                 if ui.button("Connection").on_hover_text("Device connection & serial console").clicked() {
                     self.show_connection_window = true;
+                }
+                let traffic_color = if self.show_traffic_panel {
+                    egui::Color32::from_rgb(100, 210, 255)
+                } else {
+                    egui::Color32::GRAY
+                };
+                if ui.button(egui::RichText::new("Traffic Log").color(traffic_color)).on_hover_text("Toggle live Serial / G-code Data Traffic Log panel").clicked() {
+                    self.show_traffic_panel = !self.show_traffic_panel;
                 }
                 if ui.button("Camera").on_hover_text(format!("Open Camera Feed & Alignment window ({}+K)", cmd)).clicked() {
                     self.show_camera_window = !self.show_camera_window;
@@ -4228,6 +4248,164 @@ impl eframe::App for LaserBurnApp {
                     ui.label(egui::RichText::new(format!("Est. Time: {}", stats.formatted_time)).strong().color(egui::Color32::from_rgb(0, 180, 255)));
                 });
             });
+
+        // -------------------------------------------------------------
+        // DATA TRAFFIC LOG PANEL (Docked immediately left of the right inspector)
+        // -------------------------------------------------------------
+        if self.show_traffic_panel {
+            egui::SidePanel::right("serial_traffic_panel")
+                .resizable(true)
+                .default_width(240.0)
+                .min_width(190.0)
+                .max_width(420.0)
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Data Traffic (TX / RX)").strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("✖").on_hover_text("Hide Data Traffic panel").clicked() {
+                                self.show_traffic_panel = false;
+                            }
+                            if ui.small_button("Clear").on_hover_text("Clear traffic history").clicked() {
+                                self.device.console_history.clear();
+                            }
+                        });
+                    });
+
+                    ui.separator();
+
+                    // File logging checkbox & Open Log File button
+                    ui.horizontal(|ui| {
+                        let log_path_str = crate::device::DeviceSettings::traffic_log_path()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| "~/Documents/LaserBurn_traffic.log".to_string());
+                        if ui.checkbox(&mut self.device.settings.save_traffic_log, "Save to Log File")
+                            .on_hover_text(format!("Record all TX/RX data traffic to:\n{}", log_path_str))
+                            .changed()
+                        {
+                            let _ = self.device.settings.save();
+                            if self.device.settings.save_traffic_log {
+                                self.device.log(&format!("[LOG] File logging enabled -> {}", log_path_str));
+                            } else {
+                                self.device.log("[LOG] File logging disabled");
+                            }
+                        }
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("Open Log").on_hover_text(format!("Open log file:\n{}", log_path_str)).clicked() {
+                                if let Some(path) = crate::device::DeviceSettings::traffic_log_path() {
+                                    if !path.exists() {
+                                        let _ = std::fs::write(&path, "# LaserBurn Data Traffic Log\n");
+                                    }
+                                    #[cfg(target_os = "macos")]
+                                    let _ = std::process::Command::new("open").arg(&path).spawn();
+                                    #[cfg(target_os = "windows")]
+                                    let _ = std::process::Command::new("explorer").arg(&path).spawn();
+                                    #[cfg(target_os = "linux")]
+                                    let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+                                }
+                            }
+                        });
+                    });
+
+                    // Filter options
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut self.device.settings.log_status_polls, "Show <Status>")
+                            .on_hover_text("Include periodic GRBL status frames (<Idle|MPos:...>) in log")
+                            .changed()
+                        {
+                            let _ = self.device.settings.save();
+                        }
+                        ui.checkbox(&mut self.hide_ok_in_traffic_log, "Hide 'ok'")
+                            .on_hover_text("Hide routine '< ok' acknowledgements to keep view clean");
+                    });
+
+                    // Connection & queue summary badge
+                    ui.horizontal(|ui| {
+                        let status_color = match self.device.status {
+                            crate::device::ConnectionStatus::Connected => egui::Color32::from_rgb(80, 220, 100),
+                            crate::device::ConnectionStatus::Connecting => egui::Color32::YELLOW,
+                            crate::device::ConnectionStatus::Busy => egui::Color32::from_rgb(100, 200, 255),
+                            crate::device::ConnectionStatus::Disconnected => egui::Color32::GRAY,
+                            crate::device::ConnectionStatus::Alarm => egui::Color32::from_rgb(255, 90, 90),
+                        };
+                        ui.colored_label(status_color, format!("● {:?} ({})", self.device.status, self.device.grbl_state));
+                        if self.device.is_job_running {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "TX: {}/{}",
+                                    self.device.job_idx, self.device.job_total_lines
+                                ))
+                                .small()
+                                .color(egui::Color32::from_rgb(100, 200, 255)),
+                            );
+                        }
+                    });
+
+                    ui.separator();
+
+                    // Reserve bottom 32px for the raw G-code command input row
+                    let available_h = (ui.available_height() - 34.0).max(80.0);
+
+                    egui::Frame::canvas(ui.style())
+                        .fill(egui::Color32::from_rgb(16, 18, 22))
+                        .inner_margin(6.0)
+                        .show(ui, |ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("traffic_panel_scroll")
+                                .max_height(available_h)
+                                .auto_shrink([false, false])
+                                .stick_to_bottom(true)
+                                .show(ui, |ui| {
+                                    for line in &self.device.console_history {
+                                        if self.hide_ok_in_traffic_log
+                                            && (line == "< ok" || line == "ok")
+                                        {
+                                            continue;
+                                        }
+                                        let color = if line.starts_with('>') {
+                                            egui::Color32::from_rgb(110, 205, 255) // TX (Computer -> Laser)
+                                        } else if line.contains("ALARM")
+                                            || line.contains("error")
+                                            || line.contains("[ERROR]")
+                                        {
+                                            egui::Color32::from_rgb(255, 95, 95) // Error / Alarm
+                                        } else if line.starts_with('<') || line == "ok" {
+                                            egui::Color32::from_rgb(130, 235, 145) // RX (Laser -> Computer)
+                                        } else if line.starts_with('[') {
+                                            egui::Color32::from_rgb(255, 210, 110) // System / Job event
+                                        } else {
+                                            egui::Color32::from_rgb(205, 205, 205)
+                                        };
+                                        ui.label(
+                                            egui::RichText::new(line)
+                                                .monospace()
+                                                .size(11.5)
+                                                .color(color),
+                                        );
+                                    }
+                                });
+                        });
+
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        let resp = ui.add(
+                            egui::TextEdit::singleline(&mut self.command_input)
+                                .hint_text("Send G-code (e.g. $$, $X, G0 X10)...")
+                                .desired_width((ui.available_width() - 48.0).max(60.0)),
+                        );
+                        let send_clicked = ui.button("Send").clicked();
+                        if (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                            || send_clicked
+                        {
+                            let cmd = self.command_input.trim().to_string();
+                            if !cmd.is_empty() {
+                                self.device.send_raw(&cmd);
+                                self.command_input.clear();
+                            }
+                        }
+                    });
+                });
+        }
 
         // -------------------------------------------------------------
         // CENTER 2D CAD CANVAS (Full interactive moving, sizing, drawing)
