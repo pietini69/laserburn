@@ -5,18 +5,21 @@ Creates the official LaserBurn v1.0.0 multi-platform product on Gumroad with:
 - macOS Universal 2 (.dmg)
 - Windows x64 (.zip)
 - Linux x86_64 (.tar.gz)
-- Cover image & 1000x1000 square thumbnail
+- Cover image, 1000x1000 square thumbnail & Dark/Light mode UI screenshots
 - Rich HTML sales copy, quick start guide, system requirements & installation instructions
 """
 
 import os
 import sys
+import json
+import datetime
 import subprocess
 import argparse
 
 PROJECT_DIR = "/Volumes/Dataa/Ohjelmointi/ProjektitRust/laser_burn"
 DIST_DIR = os.path.join(PROJECT_DIR, "dist")
 ASSETS_DIR = os.path.join(DIST_DIR, "gumroad_assets")
+TRACKER_FILE = "/Volumes/Dataa/EtsyTuotteet/gumroad_published.json"
 
 PRODUCT_NAME = "LaserBurn – Modern Laser CAM & CNC Software (macOS, Windows, Linux)"
 CUSTOM_PERMALINK = "laserburn"
@@ -46,7 +49,7 @@ LaserBurn is a modern, blazing-fast laser cutting and engraving CAM application 
 </p>
 <p>
 <strong>Free / Pay What You Want (0 €+):</strong> Download and use LaserBurn completely free, or support independent development with the price of a cup of coffee (3 € – 5 €)!<br>
-<strong>All 3 Desktop Platforms Included:</strong> macOS (Universal 2 for Apple Silicon & Intel), Windows 10/11 (64-bit), and Linux (x86_64).
+<strong>All 3 Desktop Platforms Included:</strong> macOS (Universal 2 for Apple Silicon &amp; Intel), Windows 10/11 (64-bit), and Linux (x86_64).
 </p>
 
 <hr>
@@ -168,6 +171,11 @@ def main():
 
     cover_img = os.path.join(ASSETS_DIR, "gumroad_cover.jpg")
     thumb_img = os.path.join(ASSETS_DIR, "gumroad_thumb_square.jpg")
+    previews = [
+        os.path.join(ASSETS_DIR, "screenshot_dark_and_light.jpg"),
+        os.path.join(ASSETS_DIR, "screenshot_dark.jpg"),
+        os.path.join(ASSETS_DIR, "screenshot_light.jpg"),
+    ]
 
     for f in [mac_dmg, win_zip, lin_tar, cover_img, thumb_img]:
         if not os.path.exists(f):
@@ -186,6 +194,15 @@ def main():
         "--thumbnail", thumb_img,
         "--pay-what-you-want",
         "--suggested-price", args.suggested_price,
+        "--json",
+        "--non-interactive",
+    ]
+
+    for prev in previews:
+        if os.path.exists(prev):
+            cmd.extend(["--preview-image", prev])
+
+    cmd.extend([
         # File 1: macOS Universal
         "--file", mac_dmg,
         "--file-name", "LaserBurn-1.0.0-macOS-Universal.dmg",
@@ -198,7 +215,7 @@ def main():
         "--file", lin_tar,
         "--file-name", "LaserBurn-1.0.0-Linux-x86_64.tar.gz",
         "--file-description", "Linux 64-bit Native Binary, Desktop Launcher & App Icon",
-    ]
+    ])
 
     for t in TAGS:
         cmd.extend(["--tag", t])
@@ -213,14 +230,36 @@ def main():
 
     print("==> Creating LaserBurn v1.0.0 product on Gumroad...")
     res = subprocess.run(cmd, capture_output=True, text=True)
-    print("STDOUT:", res.stdout)
-    if res.stderr:
-        print("STDERR:", res.stderr)
-
     if res.returncode == 0:
-        print("==> SUCCESS: LaserBurn v1.0.0 created on Gumroad!")
+        try:
+            out_json = json.loads(res.stdout)
+            prod_id = out_json.get("product", {}).get("id") or out_json.get("id")
+            prod_url = out_json.get("product", {}).get("short_url") or out_json.get("short_url")
+            if prod_id and not args.draft:
+                subprocess.run(["gumroad", "products", "publish", prod_id], capture_output=True)
+            custom_domain_url = "https://shop.pietiniart.com/l/laserburn"
+            print(f"==> SUCCESS: LaserBurn v1.0.0 LIVE on Gumroad! ID={prod_id} URL={custom_domain_url} ({prod_url})")
+            if os.path.exists(TRACKER_FILE):
+                with open(TRACKER_FILE, "r") as tf:
+                    tracker = json.load(tf)
+                tracker["LaserBurn_v1_0_0"] = {
+                    "id": prod_id,
+                    "url": prod_url,
+                    "custom_domain_url": custom_domain_url,
+                    "title": PRODUCT_NAME,
+                    "time": datetime.datetime.now().isoformat()
+                }
+                with open(TRACKER_FILE, "w") as tf:
+                    json.dump(tracker, tf, indent=2)
+        except Exception as e:
+            print("STDOUT:", res.stdout)
+            print("Tracker update warning:", e)
     else:
+        print("STDOUT:", res.stdout)
+        if res.stderr:
+            print("STDERR:", res.stderr)
         print(f"==> FAILED with code {res.returncode}")
+        sys.exit(res.returncode)
 
 if __name__ == "__main__":
     main()
