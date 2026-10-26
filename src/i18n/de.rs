@@ -446,6 +446,44 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Save as New Profile" => "Als neues Profil speichern",
         "● ACTIVE" => "● AKTIV",
 
+        // Align & Distribute
+        "Align & Distribute" => "Ausrichten & Verteilen",
+        "Align Left" => "Links ausrichten",
+        "Align Right" => "Rechts ausrichten",
+        "Align Top" => "Oben ausrichten",
+        "Align Bottom" => "Unten ausrichten",
+        "Align Center Horizontal" => "Horizontal zentrieren",
+        "Align Center Vertical" => "Vertikal zentrieren",
+        "Center to Bed (P)" => "Auf Arbeitsfläche zentrieren (P)",
+        "Distribute Horizontally" => "Horizontal gleichmäßig verteilen",
+        "Distribute Vertically" => "Vertikal gleichmäßig verteilen",
+        "Centered selection to bed (P)" => "Auswahl auf Arbeitsfläche zentriert (P)",
+        "Aligned shapes successfully" => "Formen erfolgreich ausgerichtet",
+        "Distributed shapes successfully" => "Formen erfolgreich verteilt",
+        "Select at least 2 shapes to align" => "Mindestens 2 Formen zum Ausrichten auswählen",
+        "Select at least 3 shapes to distribute" => "Mindestens 3 Formen zum Verteilen auswählen",
+        "Align:" => "Ausrichten:",
+        "Bed (P)" => "Bett (P)",
+
+        // Visual Cut Preview Simulator
+        "Preview" => "Vorschau",
+        "Preview (Alt+P)" => "Vorschau (Alt+P)",
+        "Preview Job Simulation (Alt+P)..." => "Auftragssimulations-Vorschau (Alt+P)...",
+        "Laser Cut Preview & Simulation" => "Laserschnitt-Vorschau & Simulation",
+        "Play" => "Abspielen",
+        "Rewind" => "Zurückspulen",
+        "Playback Speed:" => "Wiedergabegeschwindigkeit:",
+        "Simulated Time:" => "Simulierte Zeit:",
+        "Cut Travel" => "Schnittweg",
+        "Rapid Travel" => "Eilgang",
+
+        // Tabs & Bridges
+        "Tabs / Bridges:" => "Haltestege (Tabs):",
+        "Tab Count:" => "Stege-Anzahl:",
+        "Tab Width:" => "Stegbreite:",
+        "Enable tabs / bridges to keep cut parts attached" => "Haltestege aktivieren, damit Schnittteile fixiert bleiben",
+        "Count:" => "Anzahl:",
+
         // Fallback: return original key
         _ => key,
     }

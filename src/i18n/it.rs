@@ -446,6 +446,44 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Save as New Profile" => "Salva come nuovo profilo",
         "● ACTIVE" => "● ATTIVO",
 
+        // Align & Distribute
+        "Align & Distribute" => "Allinea e distribuisci",
+        "Align Left" => "Allinea a sinistra",
+        "Align Right" => "Allinea a destra",
+        "Align Top" => "Allinea in alto",
+        "Align Bottom" => "Allinea in basso",
+        "Align Center Horizontal" => "Centra orizzontalmente",
+        "Align Center Vertical" => "Centra verticalmente",
+        "Center to Bed (P)" => "Centra sul piano (P)",
+        "Distribute Horizontally" => "Distribuisci orizzontalmente",
+        "Distribute Vertically" => "Distribuisci verticalmente",
+        "Centered selection to bed (P)" => "Selezione centrata sul piano (P)",
+        "Aligned shapes successfully" => "Forme allineate con successo",
+        "Distributed shapes successfully" => "Forme distribuite con successo",
+        "Select at least 2 shapes to align" => "Seleziona almeno 2 forme da allineare",
+        "Select at least 3 shapes to distribute" => "Seleziona almeno 3 forme da distribuire",
+        "Align:" => "Allinea:",
+        "Bed (P)" => "Piano (P)",
+
+        // Visual Cut Preview Simulator
+        "Preview" => "Anteprima",
+        "Preview (Alt+P)" => "Anteprima (Alt+P)",
+        "Preview Job Simulation (Alt+P)..." => "Anteprima e simulazione lavoro (Alt+P)...",
+        "Laser Cut Preview & Simulation" => "Anteprima e simulazione taglio laser",
+        "Play" => "Riproduci",
+        "Rewind" => "Riavvolgi",
+        "Playback Speed:" => "Velocità di riproduzione:",
+        "Simulated Time:" => "Tempo simulato:",
+        "Cut Travel" => "Percorso di taglio",
+        "Rapid Travel" => "Movimento rapido",
+
+        // Tabs & Bridges
+        "Tabs / Bridges:" => "Ponti di tenuta (Tabs):",
+        "Tab Count:" => "Numero ponti:",
+        "Tab Width:" => "Larghezza ponte:",
+        "Enable tabs / bridges to keep cut parts attached" => "Abilita ponti di tenuta per non far cadere i pezzi tagliati",
+        "Count:" => "Numero:",
+
         // Fallback: return original key
         _ => key,
     }

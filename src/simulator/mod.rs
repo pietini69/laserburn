@@ -202,7 +202,7 @@ impl Simulator {
     }
 
     /// Calculates time to travel a distance given target speed and machine acceleration
-    fn trapezoid_time(&self, distance: f64, max_speed: f64) -> f64 {
+    pub fn trapezoid_time(&self, distance: f64, max_speed: f64) -> f64 {
         if distance <= 1e-4 {
             return 0.0;
         }

@@ -130,6 +130,13 @@ mod tests {
         assert_eq!(t("Scan Ports", Language::French), "Scanner les ports");
         assert_eq!(t("Scan Ports", Language::Italian), "Cerca porte");
         assert_eq!(t("Scan Ports", Language::Spanish), "Escanear puertos");
+
+        // Align & Distribute, Preview, Tabs
+        assert_eq!(t("Align & Distribute", Language::Finnish), "Kohdista ja tasaa");
+        assert_eq!(t("Align & Distribute", Language::German), "Ausrichten & Verteilen");
+        assert_eq!(t("Center to Bed (P)", Language::Finnish), "Keskitä alustalle (P)");
+        assert_eq!(t("Laser Cut Preview & Simulation", Language::French), "Aperçu et simulation de découpe laser");
+        assert_eq!(t("Tabs / Bridges:", Language::Spanish), "Puentes de sujeción (Tabs):");
     }
 
     #[test]

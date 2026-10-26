@@ -15,6 +15,156 @@ pub enum ActiveTool {
     DrawText,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlignMode {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    CenterH,
+    CenterV,
+    CenterToBed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistributeMode {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone)]
+pub struct PreviewMove {
+    pub from: Point2D,
+    pub to: Point2D,
+    pub is_cut: bool,
+    pub color: egui::Color32,
+    pub power: f64,
+    pub speed: f64,
+    pub start_time: f64,
+    pub duration: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct PreviewJobData {
+    pub moves: Vec<PreviewMove>,
+    pub total_time_sec: f64,
+    pub total_cut_distance: f64,
+    pub total_rapid_distance: f64,
+    pub bounds: BoundingBox,
+}
+
+impl PreviewJobData {
+    pub fn build(doc: &Document, default_kerf: f64) -> Self {
+        let mut opt = CutOptimizer::new();
+        opt.default_kerf = default_kerf;
+        let job = opt.optimize(doc);
+
+        let sim = crate::simulator::Simulator::default();
+        let mut moves = Vec::new();
+        let mut current_pos = Point2D::ZERO;
+        let mut current_time = 0.0;
+        let mut total_cut_distance = 0.0;
+        let mut total_rapid_distance = 0.0;
+        let mut bounds = BoundingBox::empty();
+
+        for path in &job.paths {
+            let layer = doc.layers.get(&path.layer_index);
+            let cut_speed = layer.map(|l| l.cut_setting.speed).unwrap_or(50.0);
+            let cut_power = layer.map(|l| l.cut_setting.power_max).unwrap_or(80.0);
+            let layer_color = layer
+                .map(|l| {
+                    let hex = l.color_hex.trim_start_matches('#');
+                    if let Ok(c) = u32::from_str_radix(hex, 16) {
+                        egui::Color32::from_rgb(((c >> 16) & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, (c & 0xFF) as u8)
+                    } else {
+                        egui::Color32::from_rgb(255, 60, 60)
+                    }
+                })
+                .unwrap_or(egui::Color32::from_rgb(255, 60, 60));
+
+            let pts = &path.polyline.points;
+            if pts.len() < 2 {
+                continue;
+            }
+
+            // Rapid move to start of path
+            let rapid_dist = current_pos.distance_to(&pts[0]);
+            if rapid_dist > 1e-4 {
+                let duration = sim.trapezoid_time(rapid_dist, sim.rapid_speed_mm_s);
+                moves.push(PreviewMove {
+                    from: current_pos,
+                    to: pts[0],
+                    is_cut: false,
+                    color: egui::Color32::from_rgba_unmultiplied(120, 150, 180, 100),
+                    power: 0.0,
+                    speed: sim.rapid_speed_mm_s,
+                    start_time: current_time,
+                    duration,
+                });
+                current_time += duration;
+                total_rapid_distance += rapid_dist;
+                bounds.expand_to_include(&pts[0]);
+            }
+            current_pos = pts[0];
+
+            // Cut moves along polyline
+            for i in 0..(pts.len() - 1) {
+                let p1 = pts[i];
+                let p2 = pts[i + 1];
+                let seg_dist = p1.distance_to(&p2);
+                let duration = if cut_speed > 0.0 { seg_dist / cut_speed } else { 0.01 };
+                let power = path.powers.as_ref().and_then(|pw| pw.get(i)).copied().unwrap_or(cut_power);
+
+                moves.push(PreviewMove {
+                    from: p1,
+                    to: p2,
+                    is_cut: true,
+                    color: layer_color,
+                    power,
+                    speed: cut_speed,
+                    start_time: current_time,
+                    duration,
+                });
+                current_time += duration;
+                total_cut_distance += seg_dist;
+                bounds.expand_to_include(&p2);
+            }
+
+            // Close path if closed polyline
+            if path.polyline.is_closed && pts.len() > 2 {
+                let p_last = *pts.last().unwrap();
+                let p_first = pts[0];
+                let seg_dist = p_last.distance_to(&p_first);
+                let duration = if cut_speed > 0.0 { seg_dist / cut_speed } else { 0.01 };
+                moves.push(PreviewMove {
+                    from: p_last,
+                    to: p_first,
+                    is_cut: true,
+                    color: layer_color,
+                    power: cut_power,
+                    speed: cut_speed,
+                    start_time: current_time,
+                    duration,
+                });
+                current_time += duration;
+                total_cut_distance += seg_dist;
+            }
+
+            if let Some(last_pt) = pts.last() {
+                current_pos = if path.polyline.is_closed { pts[0] } else { *last_pt };
+            }
+        }
+
+        Self {
+            moves,
+            total_time_sec: current_time.max(0.001),
+            total_cut_distance,
+            total_rapid_distance,
+            bounds,
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SettingsProfile {
     #[serde(default = "default_profile_version")]
@@ -242,6 +392,14 @@ pub struct LaserBurnApp {
     pub save_mat_thickness_label: String,
     pub save_mat_op_name: String,
     pub save_mat_notes: String,
+
+    // Visual Cut Preview Simulator Window State
+    pub show_preview_window: bool,
+    pub preview_progress: f64,
+    pub preview_playing: bool,
+    pub preview_speed: f64,
+    pub preview_job: Option<PreviewJobData>,
+    pub preview_job_version: u64,
 }
 
 #[cfg(feature = "gui")]
@@ -383,6 +541,12 @@ impl Default for LaserBurnApp {
             save_mat_thickness_label: "3.0 mm".to_string(),
             save_mat_op_name: "Clean Cut".to_string(),
             save_mat_notes: String::new(),
+            show_preview_window: false,
+            preview_progress: 0.0,
+            preview_playing: false,
+            preview_speed: 1.0,
+            preview_job: None,
+            preview_job_version: 0,
             file_dialog_tx,
             file_dialog_rx,
         };
@@ -3283,6 +3447,373 @@ impl LaserBurnApp {
 
         self.show_save_material_dialog = is_open;
     }
+
+    /// Aligns selected shapes relative to each other or centers the selection to the laser bed
+    pub fn align_selection(&mut self, mode: AlignMode) {
+        if self.selected_shape_indices.is_empty() {
+            return;
+        }
+
+        if mode == AlignMode::CenterToBed {
+            let mut combined = BoundingBox::empty();
+            for &idx in &self.selected_shape_indices {
+                if let Some(shape) = self.doc.shapes.get(idx) {
+                    combined = combined.union(&shape.bounds());
+                }
+            }
+            if !combined.is_empty() {
+                let bed_cx = self.doc.width / 2.0;
+                let bed_cy = self.doc.height / 2.0;
+                let sel_cx = (combined.min_x + combined.max_x) / 2.0;
+                let sel_cy = (combined.min_y + combined.max_y) / 2.0;
+                let dx = bed_cx - sel_cx;
+                let dy = bed_cy - sel_cy;
+
+                self.push_undo();
+                for &idx in &self.selected_shape_indices {
+                    if let Some(shape) = self.doc.shapes.get_mut(idx) {
+                        if !shape.is_locked() {
+                            shape.translate(dx, dy);
+                        }
+                    }
+                }
+                self.doc_version = self.doc_version.wrapping_add(1);
+                self.status_msg = self.tr("Centered selection to bed (P)").to_string();
+            }
+            return;
+        }
+
+        if self.selected_shape_indices.len() < 2 {
+            self.status_msg = self.tr("Select at least 2 shapes to align").to_string();
+            return;
+        }
+
+        let mut combined = BoundingBox::empty();
+        for &idx in &self.selected_shape_indices {
+            if let Some(shape) = self.doc.shapes.get(idx) {
+                combined = combined.union(&shape.bounds());
+            }
+        }
+        if combined.is_empty() {
+            return;
+        }
+
+        self.push_undo();
+        for &idx in &self.selected_shape_indices {
+            if let Some(shape) = self.doc.shapes.get_mut(idx) {
+                if shape.is_locked() {
+                    continue;
+                }
+                let b = shape.bounds();
+                let (dx, dy) = match mode {
+                    AlignMode::Left => (combined.min_x - b.min_x, 0.0),
+                    AlignMode::Right => (combined.max_x - b.max_x, 0.0),
+                    AlignMode::Top => (0.0, combined.min_y - b.min_y),
+                    AlignMode::Bottom => (0.0, combined.max_y - b.max_y),
+                    AlignMode::CenterH => ((combined.min_x + combined.max_x) / 2.0 - (b.min_x + b.max_x) / 2.0, 0.0),
+                    AlignMode::CenterV => (0.0, (combined.min_y + combined.max_y) / 2.0 - (b.min_y + b.max_y) / 2.0),
+                    AlignMode::CenterToBed => (0.0, 0.0),
+                };
+                shape.translate(dx, dy);
+            }
+        }
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.status_msg = self.tr("Aligned shapes successfully").to_string();
+    }
+
+    /// Distributes selected shapes evenly horizontally or vertically based on their center coordinates
+    pub fn distribute_selection(&mut self, mode: DistributeMode) {
+        if self.selected_shape_indices.len() < 3 {
+            self.status_msg = self.tr("Select at least 3 shapes to distribute").to_string();
+            return;
+        }
+
+        let mut items: Vec<(usize, f64)> = self.selected_shape_indices
+            .iter()
+            .copied()
+            .filter(|&idx| idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked())
+            .map(|idx| {
+                let b = self.doc.shapes[idx].bounds();
+                let center = match mode {
+                    DistributeMode::Horizontal => (b.min_x + b.max_x) / 2.0,
+                    DistributeMode::Vertical => (b.min_y + b.max_y) / 2.0,
+                };
+                (idx, center)
+            })
+            .collect();
+
+        if items.len() < 3 {
+            self.status_msg = self.tr("Select at least 3 shapes to distribute").to_string();
+            return;
+        }
+
+        items.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let first_center = items.first().unwrap().1;
+        let last_center = items.last().unwrap().1;
+        let count = items.len();
+        let step = (last_center - first_center) / (count - 1) as f64;
+
+        self.push_undo();
+        for (i, &(idx, current_center)) in items.iter().enumerate() {
+            let target_center = first_center + (i as f64) * step;
+            let delta = target_center - current_center;
+            let (dx, dy) = match mode {
+                DistributeMode::Horizontal => (delta, 0.0),
+                DistributeMode::Vertical => (0.0, delta),
+            };
+            if let Some(shape) = self.doc.shapes.get_mut(idx) {
+                shape.translate(dx, dy);
+            }
+        }
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.status_msg = self.tr("Distributed shapes successfully").to_string();
+    }
+
+    /// Renders the Visual Cut Preview Simulator Window
+    pub fn show_preview_simulator_window(&mut self, ctx: &egui::Context) {
+        if !self.show_preview_window {
+            return;
+        }
+
+        let lang = self.device.settings.language;
+        let tr = |k| crate::i18n::t(k, lang);
+
+        if self.preview_job.is_none() || self.preview_job_version != self.doc_version {
+            self.preview_job = Some(PreviewJobData::build(&self.doc, self.device.settings.default_kerf));
+            self.preview_job_version = self.doc_version;
+        }
+
+        let job = match self.preview_job.as_ref() {
+            Some(j) => j.clone(),
+            None => return,
+        };
+
+        if self.preview_playing && job.total_time_sec > 0.0 {
+            let dt = ctx.input(|i| i.stable_dt as f64);
+            self.preview_progress += (dt * self.preview_speed) / job.total_time_sec;
+            if self.preview_progress >= 1.0 {
+                self.preview_progress = 1.0;
+                self.preview_playing = false;
+            }
+            ctx.request_repaint();
+        }
+
+        let mut is_open = true;
+        egui::Window::new(tr("Laser Cut Preview & Simulation"))
+            .open(&mut is_open)
+            .default_size([720.0, 530.0])
+            .resizable(true)
+            .show(ctx, |ui| {
+                // Top control bar: Play, Pause, Rewind, Speeds
+                ui.horizontal(|ui| {
+                    let play_label = if self.preview_playing { tr("Pause") } else { tr("Play") };
+                    let play_btn = egui::Button::new(
+                        egui::RichText::new(format!("▶ {}", play_label)).strong().color(egui::Color32::WHITE),
+                    ).fill(if self.preview_playing { egui::Color32::from_rgb(200, 140, 20) } else { egui::Color32::from_rgb(34, 139, 34) });
+
+                    if ui.add(play_btn).clicked() {
+                        if self.preview_progress >= 1.0 {
+                            self.preview_progress = 0.0;
+                        }
+                        self.preview_playing = !self.preview_playing;
+                    }
+
+                    if ui.button(tr("Rewind")).clicked() {
+                        self.preview_progress = 0.0;
+                        self.preview_playing = false;
+                    }
+
+                    if ui.button("⟳").on_hover_text("Recalculate Toolpath").clicked() {
+                        self.preview_job = None;
+                    }
+
+                    ui.separator();
+
+                    ui.label(tr("Playback Speed:"));
+                    for &spd in &[0.5, 1.0, 2.0, 5.0, 10.0, 20.0] {
+                        let text = format!("{:.1}x", spd);
+                        if ui.selectable_label((self.preview_speed - spd).abs() < 1e-3, text).clicked() {
+                            self.preview_speed = spd;
+                        }
+                    }
+                });
+
+                ui.add_space(4.0);
+
+                // Scrub slider & time display
+                ui.horizontal(|ui| {
+                    let cur_time = self.preview_progress * job.total_time_sec;
+                    let total_time = job.total_time_sec;
+                    let time_str = format!(
+                        "{:02}:{:02} / {:02}:{:02} ({:.1}%)",
+                        (cur_time / 60.0) as u32,
+                        (cur_time % 60.0) as u32,
+                        (total_time / 60.0) as u32,
+                        (total_time % 60.0) as u32,
+                        self.preview_progress * 100.0,
+                    );
+                    ui.label(egui::RichText::new(time_str).strong().monospace());
+
+                    let slider = egui::Slider::new(&mut self.preview_progress, 0.0..=1.0)
+                        .show_value(false);
+                    ui.add(slider);
+                });
+
+                ui.add_space(2.0);
+
+                // Stats & Legend
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "✂ {}: {:.1} mm  |  ✈ {}: {:.1} mm  |  ⏱ {}: {:.1}s",
+                            tr("Cut Travel"),
+                            job.total_cut_distance,
+                            tr("Rapid Travel"),
+                            job.total_rapid_distance,
+                            tr("Simulated Time:"),
+                            job.total_time_sec,
+                        ))
+                        .small()
+                        .weak(),
+                    );
+                });
+
+                ui.separator();
+
+                // Interactive Simulator Canvas Viewport
+                let available = ui.available_size_before_wrap();
+                let (response, painter) = ui.allocate_painter(available, egui::Sense::hover());
+                let canvas_rect = response.rect;
+
+                if canvas_rect.width() > 10.0 && canvas_rect.height() > 10.0 {
+                    let bed_w = self.doc.width.max(10.0);
+                    let bed_h = self.doc.height.max(10.0);
+                    let margin = 24.0;
+                    let scale = ((canvas_rect.width() - margin * 2.0) / bed_w as f32)
+                        .min((canvas_rect.height() - margin * 2.0) / bed_h as f32)
+                        .max(0.05);
+
+                    let rendered_w = bed_w as f32 * scale;
+                    let rendered_h = bed_h as f32 * scale;
+                    let origin = egui::pos2(
+                        canvas_rect.left() + (canvas_rect.width() - rendered_w) * 0.5,
+                        canvas_rect.top() + (canvas_rect.height() - rendered_h) * 0.5,
+                    );
+
+                    let to_scr = |pt: Point2D| -> egui::Pos2 {
+                        egui::pos2(origin.x + pt.x as f32 * scale, origin.y + pt.y as f32 * scale)
+                    };
+
+                    // Draw bed background and border
+                    let bed_screen_rect = egui::Rect::from_min_size(origin, egui::vec2(rendered_w, rendered_h));
+                    painter.rect_filled(bed_screen_rect, 4.0, egui::Color32::from_rgb(18, 22, 28));
+                    painter.rect_stroke(bed_screen_rect, 4.0, egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(50, 70, 95)), egui::StrokeKind::Outside);
+
+                    // Origin marker (0, 0)
+                    let p0 = to_scr(Point2D::ZERO);
+                    painter.circle_filled(p0, 3.5, egui::Color32::from_rgb(0, 190, 255));
+
+                    let cur_sim_time = self.preview_progress * job.total_time_sec;
+                    let mut laser_head = Point2D::ZERO;
+                    let mut is_laser_active = false;
+
+                    // Draw toolpath moves
+                    for m in &job.moves {
+                        let m_start = m.start_time;
+                        let m_end = m.start_time + m.duration;
+
+                        if cur_sim_time >= m_end {
+                            laser_head = m.to;
+                            let p1 = to_scr(m.from);
+                            let p2 = to_scr(m.to);
+                            if p1.distance_sq(p2) > 0.04 {
+                                if m.is_cut {
+                                    painter.line_segment([p1, p2], egui::Stroke::new(1.8_f32, m.color));
+                                } else {
+                                    painter.line_segment([p1, p2], egui::Stroke::new(0.8_f32, egui::Color32::from_rgba_unmultiplied(80, 140, 200, 70)));
+                                }
+                            }
+                        } else if cur_sim_time >= m_start {
+                            let frac = if m.duration > 1e-6 {
+                                ((cur_sim_time - m_start) / m.duration).clamp(0.0, 1.0)
+                            } else {
+                                1.0
+                            };
+                            let cur_pt = Point2D::new(
+                                m.from.x + (m.to.x - m.from.x) * frac,
+                                m.from.y + (m.to.y - m.from.y) * frac,
+                            );
+                            laser_head = cur_pt;
+                            is_laser_active = m.is_cut;
+
+                            let p1 = to_scr(m.from);
+                            let p_mid = to_scr(cur_pt);
+                            let p2 = to_scr(m.to);
+
+                            if m.is_cut {
+                                if p1.distance_sq(p_mid) > 0.04 {
+                                    painter.line_segment([p1, p_mid], egui::Stroke::new(2.0_f32, m.color));
+                                }
+                                if p_mid.distance_sq(p2) > 0.04 {
+                                    let dim_color = egui::Color32::from_rgba_unmultiplied(m.color.r() / 3, m.color.g() / 3, m.color.b() / 3, 90);
+                                    painter.line_segment([p_mid, p2], egui::Stroke::new(1.0_f32, dim_color));
+                                }
+                            } else {
+                                if p1.distance_sq(p2) > 0.04 {
+                                    painter.line_segment([p1, p2], egui::Stroke::new(0.8_f32, egui::Color32::from_rgba_unmultiplied(80, 140, 200, 50)));
+                                }
+                            }
+                        } else {
+                            if m.is_cut {
+                                let p1 = to_scr(m.from);
+                                let p2 = to_scr(m.to);
+                                if p1.distance_sq(p2) > 0.04 {
+                                    let dim_color = egui::Color32::from_rgba_unmultiplied(m.color.r() / 3, m.color.g() / 3, m.color.b() / 3, 70);
+                                    painter.line_segment([p1, p2], egui::Stroke::new(1.0_f32, dim_color));
+                                }
+                            }
+                        }
+                    }
+
+                    // Render animated Laser Head
+                    let head_pos = to_scr(laser_head);
+                    if is_laser_active {
+                        painter.circle_filled(head_pos, 10.0, egui::Color32::from_rgba_unmultiplied(255, 60, 40, 70));
+                        painter.circle_filled(head_pos, 5.0, egui::Color32::from_rgb(255, 80, 50));
+                        painter.circle_filled(head_pos, 2.0, egui::Color32::WHITE);
+                    } else {
+                        painter.circle_filled(head_pos, 4.0, egui::Color32::from_rgb(0, 220, 255));
+                        painter.circle_stroke(head_pos, 6.0, egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(0, 220, 255, 120)));
+                    }
+
+                    // Crosshairs on laser head
+                    painter.line_segment(
+                        [egui::pos2(head_pos.x - 7.0, head_pos.y), egui::pos2(head_pos.x + 7.0, head_pos.y)],
+                        egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180)),
+                    );
+                    painter.line_segment(
+                        [egui::pos2(head_pos.x, head_pos.y - 7.0), egui::pos2(head_pos.x, head_pos.y + 7.0)],
+                        egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180)),
+                    );
+
+                    // Coordinate readout
+                    let coord_text = format!("X: {:.1} mm  Y: {:.1} mm", laser_head.x, laser_head.y);
+                    painter.text(
+                        egui::pos2(origin.x + 8.0, origin.y + rendered_h - 18.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        coord_text,
+                        egui::FontId::monospace(12.0),
+                        egui::Color32::from_rgb(180, 210, 240),
+                    );
+                }
+            });
+
+        if !is_open {
+            self.show_preview_window = false;
+            self.preview_playing = false;
+        }
+    }
 }
 
 #[cfg(feature = "gui")]
@@ -3684,6 +4215,11 @@ impl eframe::App for LaserBurnApp {
                 self.trigger_update_overlay();
             }
 
+            // Alt+P (Toggle Visual Cut Preview Simulator Window)
+            if ctx.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::P)) {
+                self.show_preview_window = !self.show_preview_window;
+            }
+
             // Keyboard Arrow Handling: Direct Laser Jogging vs Shape Nudging
             let wants_keyboard = ctx.wants_keyboard_input();
             if !wants_keyboard {
@@ -3777,6 +4313,11 @@ impl eframe::App for LaserBurnApp {
                 if rot_cw {
                     let angle = if shift_down { 5.0 } else if cmd_down { 90.0 } else { 1.0 };
                     self.rotate_selected(angle);
+                }
+
+                // P (Center to Bed)
+                if !cmd_down && !alt_down && ctx.input(|i| i.key_pressed(egui::Key::P)) {
+                    self.align_selection(AlignMode::CenterToBed);
                 }
             }
         }
@@ -3918,6 +4459,43 @@ impl eframe::App for LaserBurnApp {
                         ui.close_menu();
                     }
                     ui.separator();
+                    if ui.add_enabled(has_selection, egui::Button::new(self.tr("Center to Bed (P)"))).clicked() {
+                        self.align_selection(AlignMode::CenterToBed);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new(self.tr("Align Left"))).clicked() {
+                        self.align_selection(AlignMode::Left);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new(self.tr("Align Center Horizontal"))).clicked() {
+                        self.align_selection(AlignMode::CenterH);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new(self.tr("Align Right"))).clicked() {
+                        self.align_selection(AlignMode::Right);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new(self.tr("Align Top"))).clicked() {
+                        self.align_selection(AlignMode::Top);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new(self.tr("Align Center Vertical"))).clicked() {
+                        self.align_selection(AlignMode::CenterV);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 2, egui::Button::new(self.tr("Align Bottom"))).clicked() {
+                        self.align_selection(AlignMode::Bottom);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 3, egui::Button::new(self.tr("Distribute Horizontally"))).clicked() {
+                        self.distribute_selection(DistributeMode::Horizontal);
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(self.selected_shape_indices.len() >= 3, egui::Button::new(self.tr("Distribute Vertically"))).clicked() {
+                        self.distribute_selection(DistributeMode::Vertical);
+                        ui.close_menu();
+                    }
+                    ui.separator();
                     if ui.add_enabled(has_selection, egui::Button::new(self.tr("Grid Array (Matrix)...")))
                         .on_hover_text("Duplicate selected shape(s) in a rectangular grid of rows and columns")
                         .clicked()
@@ -3964,6 +4542,10 @@ impl eframe::App for LaserBurnApp {
                     }
                     if ui.button(self.tr("Material Test Generator (Power vs. Speed)...")).clicked() {
                         self.show_material_test_window = true;
+                        ui.close_menu();
+                    }
+                    if ui.button(self.tr("Preview Job Simulation (Alt+P)...")).clicked() {
+                        self.show_preview_window = true;
                         ui.close_menu();
                     }
                     ui.separator();
@@ -4244,6 +4826,14 @@ impl eframe::App for LaserBurnApp {
                 // Move / Jog Window
                 if ui.button(tr("Jog")).on_hover_text("Open laser control and jog window (Cmd+M)").clicked() {
                     self.show_move_window = !self.show_move_window;
+                }
+
+                // Preview Simulator Window
+                let prev_btn = egui::Button::new(
+                    egui::RichText::new(tr("Preview (Alt+P)")).strong().color(egui::Color32::from_rgb(180, 220, 255)),
+                ).fill(egui::Color32::from_rgb(45, 60, 85));
+                if ui.add(prev_btn).on_hover_text("Open visual toolpath cut preview simulator (Alt+P)").clicked() {
+                    self.show_preview_window = !self.show_preview_window;
                 }
 
                 // Weak light button
@@ -4577,6 +5167,40 @@ impl eframe::App for LaserBurnApp {
                         });
 
                         ui.checkbox(&mut self.lock_aspect_ratio, tr("Lock Aspect Ratio"));
+
+                        // Align & Distribute Quick Toolbar
+                        ui.add_space(4.0);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(tr("Align:"));
+                            if ui.button(tr("Bed (P)")).on_hover_text(tr("Center to Bed (P)")).clicked() {
+                                self.align_selection(AlignMode::CenterToBed);
+                            }
+                            if ui.button("⬅").on_hover_text(tr("Align Left")).clicked() {
+                                self.align_selection(AlignMode::Left);
+                            }
+                            if ui.button("⬌").on_hover_text(tr("Align Center Horizontal")).clicked() {
+                                self.align_selection(AlignMode::CenterH);
+                            }
+                            if ui.button("➡").on_hover_text(tr("Align Right")).clicked() {
+                                self.align_selection(AlignMode::Right);
+                            }
+                            if ui.button("⬆").on_hover_text(tr("Align Top")).clicked() {
+                                self.align_selection(AlignMode::Top);
+                            }
+                            if ui.button("⬍").on_hover_text(tr("Align Center Vertical")).clicked() {
+                                self.align_selection(AlignMode::CenterV);
+                            }
+                            if ui.button("⬇").on_hover_text(tr("Align Bottom")).clicked() {
+                                self.align_selection(AlignMode::Bottom);
+                            }
+                            if ui.button("⇥⇤").on_hover_text(tr("Distribute Horizontally")).clicked() {
+                                self.distribute_selection(DistributeMode::Horizontal);
+                            }
+                            if ui.button("⤒⤓").on_hover_text(tr("Distribute Vertically")).clicked() {
+                                self.distribute_selection(DistributeMode::Vertical);
+                            }
+                        });
+                        ui.add_space(4.0);
 
                         // Nudge Buttons (also mention keyboard arrow keys!)
                         ui.horizontal(|ui| {
@@ -5104,6 +5728,35 @@ impl eframe::App for LaserBurnApp {
                                     ui.label(egui::RichText::new(format!("±{:.3} mm", eff * 0.5)).small().weak())
                                         .on_hover_text("Actual contour offset distance (half of beam width)");
                                     ui.end_row();
+
+                                    // Tabs & Bridges (Visible when Mode is Line)
+                                    if layer.cut_setting.mode == CutMode::Line {
+                                        ui.label(tr("Tabs / Bridges:"));
+                                        ui.checkbox(&mut layer.cut_setting.tabs_enabled, "");
+                                        ui.label(egui::RichText::new(tr("Enable tabs / bridges to keep cut parts attached")).small().weak());
+                                        ui.end_row();
+
+                                        if layer.cut_setting.tabs_enabled {
+                                            ui.label(tr("Tab Count:"));
+                                            ui.add(
+                                                egui::DragValue::new(&mut layer.cut_setting.tab_count)
+                                                    .speed(1)
+                                                    .range(1..=32),
+                                            ).on_hover_text("Number of micro-tabs/bridges per closed cut contour");
+                                            ui.label(egui::RichText::new("tabs / contour").small().weak());
+                                            ui.end_row();
+
+                                            ui.label(tr("Tab Width:"));
+                                            ui.add(
+                                                egui::DragValue::new(&mut layer.cut_setting.tab_width)
+                                                    .speed(0.1)
+                                                    .range(0.1..=10.0)
+                                                    .suffix(" mm"),
+                                            ).on_hover_text("Width of unburned holding gap (e.g. 0.5 mm)");
+                                            ui.label(egui::RichText::new("bridge gap width").small().weak());
+                                            ui.end_row();
+                                        }
+                                    }
 
                                     // 5. Dither Algorithm (Visible when Mode is Image)
                                     if layer.cut_setting.mode == CutMode::Image {
@@ -7808,6 +8461,7 @@ impl eframe::App for LaserBurnApp {
         // -------------------------------------------------------------
         self.show_material_library_window(ctx);
         self.show_save_material_dialog_window(ctx);
+        self.show_preview_simulator_window(ctx);
 
         // -------------------------------------------------------------
         // 1. DEVICE CONNECTION & CONSOLE WINDOW
@@ -10223,5 +10877,76 @@ mod tests {
         assert_eq!(app.tr("Select / Move"), "Select / Move");
         assert_eq!(app.tr("Transform & Size"), "Transform & Size");
         assert_eq!(app.tr("Job Execution (G-Code)"), "Job Execution (G-Code)");
+    }
+
+    #[test]
+    fn test_align_and_distribute() {
+        let mut app = LaserBurnApp::default();
+        app.doc.width = 400.0;
+        app.doc.height = 400.0;
+        app.doc.shapes.clear();
+
+        // Add 3 rectangles
+        app.doc.add_shape(Shape::Rect { layer_index: 0, x: 10.0, y: 10.0, width: 20.0, height: 20.0, corner_radius: 0.0 });
+        app.doc.add_shape(Shape::Rect { layer_index: 0, x: 50.0, y: 40.0, width: 20.0, height: 20.0, corner_radius: 0.0 });
+        app.doc.add_shape(Shape::Rect { layer_index: 0, x: 120.0, y: 80.0, width: 20.0, height: 20.0, corner_radius: 0.0 });
+
+        app.selected_shape_indices = vec![0, 1, 2];
+
+        // 1. Center to bed
+        app.align_selection(AlignMode::CenterToBed);
+        let b = app.selection_bounds().expect("bounds");
+        let cx = (b.min_x + b.max_x) / 2.0;
+        let cy = (b.min_y + b.max_y) / 2.0;
+        assert!((cx - 200.0).abs() < 1e-4, "Group center X should be 200 (bed center)");
+        assert!((cy - 200.0).abs() < 1e-4, "Group center Y should be 200 (bed center)");
+
+        // 2. Align Left
+        app.align_selection(AlignMode::Left);
+        let b_left = app.selection_bounds().expect("bounds");
+        for &idx in &app.selected_shape_indices {
+            let sb = app.doc.shapes[idx].bounds();
+            assert!((sb.min_x - b_left.min_x).abs() < 1e-4, "Each shape min_x must match group min_x");
+        }
+
+        // 3. Align Top
+        app.align_selection(AlignMode::Top);
+        let b_top = app.selection_bounds().expect("bounds");
+        for &idx in &app.selected_shape_indices {
+            let sb = app.doc.shapes[idx].bounds();
+            assert!((sb.min_y - b_top.min_y).abs() < 1e-4, "Each shape min_y must match group min_y");
+        }
+
+        // 4. Distribute Horizontally
+        // Reset X coordinates to test distribution
+        if let Shape::Rect { ref mut x, .. } = app.doc.shapes[0] { *x = 10.0; }
+        if let Shape::Rect { ref mut x, .. } = app.doc.shapes[1] { *x = 30.0; } // uneven
+        if let Shape::Rect { ref mut x, .. } = app.doc.shapes[2] { *x = 90.0; }
+        app.distribute_selection(DistributeMode::Horizontal);
+
+        let c0 = (app.doc.shapes[0].bounds().min_x + app.doc.shapes[0].bounds().max_x) / 2.0;
+        let c1 = (app.doc.shapes[1].bounds().min_x + app.doc.shapes[1].bounds().max_x) / 2.0;
+        let c2 = (app.doc.shapes[2].bounds().min_x + app.doc.shapes[2].bounds().max_x) / 2.0;
+        let d1 = c1 - c0;
+        let d2 = c2 - c1;
+        assert!((d1 - d2).abs() < 1e-4, "Centers must be equally spaced after distribute: d1={}, d2={}", d1, d2);
+    }
+
+    #[test]
+    fn test_preview_job_simulation_data() {
+        let mut doc = Document::new("Preview Test", 300.0, 300.0);
+        doc.add_shape(Shape::Rect { layer_index: 0, x: 20.0, y: 20.0, width: 40.0, height: 40.0, corner_radius: 0.0 });
+        doc.add_shape(Shape::Circle { layer_index: 0, center: Point2D::new(100.0, 100.0), radius: 15.0 });
+
+        let job_data = PreviewJobData::build(&doc, 0.0);
+        assert!(!job_data.moves.is_empty(), "Moves must not be empty");
+        assert!(job_data.total_time_sec > 0.0, "Total time must be greater than zero");
+        assert!(job_data.total_cut_distance > 0.0, "Total cut distance must be positive");
+        assert!(job_data.total_rapid_distance > 0.0, "Total rapid distance must be positive");
+
+        let cut_moves = job_data.moves.iter().filter(|m| m.is_cut).count();
+        let rapid_moves = job_data.moves.iter().filter(|m| !m.is_cut).count();
+        assert!(cut_moves >= 2, "Must contain cut segments for both shapes");
+        assert!(rapid_moves >= 1, "Must contain rapid travel segments");
     }
 }

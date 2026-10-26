@@ -446,6 +446,44 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Save as New Profile" => "Enregistrer comme nouveau profil",
         "● ACTIVE" => "● ACTIF",
 
+        // Align & Distribute
+        "Align & Distribute" => "Aligner et distribuer",
+        "Align Left" => "Aligner à gauche",
+        "Align Right" => "Aligner à droite",
+        "Align Top" => "Aligner en haut",
+        "Align Bottom" => "Aligner en bas",
+        "Align Center Horizontal" => "Centrer horizontalement",
+        "Align Center Vertical" => "Centrer verticalement",
+        "Center to Bed (P)" => "Centrer sur le plateau (P)",
+        "Distribute Horizontally" => "Distribuer horizontalement",
+        "Distribute Vertically" => "Distribuer verticalement",
+        "Centered selection to bed (P)" => "Sélection centrée sur le plateau (P)",
+        "Aligned shapes successfully" => "Formes alignées avec succès",
+        "Distributed shapes successfully" => "Formes distribuées avec succès",
+        "Select at least 2 shapes to align" => "Sélectionnez au moins 2 formes à aligner",
+        "Select at least 3 shapes to distribute" => "Sélectionnez au moins 3 formes à distribuer",
+        "Align:" => "Alignement :",
+        "Bed (P)" => "Plateau (P)",
+
+        // Visual Cut Preview Simulator
+        "Preview" => "Aperçu",
+        "Preview (Alt+P)" => "Aperçu (Alt+P)",
+        "Preview Job Simulation (Alt+P)..." => "Aperçu et simulation de travail (Alt+P)...",
+        "Laser Cut Preview & Simulation" => "Aperçu et simulation de découpe laser",
+        "Play" => "Lecture",
+        "Rewind" => "Rembobiner",
+        "Playback Speed:" => "Vitesse de lecture :",
+        "Simulated Time:" => "Temps simulé :",
+        "Cut Travel" => "Trajet de coupe",
+        "Rapid Travel" => "Déplacement rapide",
+
+        // Tabs & Bridges
+        "Tabs / Bridges:" => "Ponts d'attache (Tabs) :",
+        "Tab Count:" => "Nombre d'attaches :",
+        "Tab Width:" => "Largeur d'attache :",
+        "Enable tabs / bridges to keep cut parts attached" => "Activer les ponts d'attache pour maintenir les pièces",
+        "Count:" => "Nombre :",
+
         // Fallback: return original key
         _ => key,
     }

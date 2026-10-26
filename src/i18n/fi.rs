@@ -446,6 +446,44 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Save as New Profile" => "Tallenna uutena profiilina",
         "● ACTIVE" => "● AKTIIVINEN",
 
+        // Align & Distribute
+        "Align & Distribute" => "Kohdista ja tasaa",
+        "Align Left" => "Tasaa vasemmalle",
+        "Align Right" => "Tasaa oikealle",
+        "Align Top" => "Tasaa ylös",
+        "Align Bottom" => "Tasaa alas",
+        "Align Center Horizontal" => "Keskitä vaakasuunnassa",
+        "Align Center Vertical" => "Keskitä pystysuunnassa",
+        "Center to Bed (P)" => "Keskitä alustalle (P)",
+        "Distribute Horizontally" => "Jaa tasavälein vaakasuunnassa",
+        "Distribute Vertically" => "Jaa tasavälein pystysuunnassa",
+        "Centered selection to bed (P)" => "Valinta keskitetty alustalle (P)",
+        "Aligned shapes successfully" => "Muodot kohdistettu onnistuneesti",
+        "Distributed shapes successfully" => "Muodot tasattu onnistuneesti",
+        "Select at least 2 shapes to align" => "Valitse vähintään 2 muotoa kohdistettavaksi",
+        "Select at least 3 shapes to distribute" => "Valitse vähintään 3 muotoa tasattavaksi",
+        "Align:" => "Kohdistus:",
+        "Bed (P)" => "Alusta (P)",
+
+        // Visual Cut Preview Simulator
+        "Preview" => "Esikatselu",
+        "Preview (Alt+P)" => "Esikatselu (Alt+P)",
+        "Preview Job Simulation (Alt+P)..." => "Työn visuaalinen esikatselu (Alt+P)...",
+        "Laser Cut Preview & Simulation" => "Laserleikkauksen visuaalinen esikatselu",
+        "Play" => "Toista",
+        "Rewind" => "Alkuun",
+        "Playback Speed:" => "Toistonopeus:",
+        "Simulated Time:" => "Simuloitu aika:",
+        "Cut Travel" => "Leikkausliike",
+        "Rapid Travel" => "Pikasiirto",
+
+        // Tabs & Bridges
+        "Tabs / Bridges:" => "Kiinnityssillat (Tabs):",
+        "Tab Count:" => "Siltojen määrä:",
+        "Tab Width:" => "Sillan leveys:",
+        "Enable tabs / bridges to keep cut parts attached" => "Jätä leikkausviivoihin kiinnityssillat estämään osien putoamista",
+        "Count:" => "Määrä:",
+
         // Fallback: return original key
         _ => key,
     }

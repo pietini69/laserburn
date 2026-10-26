@@ -446,6 +446,44 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Save as New Profile" => "Guardar como nuevo perfil",
         "● ACTIVE" => "● ACTIVO",
 
+        // Align & Distribute
+        "Align & Distribute" => "Alinear y distribuir",
+        "Align Left" => "Alinear a la izquierda",
+        "Align Right" => "Alinear a la derecha",
+        "Align Top" => "Alinear arriba",
+        "Align Bottom" => "Alinear abajo",
+        "Align Center Horizontal" => "Centrar horizontalmente",
+        "Align Center Vertical" => "Centrar verticalmente",
+        "Center to Bed (P)" => "Centrar en la mesa (P)",
+        "Distribute Horizontally" => "Distribuir horizontalmente",
+        "Distribute Vertically" => "Distribuir verticalmente",
+        "Centered selection to bed (P)" => "Selección centrada en la mesa (P)",
+        "Aligned shapes successfully" => "Figuras alineadas con éxito",
+        "Distributed shapes successfully" => "Figuras distribuidas con éxito",
+        "Select at least 2 shapes to align" => "Selecciona al menos 2 figuras para alinear",
+        "Select at least 3 shapes to distribute" => "Selecciona al menos 3 figuras para distribuir",
+        "Align:" => "Alinear:",
+        "Bed (P)" => "Mesa (P)",
+
+        // Visual Cut Preview Simulator
+        "Preview" => "Vista previa",
+        "Preview (Alt+P)" => "Vista previa (Alt+P)",
+        "Preview Job Simulation (Alt+P)..." => "Vista previa y simulación del trabajo (Alt+P)...",
+        "Laser Cut Preview & Simulation" => "Vista previa y simulación de corte láser",
+        "Play" => "Reproducir",
+        "Rewind" => "Rebobinar",
+        "Playback Speed:" => "Velocidad de reproducción:",
+        "Simulated Time:" => "Tiempo simulado:",
+        "Cut Travel" => "Recorrido de corte",
+        "Rapid Travel" => "Movimiento rápido",
+
+        // Tabs & Bridges
+        "Tabs / Bridges:" => "Puentes de sujeción (Tabs):",
+        "Tab Count:" => "Cantidad de puentes:",
+        "Tab Width:" => "Ancho del puente:",
+        "Enable tabs / bridges to keep cut parts attached" => "Habilitar puentes de sujeción para mantener unidas las piezas",
+        "Count:" => "Cantidad:",
+
         // Fallback: return original key
         _ => key,
     }

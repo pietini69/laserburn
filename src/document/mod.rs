@@ -129,6 +129,20 @@ pub struct CutSetting {
     pub ceramic_preview: bool,  // simulate multi-layer ceramic paint colors on canvas
     #[serde(default = "default_ceramic_bands")]
     pub ceramic_bands: Vec<CeramicColorBand>,
+    #[serde(default)]
+    pub tabs_enabled: bool,
+    #[serde(default = "default_tab_count")]
+    pub tab_count: usize,
+    #[serde(default = "default_tab_width")]
+    pub tab_width: f64,
+}
+
+fn default_tab_count() -> usize {
+    4
+}
+
+fn default_tab_width() -> f64 {
+    0.5
 }
 
 impl Default for CutSetting {
@@ -154,6 +168,9 @@ impl Default for CutSetting {
             overscan: 2.5,
             ceramic_preview: false,
             ceramic_bands: default_ceramic_bands(),
+            tabs_enabled: false,
+            tab_count: 4,
+            tab_width: 0.5,
         }
     }
 }

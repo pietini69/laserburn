@@ -241,26 +241,30 @@ impl CutOptimizer {
                 classified = reordered;
             }
 
-            // Step 2d: Insert Tabs / Bridges if configured
-            if self.tab_width > 0.0 && self.tab_count > 0 {
-                let mut tabbed_paths = Vec::new();
-                for path in classified {
-                    if path.polyline.is_closed && path.polyline.length() > self.tab_width * (self.tab_count as f64 + 1.0) {
-                        let segments = self.insert_tabs(&path.polyline, self.tab_width, self.tab_count);
-                        for seg in segments {
-                            tabbed_paths.push(OptimizedPath {
-                                layer_index: path.layer_index,
-                                polyline: seg,
-                                is_inner_cut: path.is_inner_cut,
-                                powers: None,
-                            });
-                        }
-                    } else {
-                        tabbed_paths.push(path);
+            // Step 2d: Insert Tabs / Bridges if configured on layer or optimizer
+            let mut tabbed_paths = Vec::new();
+            for path in classified {
+                let layer_tabs = doc.layers.get(&path.layer_index).map(|l| (l.cut_setting.tabs_enabled, l.cut_setting.tab_width, l.cut_setting.tab_count));
+                let (tabs_active, t_width, t_count) = match layer_tabs {
+                    Some((true, w, c)) if w > 0.0 && c > 0 => (true, w, c),
+                    _ => (self.tab_width > 0.0 && self.tab_count > 0, self.tab_width, self.tab_count),
+                };
+
+                if tabs_active && path.polyline.is_closed && path.polyline.length() > t_width * (t_count as f64 + 1.0) {
+                    let segments = self.insert_tabs(&path.polyline, t_width, t_count);
+                    for seg in segments {
+                        tabbed_paths.push(OptimizedPath {
+                            layer_index: path.layer_index,
+                            polyline: seg,
+                            is_inner_cut: path.is_inner_cut,
+                            powers: None,
+                        });
                     }
+                } else {
+                    tabbed_paths.push(path);
                 }
-                classified = tabbed_paths;
             }
+            classified = tabbed_paths;
 
             final_paths.extend(classified);
         }
@@ -486,5 +490,35 @@ mod tests {
         assert!(gcode.contains("G1 "), "G-code should have G1 feed moves");
         assert!(gcode.contains("S"), "G-code should have modulated S power parameters");
         assert!(gcode.contains("M4") || gcode.contains("M3"), "G-code should enable laser mode");
+    }
+
+    #[test]
+    fn test_layer_tabs_insertion() {
+        let mut doc = Document::new("tabs_test", 100.0, 100.0);
+        let mut layer = crate::document::Layer::new(0, "Cut with Tabs", "#FF0000");
+        layer.cut_setting.mode = crate::document::CutMode::Line;
+        layer.cut_setting.tabs_enabled = true;
+        layer.cut_setting.tab_count = 4;
+        layer.cut_setting.tab_width = 1.0;
+        doc.layers.insert(0, layer);
+
+        // Add a 40x40 square (perimeter = 160 mm)
+        doc.shapes.push(crate::document::Shape::Rect {
+            layer_index: 0,
+            x: 10.0,
+            y: 10.0,
+            width: 40.0,
+            height: 40.0,
+            corner_radius: 0.0,
+        });
+
+        let opt = CutOptimizer::new();
+        let job = opt.optimize(&doc);
+
+        // With 4 tabs, the closed square should be split into multiple open segments
+        assert!(job.paths.len() >= 4, "Should split rectangle into at least 4 segments, got {}", job.paths.len());
+        for path in &job.paths {
+            assert!(!path.polyline.is_closed, "Segments created by tabs should be open");
+        }
     }
 }
