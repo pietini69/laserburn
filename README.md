@@ -76,10 +76,10 @@ Pre-built binaries are available for every major platform from [GitHub Releases]
 
 | Operating System | Package | Architecture | Direct Download |
 |---|---|---|---|
-| **macOS** (11.0+) | **DMG Installer** | Universal (Apple Silicon M1/M2/M3/M4 + Intel) | [LaserBurn-1.0.0-universal.dmg](https://github.com/pietini69/laserburn/releases/download/v1.0.0/LaserBurn-1.0.0-universal.dmg) |
-| **macOS** (11.0+) | **ZIP Archive** | Universal 2 | [LaserBurn-1.0.0-macos-universal.zip](https://github.com/pietini69/laserburn/releases/download/v1.0.0/LaserBurn-1.0.0-macos-universal.zip) |
-| **Windows** (10/11) | **ZIP Executable** | x86_64 (64-bit) | [LaserBurn-1.0.0-windows-x64.zip](https://github.com/pietini69/laserburn/releases/download/v1.0.0/LaserBurn-1.0.0-windows-x64.zip) |
-| **Linux** | **tar.gz Archive** | x86_64 | [LaserBurn-1.0.0-linux-x86_64.tar.gz](https://github.com/pietini69/laserburn/releases/download/v1.0.0/LaserBurn-1.0.0-linux-x86_64.tar.gz) |
+| **macOS** (11.0+) | **DMG Installer** | Universal (Apple Silicon M1/M2/M3/M4 + Intel) | [LaserBurn-1.1.0-universal.dmg](https://github.com/pietini69/laserburn/releases/download/v1.1.0/LaserBurn-1.1.0-universal.dmg) |
+| **macOS** (11.0+) | **ZIP Archive** | Universal 2 | [LaserBurn-1.1.0-macos-universal.zip](https://github.com/pietini69/laserburn/releases/download/v1.1.0/LaserBurn-1.1.0-macos-universal.zip) |
+| **Windows** (10/11) | **ZIP Executable** | x86_64 (64-bit) | [LaserBurn-1.1.0-windows-x64.zip](https://github.com/pietini69/laserburn/releases/download/v1.1.0/LaserBurn-1.1.0-windows-x64.zip) |
+| **Linux** | **tar.gz Archive** | x86_64 | [LaserBurn-1.1.0-linux-x86_64.tar.gz](https://github.com/pietini69/laserburn/releases/download/v1.1.0/LaserBurn-1.1.0-linux-x86_64.tar.gz) |
 
 > **macOS Note:** On first launch, if macOS Gatekeeper flags the app as unsigned, simply right-click `LaserBurn.app` in `/Applications` and select **Open**, or run:
 > ```bash

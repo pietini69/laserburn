@@ -1,11 +1,17 @@
 # LaserBurn — Project Status & Architecture Context
 
-## Current Status (v1.0.0 Official Release — October 26, 2026)
+## Current Status (v1.1.0 Official Release — October 27, 2026)
 LaserBurn is a high-performance, modern laser CAM/CNC software written in Rust (`eframe`/`egui`).
-It is at official version **v1.0.0**, all 61 unit tests pass, and it is deployed as a native signed macOS app bundle (`/Applications/LaserBurn.app`), as well as multi-platform distribution packages in `dist/` (macOS Universal 2 DMG/ZIP, macOS arm64 DMG, macOS Intel DMG, Windows x64 ZIP, and Linux x86_64 tar.gz).
+It is at official version **v1.1.0**, all 87 unit tests pass, and it is deployed as a native signed macOS app bundle (`/Applications/LaserBurn.app`), as well as multi-platform distribution packages in `dist/` (macOS Universal 2 DMG/ZIP, Windows x64 ZIP, and Linux x86_64 tar.gz).
 
-### Key Milestones & Features Implemented in v1.0.0:
-1. **Material Library & Preset Database with LightBurn (.clb) Compatibility:**
+### Key Milestones & Features Implemented in v1.1.0:
+1. **Full Multilingual Localization (i18n):**
+   - High-quality native localization across major European languages: Finnish (Suomi), English, German (Deutsch), French (Français), Italian (Italiano), and Spanish (Español).
+   - Zero-allocation modular architecture with dedicated per-language dictionary modules in `src/i18n/` (`fi.rs`, `de.rs`, `fr.rs`, `it.rs`, `es.rs`).
+   - Dynamic UI dropdown and settings combo iterating over `Language::ALL`.
+   - Comprehensive localization of all toolbars, menus, jog controls, device connection window, and machine profiles.
+
+2. **Material Library & Preset Database with LightBurn (.clb) Compatibility:**
    - 3-tier hierarchical material database: Category -> Material -> Thickness/Variant -> Operation (`Cut`, `Score`, `Engrave`, `Photo Engrave`, `Offset Fill`).
    - Auto-saved and loaded from `~/Documents/LaserBurn_materials.json`.
    - Factory calibrated presets for 10W–20W diode lasers: Birch Plywood (3mm/4mm), Ceramic Tiles (TiO2 Norton white tile method), Cardboard & Kraft Paper, Cast Acrylic (Dark/Black), Slate Stone Coasters, and Veg-Tan Leather.
