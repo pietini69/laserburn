@@ -522,7 +522,7 @@ impl Default for DeviceSettings {
 
             current_profile_name: default_current_profile_name(),
             profiles: default_profiles_list(),
-            language: crate::i18n::Language::Finnish,
+            language: crate::i18n::Language::English,
         }
     }
 }

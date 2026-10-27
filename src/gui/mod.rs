@@ -11552,21 +11552,21 @@ mod tests {
     #[test]
     fn test_gui_language_switching() {
         let mut app = LaserBurnApp::default();
-        // Default is Finnish
-        assert_eq!(app.device.settings.language, crate::i18n::Language::Finnish);
-        assert_eq!(app.tr("File"), "Tiedosto");
-        assert_eq!(app.tr("Edit"), "Muokkaa");
-        assert_eq!(app.tr("Select / Move"), "Valitse / Siirrä");
-        assert_eq!(app.tr("Transform & Size"), "Muunnos & Koko");
-        assert_eq!(app.tr("Job Execution (G-Code)"), "Työn ajo (G-koodi)");
-
-        // Switch to English
-        app.device.settings.language = crate::i18n::Language::English;
+        // Default is English
+        assert_eq!(app.device.settings.language, crate::i18n::Language::English);
         assert_eq!(app.tr("File"), "File");
         assert_eq!(app.tr("Edit"), "Edit");
         assert_eq!(app.tr("Select / Move"), "Select / Move");
         assert_eq!(app.tr("Transform & Size"), "Transform & Size");
         assert_eq!(app.tr("Job Execution (G-Code)"), "Job Execution (G-Code)");
+
+        // Switch to Finnish
+        app.device.settings.language = crate::i18n::Language::Finnish;
+        assert_eq!(app.tr("File"), "Tiedosto");
+        assert_eq!(app.tr("Edit"), "Muokkaa");
+        assert_eq!(app.tr("Select / Move"), "Valitse / Siirrä");
+        assert_eq!(app.tr("Transform & Size"), "Muunnos & Koko");
+        assert_eq!(app.tr("Job Execution (G-Code)"), "Työn ajo (G-koodi)");
     }
 
     #[test]
