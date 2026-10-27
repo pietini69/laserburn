@@ -469,7 +469,7 @@ impl Default for LaserBurnApp {
     fn default() -> Self {
         let (file_dialog_tx, file_dialog_rx) = std::sync::mpsc::channel();
         let mut app = Self {
-            doc: Document::new("LaserBurn_Project", 400.0, 400.0),
+            doc: Document::new("PhotonCAM_Project", 400.0, 400.0),
             active_tool: ActiveTool::Select,
             selected_shape_indices: Vec::new(),
             selected_layer: 0,
@@ -521,7 +521,7 @@ impl Default for LaserBurnApp {
             text_on_path_perpendicular: 0.0,
             text_on_path_reverse: false,
 
-            status_msg: "LaserBurn Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog".to_string(),
+            status_msg: "PhotonCAM Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog".to_string(),
             clipboard_shapes: Vec::new(),
             camera_manager: crate::camera::CameraManager::default(),
             camera_calibration: crate::camera::CameraCalibration::load(),
@@ -604,7 +604,7 @@ impl Default for LaserBurnApp {
             mat_lib_selected_thickness: None,
             mat_lib_selected_op: None,
             show_save_material_dialog: false,
-            save_mat_category: "LaserBurn Oletus (10W-20W)".to_string(),
+            save_mat_category: "PhotonCAM Oletus (10W-20W)".to_string(),
             save_mat_name: "Birch Plywood".to_string(),
             save_mat_thickness_mm: 3.0,
             save_mat_thickness_label: "3.0 mm".to_string(),
@@ -1625,7 +1625,7 @@ impl LaserBurnApp {
     pub fn prompt_save_project(&self, ctx: &egui::Context) {
         let tx = self.file_dialog_tx.clone();
         let ctx = ctx.clone();
-        let default_name = if self.doc.name.is_empty() || self.doc.name == "Untitled" || self.doc.name == "LaserBurn_Project" {
+        let default_name = if self.doc.name.is_empty() || self.doc.name == "Untitled" || self.doc.name == "LaserBurn_Project" || self.doc.name == "PhotonCAM_Project" {
             "project.lbrn2".to_string()
         } else if self.doc.name.ends_with(".lbrn2") {
             self.doc.name.clone()
@@ -1712,8 +1712,8 @@ impl LaserBurnApp {
         std::thread::spawn(move || {
             pollster::block_on(async move {
                 if let Some(handle) = rfd::AsyncFileDialog::new()
-                    .add_filter("LaserBurn Settings Profile (*.json, *.lbpref)", &["json", "lbpref"])
-                    .set_file_name("LaserBurn_Profile.json")
+                    .add_filter("PhotonCAM / LaserBurn Settings Profile (*.json, *.lbpref)", &["json", "lbpref"])
+                    .set_file_name("PhotonCAM_Profile.json")
                     .save_file()
                     .await
                 {
@@ -1731,7 +1731,7 @@ impl LaserBurnApp {
         std::thread::spawn(move || {
             pollster::block_on(async move {
                 if let Some(handle) = rfd::AsyncFileDialog::new()
-                    .add_filter("LaserBurn Settings (*.json, *.lbpref)", &["json", "lbpref"])
+                    .add_filter("PhotonCAM / LaserBurn Settings (*.json, *.lbpref)", &["json", "lbpref"])
                     .pick_file()
                     .await
                 {
@@ -1749,8 +1749,8 @@ impl LaserBurnApp {
         std::thread::spawn(move || {
             pollster::block_on(async move {
                 if let Some(handle) = rfd::AsyncFileDialog::new()
-                    .add_filter("LaserBurn Material Library (*.json)", &["json"])
-                    .set_file_name("LaserBurn_materials.json")
+                    .add_filter("PhotonCAM Material Library (*.json)", &["json"])
+                    .set_file_name("PhotonCAM_materials.json")
                     .save_file()
                     .await
                 {
@@ -4988,7 +4988,7 @@ impl eframe::App for LaserBurnApp {
                     self.show_web_remote_window = true;
                 }
                 ui.separator();
-                ui.label(egui::RichText::new(concat!("LaserBurn v", env!("CARGO_PKG_VERSION"))).strong().color(egui::Color32::from_rgb(255, 140, 0)));
+                ui.label(egui::RichText::new(concat!("PhotonCAM v", env!("CARGO_PKG_VERSION"))).strong().color(egui::Color32::from_rgb(255, 140, 0)));
                 ui.label(egui::RichText::new(format!("({} | {}+{}: {})", tr("Arrows: Jog Laser"), cmd, tr("Arrows"), tr("Nudge Selection"))).italics().color(egui::Color32::GRAY));
             });
 
@@ -9511,7 +9511,7 @@ impl eframe::App for LaserBurnApp {
                 .default_width(420.0)
                 .open(&mut self.show_settings_window)
                 .show(ctx, |ui| {
-                    ui.heading(tr("LaserBurn Settings"));
+                    ui.heading(tr("PhotonCAM Settings"));
                     ui.add_space(4.0);
 
                     ui.horizontal(|ui| {
@@ -9648,10 +9648,10 @@ impl eframe::App for LaserBurnApp {
                                 .max_decimals(3)
                                 .range(0.0..=2.0)
                                 .suffix(" mm"),
-                        ).on_hover_text("Full laser beam width (kerf). LaserBurn automatically offsets cutlines by half this width (kerf / 2).");
+                        ).on_hover_text("Full laser beam width (kerf). PhotonCAM automatically offsets cutlines by half this width (kerf / 2).");
                         ui.label(egui::RichText::new(format!("-> Offset: ±{:.3} mm", self.device.settings.default_kerf * 0.5)).color(egui::Color32::from_rgb(100, 200, 255)).strong());
                     });
-                    ui.label(egui::RichText::new("Enter the FULL beam width (e.g. 0.100 mm). LaserBurn expands outer cuts by +0.05 mm and shrinks holes by -0.05 mm. (In LightBurn this was called 'Kerf Offset' which was width/2).").small().weak());
+                    ui.label(egui::RichText::new("Enter the FULL beam width (e.g. 0.100 mm). PhotonCAM expands outer cuts by +0.05 mm and shrinks holes by -0.05 mm. (In LightBurn this was called 'Kerf Offset' which was width/2).").small().weak());
 
                     ui.add_space(6.0);
                     ui.separator();
@@ -9739,7 +9739,7 @@ impl eframe::App for LaserBurnApp {
             let web_active = self.web_remote_active;
             let web_port = self.web_remote_port;
 
-            egui::Window::new("🌐 LaserBurn Web Remote & iPad Bridge")
+            egui::Window::new("🌐 PhotonCAM Web Remote & iPad Bridge")
                 .collapsible(false)
                 .resizable(false)
                 .default_width(460.0)
@@ -9789,7 +9789,7 @@ impl eframe::App for LaserBurnApp {
                     ui.label("1. Varmista, että iPad on samassa Wi-Fi -verkossa kuin tämä Mac/PC.");
                     ui.label(format!("2. Avaa iPadin Safari ja kirjoita osoitteeksi: {}", web_url));
                     ui.label("3. Napauta Safarin 'Jaa' -painiketta ja valitse 'Lisää Koti-valikkoon' (Add to Home Screen).");
-                    ui.label("👉 Tällöin LaserBurn aukeaa koko ruudun itsenäisenä sovelluksena suoraan iPadin kotivalikosta!");
+                    ui.label("👉 Tällöin PhotonCAM aukeaa koko ruudun itsenäisenä sovelluksena suoraan iPadin kotivalikosta!");
 
                     ui.add_space(8.0);
                     ui.separator();

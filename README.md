@@ -1,4 +1,4 @@
-# LaserBurn 🦀⚡
+# PhotonCAM 🦀⚡
 
 ### The Blazingly Fast, Native Rust Laser Cutting & Engraving CAM for macOS, Windows & Linux
 
@@ -8,23 +8,23 @@
 [![Free Download on Gumroad](https://img.shields.io/badge/Gumroad-Free%20Download-orange.svg)](https://shop.pietiniart.com/l/laserburn)
 [![Buy Me A Coffee](https://img.shields.io/badge/☕%20Buy%20Me%20A%20Coffee-Donate-yellow.svg)](https://buymeacoffee.com/pnp69)
 
-**LaserBurn** is an open-source, ultra-lightweight, and fully-featured laser CAM & controller application written from scratch in pure **Rust** (`eframe` / `egui`). 
+**PhotonCAM** is an open-source, ultra-lightweight, and fully-featured laser CAM & controller application written from scratch in pure **Rust** (`eframe` / `egui`). 
 
-Built as a high-performance native alternative for diode and CO2 laser enthusiasts, LaserBurn offers direct compatibility with **LightBurn (`.lbrn2` and `.clb`)** files, workshop-tested CAM trajectory optimization, dynamic analog power modulation, and a plain-English serial traffic debugger.
-
----
-
-![LaserBurn Screenshot](assets/screenshots/screenshot_dark_and_light.png)
+Built as a high-performance native alternative for diode and CO2 laser enthusiasts, PhotonCAM offers direct compatibility with **LightBurn (`.lbrn2` and `.clb`)** files, workshop-tested CAM trajectory optimization, dynamic analog power modulation, and a plain-English serial traffic debugger.
 
 ---
 
-## ⚡ The Value Proposition: Why LaserBurn?
+![PhotonCAM Screenshot](assets/screenshots/screenshot_dark_and_light.png)
+
+---
+
+## ⚡ The Value Proposition: Why PhotonCAM?
 
 Most free laser software out there is either locked to Windows (e.g. LaserGRBL running on legacy .NET), sluggish Electron/Python wrappers consuming hundreds of megabytes of RAM, or simple G-code senders lacking real CAM capabilities.
 
-LaserBurn was engineered to deliver a responsive, industrial-grade CAM suite that starts instantly and respects your machine's hardware:
+PhotonCAM was engineered to deliver a responsive, industrial-grade CAM suite that starts instantly and respects your machine's hardware:
 
-| Feature | Legacy Free Tools (e.g., LaserGRBL) | Heavy Commercial Tools | LaserBurn 🦀 |
+| Feature | Legacy Free Tools (e.g., LaserGRBL) | Heavy Commercial Tools | PhotonCAM 🦀 |
 |---|---|---|---|
 | **OS Support** | Windows only (requires Wine on Mac/Linux) | Windows, Mac, Linux | **100% Native Universal** (macOS Apple Silicon & Intel, Windows 64-bit, Linux) |
 | **Startup & Footprint** | Slow cold start, high CPU idle | Proprietary installer, ~400MB+ disk | **<0.2s cold start, <40 MB RAM**, single native binary |
@@ -40,7 +40,7 @@ LaserBurn was engineered to deliver a responsive, industrial-grade CAM suite tha
 ## 🎯 Key Features
 
 - **⚡ Blazing Fast Rust Performance:** Cold startup in under 200 ms. Real-time 60 FPS pan/zoom viewport even with complex vector graphics and high-density raster rasters.
-- **📂 LightBurn `.lbrn2` & `.clb` File Support:** Seamlessly load and save multi-layer LightBurn projects (C00–C29) and import LightBurn material databases into clean per-machine categories (`📁 LaserBurn Oletus`, `📁 Oma 10W`, etc.).
+- **📂 LightBurn `.lbrn2` & `.clb` File Support:** Seamlessly load and save multi-layer LightBurn projects (C00–C29) and import LightBurn material databases into clean per-machine categories (`📁 PhotonCAM Oletus`, `📁 Oma 10W`, etc.).
 - **📐 Built-in 2D Vector CAD & Boolean Operations:**
   - **Boolean Tools:** Weld / Union, Subtract ($A - B$), and Intersect overlapping shapes and text.
   - **Interactive Node Editing:** Manipulate vector path vertices directly on the canvas—move nodes, double-click to insert vertices, delete nodes, and toggle open/closed paths (`N`).
@@ -76,21 +76,21 @@ Pre-built binaries are available for every major platform from [GitHub Releases]
 
 | Operating System | Package | Architecture | Direct Download |
 |---|---|---|---|
-| **macOS** (11.0+) | **DMG Installer** | Universal (Apple Silicon M1/M2/M3/M4 + Intel) | [LaserBurn-1.1.0-universal.dmg](https://github.com/pietini69/laserburn/releases/download/v1.1.0/LaserBurn-1.1.0-universal.dmg) |
-| **macOS** (11.0+) | **ZIP Archive** | Universal 2 | [LaserBurn-1.1.0-macos-universal.zip](https://github.com/pietini69/laserburn/releases/download/v1.1.0/LaserBurn-1.1.0-macos-universal.zip) |
-| **Windows** (10/11) | **ZIP Executable** | x86_64 (64-bit) | [LaserBurn-1.1.0-windows-x64.zip](https://github.com/pietini69/laserburn/releases/download/v1.1.0/LaserBurn-1.1.0-windows-x64.zip) |
-| **Linux** | **tar.gz Archive** | x86_64 | [LaserBurn-1.1.0-linux-x86_64.tar.gz](https://github.com/pietini69/laserburn/releases/download/v1.1.0/LaserBurn-1.1.0-linux-x86_64.tar.gz) |
+| **macOS** (11.0+) | **DMG Installer** | Universal (Apple Silicon M1/M2/M3/M4 + Intel) | [PhotonCAM-1.1.0-universal.dmg](https://github.com/pietini69/laserburn/releases/download/v1.1.0/PhotonCAM-1.1.0-universal.dmg) |
+| **macOS** (11.0+) | **ZIP Archive** | Universal 2 | [PhotonCAM-1.1.0-macos-universal.zip](https://github.com/pietini69/laserburn/releases/download/v1.1.0/PhotonCAM-1.1.0-macos-universal.zip) |
+| **Windows** (10/11) | **ZIP Executable** | x86_64 (64-bit) | [PhotonCAM-1.1.0-windows-x64.zip](https://github.com/pietini69/laserburn/releases/download/v1.1.0/PhotonCAM-1.1.0-windows-x64.zip) |
+| **Linux** | **tar.gz Archive** | x86_64 | [PhotonCAM-1.1.0-linux-x86_64.tar.gz](https://github.com/pietini69/laserburn/releases/download/v1.1.0/PhotonCAM-1.1.0-linux-x86_64.tar.gz) |
 
-> **macOS Note:** On first launch, if macOS Gatekeeper flags the app as unsigned, simply right-click `LaserBurn.app` in `/Applications` and select **Open**, or run:
+> **macOS Note:** On first launch, if macOS Gatekeeper flags the app as unsigned, simply right-click `PhotonCAM.app` in `/Applications` and select **Open**, or run:
 > ```bash
-> xattr -cr /Applications/LaserBurn.app
+> xattr -cr /Applications/PhotonCAM.app
 > ```
 
 ---
 
 ## ☕ Support the Project
 
-LaserBurn is free and open-source software under the GPLv3 license. If LaserBurn saves you time, money on commercial licenses, or makes your laser workflow smoother, you can support future development:
+PhotonCAM is free and open-source software under the GPLv3 license. If PhotonCAM saves you time, money on commercial licenses, or makes your laser workflow smoother, you can support future development:
 
 ☕ **[Buy Me a Coffee (buymeacoffee.com/pnp69)](https://buymeacoffee.com/pnp69)** (Quick tip via Apple Pay, Google Pay, Card or PayPal)
 
@@ -137,7 +137,7 @@ Contributions, bug reports, and feature suggestions are warmly welcomed!
 
 ## 📜 License
 
-LaserBurn is released under the **GNU General Public License v3.0 (GPLv3)**.  
+PhotonCAM is released under the **GNU General Public License v3.0 (GPLv3)**.  
 See the [LICENSE](LICENSE) file for details.
 
 Copyright © 2026 Niko Pietinen.

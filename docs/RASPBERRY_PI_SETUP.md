@@ -1,22 +1,22 @@
-# 🍓 LaserBurn Bridge & Web Server – Raspberry Pi & iPad Setup
+# 🍓 PhotonCAM Bridge & Web Server – Raspberry Pi & iPad Setup
 
-LaserBurn Bridge muuttaa Raspberry Pi:n (esim. Raspberry Pi Zero 2 W, Pi 3, Pi 4 tai Pi 5) langattomaksi laser-palvelimeksi verstaalle.
+PhotonCAM Bridge muuttaa Raspberry Pi:n (esim. Raspberry Pi Zero 2 W, Pi 3, Pi 4 tai Pi 5) langattomaksi laser-palvelimeksi verstaalle.
 
 Voit ohjata laseria, ajaa tiedostoja, siirtää akseleita ja valvoa työtä millä tahansa **iPadilla, iPhonella, Android-laitteella tai tietokoneella** ilman, että kallista tietokonetta tarvitsee pitää pölyisellä verstaspöydällä!
 
 ---
 
-## 🎯 Tapa 1: Valmis LaserBurn Pi -levykuva (Helpoin tapa – Ei komentoriviä!)
+## 🎯 Tapa 1: Valmis PhotonCAM Pi -levykuva (Helpoin tapa – Ei komentoriviä!)
 
 Tämä on **kaikkein helpoin tapa**, joka ei vaadi lainkaan Linux-komentoja tai tiedostojen siirtelyä:
 
 1. **Lataa valmis levykuva:**
-   - Lataa **`LaserBurn-Pi-OS-arm64.img.xz`** [LaserBurn GitHub Releases](https://github.com/pietini69/laserburn/releases) -sivulta.
+   - Lataa **`PhotonCAM-Pi-OS-arm64.img.xz`** [PhotonCAM GitHub Releases](https://github.com/pietini69/photoncam/releases) -sivulta.
 2. **Avaa Raspberry Pi Imager:**
    - Lataa ilmainen [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (saatavilla Macille, Windowsille ja Linuxille).
 3. **Valitse levykuva ja Wi-Fi:**
    - Paina **Choose OS** (Valitse käyttöjärjestelmä) -> rullaa alas ja valitse **Use custom** (Käytä omaa).
-   - Valitse lataamasi `LaserBurn-Pi-OS-arm64.img.xz`.
+   - Valitse lataamasi `PhotonCAM-Pi-OS-arm64.img.xz`.
    - Kun Imager kysyy *"Would you like to apply OS customisation settings?"*, valitse **Edit Settings**:
      - Syötä kotisi/verstaasi **Wi-Fi -nimi (SSID)** ja **salasana**.
      - Aseta haluamasi käyttäjänimi ja salasana (esim. `pi` ja oma salasana).
@@ -26,7 +26,7 @@ Tämä on **kaikkein helpoin tapa**, joka ei vaadi lainkaan Linux-komentoja tai 
    - Laita SD-kortti Raspberry Pi:hin, kytke laser USB-kaapelilla kiinni ja laita virrat päälle!
    - Avaa iPadin tai puhelimen Safari ja mene suoraan osoitteeseen:
      ```text
-     http://laserburn.local:8080
+     http://photoncam.local:8080
      ```
    - ✨ **Valmista!** Palvelin käynnistyy automaattisesti taustalla joka kerta, kun Raspi saa virtaa.
 
@@ -37,11 +37,11 @@ Tämä on **kaikkein helpoin tapa**, joka ei vaadi lainkaan Linux-komentoja tai 
 Kytke Raspberry Pi laserisi USB-porttiin, kirjaudu sisään SSH:lla ja aja:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/pietini69/laserburn/master/scripts/install_pi_bridge.sh | bash
+curl -sSL https://raw.githubusercontent.com/pietini69/photoncam/master/scripts/install_pi_bridge.sh | bash
 ```
 
 Tämä skripti:
-1. Asentaa kevyen `laserburn-bridge` -binäärin.
+1. Asentaa kevyen `photoncam-bridge` -binäärin.
 2. Lisää käyttäjäsi `dialout`-ryhmään USB-sarjaliikennettä varten.
 3. Luo ja käynnistää automaattisen taustapalvelun (`systemd`), joka käynnistyy aina automaattisesti kun Raspi saa virtaa.
 
@@ -52,12 +52,22 @@ Tämä skripti:
 1. Yhdistä iPad samaan Wi-Fi -verkkoon kuin Raspberry Pi.
 2. Avaa **Safari** ja siirry osoitteeseen:
    ```text
-   http://laserburn.local:8080
+   http://photoncam.local:8080
    (tai http://<raspin-ip>:8080)
    ```
 3. **Lisää kotivalikkoon:**
    - Napauta Safarin jakopainiketta (neliö ja nuoli ylös).
    - Valitse **"Lisää Koti-valikkoon"** (*Add to Home Screen*).
+   - PhotonCAM ilmestyy kotivalikkoosi omalla ikonilla ja aukeaa täysin itsenäisenä koko ruudun iPad-sovelluksena!
+
+---
+
+## 🔌 Yhdistäminen tietokoneelta (TCP Network Bridge)
+
+Voit yhdistää PhotonCAM-työpöytäsovelluksen (Mac / Windows / Linux) laseriin langattomasti verkon yli:
+- Valitse PhotonCAMin yhteysikkunasta: **TCP / Verkko**
+- Osoite: `photoncam.local:2323` (tai `<raspin-ip>:2323`)
+- Paina **Yhdistä** – nyt kaikki leikkaukset, siirrot ja G-koodit siirtyvät langattomasti verkon yli Raspille ja siitä laseriin!
 4. 🎉 LaserBurn aukeaa nyt omalla ikonillaan suoraan iPadin kotivalikosta **täyden ruudun itsenäisenä sovelluksena** ilman selaimen painikkeita tai osoitepalkkeja!
 
 ---

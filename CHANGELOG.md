@@ -1,6 +1,6 @@
-# 📜 LaserBurn Changelog & Release History
+# 📜 PhotonCAM Changelog & Release History
 
-All notable changes, new features, and bug fixes for **LaserBurn** across every release.
+All notable changes, new features, and bug fixes for **PhotonCAM** across every release.
 
 ---
 
@@ -16,7 +16,7 @@ All notable changes, new features, and bug fixes for **LaserBurn** across every 
 * **🍓 Raspberry Pi Headless Bridge & Ready-to-Flash OS Image:**
   * Standalone lightweight CLI daemon `laserburn-bridge` for Raspberry Pi (ARM64 & ARMv7) and Linux.
   * Automated 1-line installation script (`curl -sSL https://raw.githubusercontent.com/pietini69/laserburn/master/scripts/install_pi_bridge.sh | bash`).
-  * Ready-to-flash Raspberry Pi OS Disk Image (`LaserBurn-Pi-OS-arm64.img.xz`) with Avahi mDNS (`laserburn.local:8080`) and auto-launch systemd service.
+  * Ready-to-flash Raspberry Pi OS Disk Image (`PhotonCAM-Pi-OS-arm64.img.xz`) with Avahi mDNS (`laserburn.local:8080`) and auto-launch systemd service.
 * **📷 Optional Camera Mode (Distraction-Free Minimal UI):**
   * Added **"Enable Camera Support"** setting in Settings (`Cmd+,`).
   * When unchecked, all camera toolbar buttons (`Camera`, `Cam BG`, `Update Overlay`, `Snap to Tile`), Camera menus, and camera shortcuts are completely hidden from the workspace, providing a clean, distraction-free CAD/CAM layout for users without an overhead camera.

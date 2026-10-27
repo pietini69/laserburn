@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# LaserBurn macOS Packaging Script
+# PhotonCAM macOS Packaging Script
 # Supports:
 #   ./scripts/build_dmg.sh universal   (Builds Universal 2 binary: Apple Silicon + Intel) [DEFAULT]
 #   ./scripts/build_dmg.sh arm64       (Apple Silicon only)
@@ -22,21 +22,21 @@ export PATH="$HOME/.cargo/bin:$PATH"
 package_target() {
     local target_name="$1"    # "arm64", "intel-x86_64", or "universal"
     local bin_source="$2"
-    local vol_name="LaserBurn ${VERSION}"
-    local app_dir="$DIST_DIR/LaserBurn_${target_name}.app"
+    local vol_name="PhotonCAM ${VERSION}"
+    local app_dir="$DIST_DIR/PhotonCAM_${target_name}.app"
     local dmg_root="$DIST_DIR/dmg_${target_name}_root"
-    local dmg_path="$DIST_DIR/LaserBurn-${VERSION}-${target_name}.dmg"
-    local zip_path="$DIST_DIR/LaserBurn-${VERSION}-macos-${target_name}.zip"
+    local dmg_path="$DIST_DIR/PhotonCAM-${VERSION}-${target_name}.dmg"
+    local zip_path="$DIST_DIR/PhotonCAM-${VERSION}-macos-${target_name}.zip"
 
     echo "==> Constructing ${target_name} .app bundle..."
     rm -rf "$app_dir" "$dmg_root"
     mkdir -p "$app_dir/Contents/MacOS"
     mkdir -p "$app_dir/Contents/Resources"
 
-    cp "$bin_source" "$app_dir/Contents/MacOS/LaserBurn"
-    chmod +x "$app_dir/Contents/MacOS/LaserBurn"
+    cp "$bin_source" "$app_dir/Contents/MacOS/PhotonCAM"
+    chmod +x "$app_dir/Contents/MacOS/PhotonCAM"
     cp "$PROJECT_DIR/Info.plist" "$app_dir/Contents/Info.plist"
-    cp "$PROJECT_DIR/assets/laserburn.icns" "$app_dir/Contents/Resources/laserburn.icns"
+    cp "$PROJECT_DIR/assets/photoncam.icns" "$app_dir/Contents/Resources/photoncam.icns"
 
     echo "==> Code signing ${target_name} bundle..."
     codesign --force --deep --sign "$SIGNING_IDENTITY" "$app_dir"
@@ -44,19 +44,19 @@ package_target() {
 
     echo "==> Packaging DMG: $dmg_path..."
     mkdir -p "$dmg_root"
-    cp -R "$app_dir" "$dmg_root/LaserBurn.app"
+    cp -R "$app_dir" "$dmg_root/PhotonCAM.app"
     ln -s /Applications "$dmg_root/Applications"
     rm -f "$dmg_path"
     hdiutil create -volname "$vol_name" -srcfolder "$dmg_root" -ov -format UDZO "$dmg_path"
 
     echo "==> Packaging ZIP: $zip_path..."
     rm -f "$zip_path"
-    (cd "$DIST_DIR" && zip -r "$zip_path" "LaserBurn_${target_name}.app")
+    (cd "$DIST_DIR" && zip -r "$zip_path" "PhotonCAM_${target_name}.app")
 
     if [[ "$target_name" == "universal" || "$target_name" == "arm64" ]]; then
-        echo "==> Installing latest build into /Applications/LaserBurn.app..."
-        rm -rf /Applications/LaserBurn.app
-        cp -R "$app_dir" /Applications/LaserBurn.app
+        echo "==> Installing latest build into /Applications/PhotonCAM.app..."
+        rm -rf /Applications/PhotonCAM.app
+        cp -R "$app_dir" /Applications/PhotonCAM.app
     fi
 
     rm -rf "$dmg_root" "$app_dir"
@@ -65,45 +65,45 @@ package_target() {
 
 build_arm64() {
     echo "==> Building arm64 release binary..."
-    cargo build --release --target aarch64-apple-darwin --features gui
+    cargo build --release --bin photoncam --target aarch64-apple-darwin --features gui
 }
 
 build_intel() {
     echo "==> Building x86_64 (Intel) release binary..."
-    cargo build --release --target x86_64-apple-darwin --features gui
+    cargo build --release --bin photoncam --target x86_64-apple-darwin --features gui
 }
 
 case "$MODE" in
     arm64)
         build_arm64
-        package_target "arm64" "$PROJECT_DIR/target/aarch64-apple-darwin/release/laser_burn"
+        package_target "arm64" "$PROJECT_DIR/target/aarch64-apple-darwin/release/photoncam"
         ;;
     intel)
         build_intel
-        package_target "intel-x86_64" "$PROJECT_DIR/target/x86_64-apple-darwin/release/laser_burn"
+        package_target "intel-x86_64" "$PROJECT_DIR/target/x86_64-apple-darwin/release/photoncam"
         ;;
     universal)
         build_arm64
         build_intel
         mkdir -p "$DIST_DIR"
-        UNIV_BIN="$DIST_DIR/laser_burn_universal_tmp"
+        UNIV_BIN="$DIST_DIR/photoncam_universal_tmp"
         echo "==> Creating Universal 2 binary with lipo..."
         lipo -create -output "$UNIV_BIN" \
-            "$PROJECT_DIR/target/aarch64-apple-darwin/release/laser_burn" \
-            "$PROJECT_DIR/target/x86_64-apple-darwin/release/laser_burn"
+            "$PROJECT_DIR/target/aarch64-apple-darwin/release/photoncam" \
+            "$PROJECT_DIR/target/x86_64-apple-darwin/release/photoncam"
         package_target "universal" "$UNIV_BIN"
         rm -f "$UNIV_BIN"
         ;;
     all)
         build_arm64
         build_intel
-        package_target "arm64" "$PROJECT_DIR/target/aarch64-apple-darwin/release/laser_burn"
-        package_target "intel-x86_64" "$PROJECT_DIR/target/x86_64-apple-darwin/release/laser_burn"
-        UNIV_BIN="$DIST_DIR/laser_burn_universal_tmp"
+        package_target "arm64" "$PROJECT_DIR/target/aarch64-apple-darwin/release/photoncam"
+        package_target "intel-x86_64" "$PROJECT_DIR/target/x86_64-apple-darwin/release/photoncam"
+        UNIV_BIN="$DIST_DIR/photoncam_universal_tmp"
         echo "==> Creating Universal 2 binary with lipo..."
         lipo -create -output "$UNIV_BIN" \
-            "$PROJECT_DIR/target/aarch64-apple-darwin/release/laser_burn" \
-            "$PROJECT_DIR/target/x86_64-apple-darwin/release/laser_burn"
+            "$PROJECT_DIR/target/aarch64-apple-darwin/release/photoncam" \
+            "$PROJECT_DIR/target/x86_64-apple-darwin/release/photoncam"
         package_target "universal" "$UNIV_BIN"
         rm -f "$UNIV_BIN"
         ;;

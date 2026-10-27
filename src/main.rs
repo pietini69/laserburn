@@ -1,23 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use clap::{Parser, Subcommand};
-use laser_burn::dither::{dither, to_grayscale};
-use laser_burn::document::{DitherMode, Document, Shape};
-use laser_burn::formats::{GCodeConfig, GCodeGenerator, Lbrn2File, RuidaGenerator, SvgFormat};
-use laser_burn::geometry::{Point2D, Polyline};
-use laser_burn::optimizer::CutOptimizer;
-use laser_burn::simulator::Simulator;
+use photoncam::dither::{dither, to_grayscale};
+use photoncam::document::{DitherMode, Document, Shape};
+use photoncam::formats::{GCodeConfig, GCodeGenerator, Lbrn2File, RuidaGenerator, SvgFormat};
+use photoncam::geometry::{Point2D, Polyline};
+use photoncam::optimizer::CutOptimizer;
+use photoncam::simulator::Simulator;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "laser_burn")]
+#[command(name = "photoncam")]
 #[command(author = "Niko Pietinen")]
 #[command(version)]
-#[command(about = "Modern, high-performance laser CAM software compatible with LightBurn .lbrn2", long_about = None)]
+#[command(about = "PhotonCAM – Modern, high-performance laser CAM software compatible with LightBurn .lbrn2", long_about = None)]
 struct Cli {
-    #[arg(help = "Optional project file to open directly in LaserBurn (.lbrn2, .lbrn, .svg)")]
+    #[arg(help = "Optional project file to open directly in PhotonCAM (.lbrn2, .lbrn, .svg)")]
     file: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -276,7 +276,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         #[cfg(feature = "gui")]
         Commands::Gui => {
-            let mut app = laser_burn::LaserBurnApp::default();
+            let mut app = photoncam::PhotonCamApp::default();
             if let Some(ref f) = cli.file {
                 let _ = app.open_file(f);
             }
@@ -304,7 +304,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..Default::default()
             };
             eframe::run_native(
-                "LaserBurn",
+                "PhotonCAM",
                 options,
                 Box::new(move |_cc| Ok(Box::new(app))),
             )?;

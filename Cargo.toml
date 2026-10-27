@@ -1,9 +1,9 @@
 [package]
-name = "laser_burn"
+name = "photoncam"
 version = "1.2.5"
 edition = "2021"
 authors = ["Niko Pietinen"]
-description = "Modern, high-performance laser cutting & engraving CAM software, featuring LightBurn .lbrn2 compatibility, vector optimization, image dithering, and multi-controller support (GRBL, Ruida)."
+description = "PhotonCAM – Modern, high-performance laser cutting & engraving CAM software, featuring LightBurn .lbrn2 compatibility, vector optimization, image dithering, and multi-controller support (GRBL, Ruida)."
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -27,13 +27,13 @@ default = ["gui"]
 gui = ["dep:eframe", "dep:rfd", "dep:pollster"]
 
 [lib]
-name = "laser_burn"
+name = "photoncam"
 path = "src/lib.rs"
 
 [[bin]]
-name = "laser_burn"
+name = "photoncam"
 path = "src/main.rs"
 
 [[bin]]
-name = "laserburn-bridge"
+name = "photoncam-bridge"
 path = "src/bin/bridge.rs"

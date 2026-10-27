@@ -1,4 +1,4 @@
-//! Finnish (Suomi) translations for LaserBurn.
+//! Finnish (Suomi) translations for PhotonCAM.
 
 pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
     match key {
@@ -279,7 +279,7 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
 
         // Settings Window
         "Device & Bed Settings" => "Laite- ja työpöytäasetukset",
-        "LaserBurn Settings" => "LaserBurn Asetukset",
+        "PhotonCAM Settings" => "PhotonCAM Asetukset",
         "Language:" => "Kieli:",
         "Machine Profile:" => "Laiteprofiili:",
         "Manage Profiles..." => "Hallitse profiileja...",
@@ -392,7 +392,7 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Laser Head Positioning & Jog" => "Laserpään asemointi ja siirto",
         "Weak Beam / Alignment Pointer" => "Kohdistussäde / Osoitin",
         "Framing Test with Weak Beam" => "Rajauksen testaus säteellä",
-        "LaserBurn Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog" => "LaserBurn valmis - Valitse klikkaamalla muotoa, siirrä vetämällä tai käytä nuolia",
+        "PhotonCAM Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog" => "PhotonCAM valmis - Valitse klikkaamalla muotoa, siirrä vetämällä tai käytä nuolia",
         "Nothing to undo" => "Ei kumottavaa",
         "Nothing to redo" => "Ei uudelleentehtävää",
         "Nothing selected to copy" => "Ei valintaa kopioitavaksi",

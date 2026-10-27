@@ -1,6 +1,6 @@
 {
-  "name": "LaserBurn Web Remote",
-  "short_name": "LaserBurn",
+  "name": "PhotonCAM Web Remote",
+  "short_name": "PhotonCAM",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f111a",

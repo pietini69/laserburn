@@ -6,7 +6,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "=========================================="
-echo " Building All LaserBurn Distribution Packages"
+echo " Building All PhotonCAM Distribution Packages"
 echo " (macOS Universal 2, Windows x64, Linux x86_64)"
 echo "=========================================="
 

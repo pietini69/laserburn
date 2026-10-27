@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>LaserBurn</string>
+    <string>PhotonCAM</string>
     <key>CFBundleDisplayName</key>
-    <string>LaserBurn</string>
+    <string>PhotonCAM</string>
     <key>CFBundleIdentifier</key>
-    <string>com.nikopietinen.laserburn</string>
+    <string>com.nikopietinen.photoncam</string>
     <key>CFBundleVersion</key>
     <string>4</string>
     <key>CFBundleShortVersionString</key>
@@ -17,15 +17,15 @@
     <key>CFBundleSignature</key>
     <string>????</string>
     <key>CFBundleExecutable</key>
-    <string>LaserBurn</string>
+    <string>PhotonCAM</string>
     <key>CFBundleIconFile</key>
-    <string>laserburn.icns</string>
+    <string>photoncam.icns</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
     <key>NSCameraUsageDescription</key>
-    <string>LaserBurn uses your camera for live laser bed alignment, perspective calibration, and automatic workpiece detection.</string>
+    <string>PhotonCAM uses your camera for live laser bed alignment, perspective calibration, and automatic workpiece detection.</string>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>

@@ -26,6 +26,8 @@ pub use trace::{TraceOptions, trace_image_to_polylines};
 pub use server::BridgeServer;
 #[cfg(feature = "gui")]
 pub use gui::LaserBurnApp;
+#[cfg(feature = "gui")]
+pub use gui::LaserBurnApp as PhotonCamApp;
 pub use hatch::generate_hatch;
 pub use optimizer::{CutOptimizer, OptimizedJob, OptimizedPath};
 pub use simulator::{SimulationStats, Simulator};

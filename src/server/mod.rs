@@ -675,10 +675,10 @@ mod tests {
 
     #[test]
     fn test_server_static_assets() {
-        assert!(INDEX_HTML.contains("LaserBurn Web Remote"));
+        assert!(INDEX_HTML.contains("PhotonCAM Web Remote"));
         assert!(INDEX_HTML.contains("bedCanvas"));
         assert!(INDEX_HTML.contains("apiPost('jog'"));
-        assert!(MANIFEST_JSON.contains("LaserBurn Web Remote"));
+        assert!(MANIFEST_JSON.contains("PhotonCAM Web Remote"));
     }
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build LaserBurn for Linux (x86_64-unknown-linux-gnu) using cargo-zigbuild
+# Build PhotonCAM for Linux (x86_64-unknown-linux-gnu) using cargo-zigbuild
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
@@ -11,47 +11,46 @@ DIST_DIR="$PROJECT_DIR/dist"
 mkdir -p "$DIST_DIR"
 
 echo "=========================================="
-echo " Building LaserBurn v${VERSION} for Linux (x86_64-unknown-linux-gnu)"
+echo " Building PhotonCAM v${VERSION} for Linux (x86_64-unknown-linux-gnu)"
 echo "=========================================="
 
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
 export BINDGEN_EXTRA_CLANG_ARGS="-I/tmp/linux_headers/usr/include -I/tmp/linux_headers/usr/include/x86_64-linux-gnu"
 
-cargo zigbuild --release --target x86_64-unknown-linux-gnu
+cargo zigbuild --release --bin photoncam --target x86_64-unknown-linux-gnu
 
-STAGE_DIR="$DIST_DIR/LaserBurn-${VERSION}-linux-x86_64"
+STAGE_DIR="$DIST_DIR/PhotonCAM-${VERSION}-linux-x86_64"
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
 
-cp "$PROJECT_DIR/target/x86_64-unknown-linux-gnu/release/laser_burn" "$STAGE_DIR/LaserBurn"
-chmod +x "$STAGE_DIR/LaserBurn"
-ln -s "LaserBurn" "$STAGE_DIR/laser_burn"
-cp "$PROJECT_DIR/assets/laserburn.iconset/icon_512x512.png" "$STAGE_DIR/laser_burn.png"
+cp "$PROJECT_DIR/target/x86_64-unknown-linux-gnu/release/photoncam" "$STAGE_DIR/photoncam"
+chmod +x "$STAGE_DIR/photoncam"
+cp "$PROJECT_DIR/assets/laserburn.iconset/icon_512x512.png" "$STAGE_DIR/photoncam.png"
 
-cat << 'EOF' > "$STAGE_DIR/LaserBurn.desktop"
+cat << 'EOF' > "$STAGE_DIR/PhotonCAM.desktop"
 [Desktop Entry]
-Name=LaserBurn
+Name=PhotonCAM
 Comment=Modern Laser Cutting & Engraving CAM Software
-Exec=LaserBurn
-Icon=laser_burn
+Exec=photoncam
+Icon=photoncam
 Terminal=false
 Type=Application
 Categories=Graphics;Engineering;Development;
 EOF
 
 cat << EOF > "$STAGE_DIR/README.txt"
-LaserBurn v${VERSION} (Linux x86_64)
+PhotonCAM v${VERSION} (Linux x86_64)
 ====================================
 Modern, high-performance laser cutting & engraving CAM software.
 
-Running LaserBurn:
+Running PhotonCAM:
   1. Ensure execution permissions:
-     chmod +x LaserBurn
+     chmod +x photoncam
   2. Launch directly from terminal or file manager:
-     ./LaserBurn
+     ./photoncam
 
 USB Serial Port Permissions (GRBL & Ruida):
-  To allow LaserBurn to communicate with USB serial ports (/dev/ttyUSB0, /dev/ttyACM0),
+  To allow PhotonCAM to communicate with USB serial ports (/dev/ttyUSB0, /dev/ttyACM0),
   ensure your user belongs to the 'dialout' (Ubuntu/Debian) or 'uucp' (Arch/Fedora) group:
      sudo usermod -aG dialout \$USER   # Ubuntu / Debian / Linux Mint
      sudo usermod -aG uucp \$USER      # Arch Linux / Manjaro / Fedora
@@ -63,9 +62,9 @@ File Dialogs on Linux:
      sudo pacman -S xdg-desktop-portal-gtk     # Arch Linux
 EOF
 
-TAR_PATH="$DIST_DIR/LaserBurn-${VERSION}-linux-x86_64.tar.gz"
+TAR_PATH="$DIST_DIR/PhotonCAM-${VERSION}-linux-x86_64.tar.gz"
 rm -f "$TAR_PATH"
-(cd "$DIST_DIR" && tar -czvf "$TAR_PATH" "LaserBurn-${VERSION}-linux-x86_64")
+(cd "$DIST_DIR" && tar -czvf "$TAR_PATH" "PhotonCAM-${VERSION}-linux-x86_64")
 rm -rf "$STAGE_DIR"
 
 echo "==> Linux package created: $TAR_PATH"

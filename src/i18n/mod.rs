@@ -1,4 +1,4 @@
-//! Internationalization (i18n) localization module for LaserBurn.
+//! Internationalization (i18n) localization module for PhotonCAM.
 //! Provides multilingual support for Finnish, English, German, French, Italian, and Spanish.
 
 mod de;

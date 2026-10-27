@@ -1,12 +1,12 @@
-//! LaserBurn Bridge & Web Server CLI Daemon
+//! PhotonCAM Bridge & Web Server CLI Daemon
 //! Runs on Raspberry Pi, macOS, Linux, and Windows.
 
 use clap::Parser;
-use laser_burn::server::BridgeServer;
+use photoncam::server::BridgeServer;
 
 #[derive(Parser, Debug)]
-#[command(name = "laserburn-bridge")]
-#[command(about = "Headless LaserBurn Web Remote & TCP Serial Bridge for Raspberry Pi and Laser Workshops", long_about = None)]
+#[command(name = "photoncam-bridge")]
+#[command(about = "Headless PhotonCAM Web Remote & TCP Serial Bridge for Raspberry Pi and Laser Workshops", long_about = None)]
 struct Args {
     /// HTTP Web UI and REST API port (default: 8080)
     #[arg(short, long, default_value_t = 8080)]

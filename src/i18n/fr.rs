@@ -1,4 +1,4 @@
-//! French (Français) translations for LaserBurn.
+//! French (Français) translations for PhotonCAM.
 
 pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
     match key {
@@ -278,7 +278,7 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
 
         // Settings Window
         "Device & Bed Settings" => "Paramètres de la machine et du plan",
-        "LaserBurn Settings" => "Paramètres LaserBurn",
+        "PhotonCAM Settings" => "Paramètres PhotonCAM",
         "Language:" => "Langue :",
         "Machine Profile:" => "Profil de machine :",
         "Manage Profiles..." => "Gérer les profils...",
@@ -391,7 +391,7 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Laser Head Positioning & Jog" => "Positionnement et déplacement de la tête",
         "Weak Beam / Alignment Pointer" => "Faisceau faible / Pointeur",
         "Framing Test with Weak Beam" => "Test de cadrage avec faisceau",
-        "LaserBurn Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog" => "LaserBurn prêt - Cliquez pour sélectionner, glissez pour déplacer ou utilisez les flèches",
+        "PhotonCAM Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog" => "PhotonCAM prêt - Cliquez pour sélectionner, glissez pour déplacer ou utilisez les flèches",
         "Nothing to undo" => "Rien à annuler",
         "Nothing to redo" => "Rien à rétablir",
         "Nothing selected to copy" => "Rien à copier",

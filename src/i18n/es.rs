@@ -1,4 +1,4 @@
-//! Spanish (Español) translations for LaserBurn.
+//! Spanish (Español) translations for PhotonCAM.
 
 pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
     match key {
@@ -278,7 +278,7 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
 
         // Settings Window
         "Device & Bed Settings" => "Ajustes de máquina y base",
-        "LaserBurn Settings" => "Configuración de LaserBurn",
+        "PhotonCAM Settings" => "Configuración de PhotonCAM",
         "Language:" => "Idioma:",
         "Machine Profile:" => "Perfil de máquina:",
         "Manage Profiles..." => "Gestionar perfiles...",
@@ -391,7 +391,7 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Laser Head Positioning & Jog" => "Posicionamiento de cabezal y movimiento",
         "Weak Beam / Alignment Pointer" => "Haz tenue / Puntero de alineación",
         "Framing Test with Weak Beam" => "Prueba de encuadre con haz",
-        "LaserBurn Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog" => "LaserBurn listo - Haga clic para seleccionar, arrastre para mover o use las flechas",
+        "PhotonCAM Ready - Click inside shapes to select, drag to move, or use Arrow Keys to Jog" => "PhotonCAM listo - Haga clic para seleccionar, arrastre para mover o use las flechas",
         "Nothing to undo" => "Nada que deshacer",
         "Nothing to redo" => "Nada que rehacer",
         "Nothing selected to copy" => "Nada seleccionado para copiar",
