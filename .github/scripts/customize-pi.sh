@@ -46,8 +46,11 @@ WantedBy=multi-user.target
 EOF
 
 # 5. Enable services
-systemctl daemon-reload
-systemctl enable avahi-daemon
-systemctl enable laserburn-bridge.service
+# In a container/chroot build environment, systemd is not PID 1.
+mkdir -p /etc/systemd/system/multi-user.target.wants
+ln -sf /etc/systemd/system/laserburn-bridge.service /etc/systemd/system/multi-user.target.wants/laserburn-bridge.service
+ln -sf /lib/systemd/system/avahi-daemon.service /etc/systemd/system/multi-user.target.wants/avahi-daemon.service || true
+systemctl enable avahi-daemon 2>/dev/null || true
+systemctl enable laserburn-bridge.service 2>/dev/null || true
 
 echo "LaserBurn OS customization complete!"

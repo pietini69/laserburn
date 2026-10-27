@@ -63,6 +63,7 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         // Camera Menu
         "Camera" => "Kamera",
         "Camera Feed..." => "Kameranäkymä...",
+        "Enable Camera & Alignment Features" => "Ota kameratoiminnot käyttöön (Kameranapit ja kohdistus)",
         "Scan Devices" => "Etsi kameroita",
         "Start Stream" => "Käynnistä videolähetys",
         "Stop Stream" => "Pysäytä videolähetys",

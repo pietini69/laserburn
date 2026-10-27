@@ -4500,25 +4500,27 @@ impl eframe::App for LaserBurnApp {
                 self.show_settings_window = !self.show_settings_window;
             }
 
-            // Cmd+K (Toggle Camera Window)
-            if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::K)) {
-                self.show_camera_window = !self.show_camera_window;
-            }
+            if self.device.settings.enable_camera_support {
+                // Cmd+K (Toggle Camera Window)
+                if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::K)) {
+                    self.show_camera_window = !self.show_camera_window;
+                }
 
-            // Cmd+Shift+C (Toggle Camera Background on Grid Canvas)
-            if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::C)) {
-                self.camera_calibration.show_on_canvas = !self.camera_calibration.show_on_canvas;
-                let _ = self.camera_calibration.save();
-                self.status_msg = if self.camera_calibration.show_on_canvas {
-                    "Camera background enabled on bed canvas".to_string()
-                } else {
-                    "Camera background hidden".to_string()
-                };
-            }
+                // Cmd+Shift+C (Toggle Camera Background on Grid Canvas)
+                if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::C)) {
+                    self.camera_calibration.show_on_canvas = !self.camera_calibration.show_on_canvas;
+                    let _ = self.camera_calibration.save();
+                    self.status_msg = if self.camera_calibration.show_on_canvas {
+                        "Camera background enabled on bed canvas".to_string()
+                    } else {
+                        "Camera background hidden".to_string()
+                    };
+                }
 
-            // Cmd+U or Cmd+Shift+U (1-Click Update Bed Overlay Snapshot from Camera)
-            if ctx.input(|i| (i.modifiers.command && i.key_pressed(egui::Key::U)) || (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::U))) {
-                self.trigger_update_overlay();
+                // Cmd+U or Cmd+Shift+U (1-Click Update Bed Overlay Snapshot from Camera)
+                if ctx.input(|i| (i.modifiers.command && i.key_pressed(egui::Key::U)) || (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::U))) {
+                    self.trigger_update_overlay();
+                }
             }
 
             // Alt+P (Toggle Visual Cut Preview Simulator Window)
@@ -4909,41 +4911,43 @@ impl eframe::App for LaserBurnApp {
                     }
                 });
 
-                ui.menu_button(self.tr("Camera"), |ui| {
-                    if ui.button(format!("{} ({}+K)", self.tr("Camera Feed..."), cmd)).clicked() {
-                        self.show_camera_window = true;
-                        ui.close_menu();
-                    }
-                    if ui.button(self.tr("Scan Devices")).clicked() {
-                        self.camera_manager.refresh_devices();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if !self.camera_manager.is_streaming {
-                        if ui.button(self.tr("Start Stream")).clicked() {
-                            self.camera_manager.start_stream();
+                if self.device.settings.enable_camera_support {
+                    ui.menu_button(self.tr("Camera"), |ui| {
+                        if ui.button(format!("{} ({}+K)", self.tr("Camera Feed..."), cmd)).clicked() {
+                            self.show_camera_window = true;
                             ui.close_menu();
                         }
-                    } else {
-                        if ui.button(self.tr("Stop Stream")).clicked() {
-                            self.camera_manager.stop_stream();
+                        if ui.button(self.tr("Scan Devices")).clicked() {
+                            self.camera_manager.refresh_devices();
                             ui.close_menu();
                         }
-                    }
-                    if ui.button(self.tr("Update Bed Overlay (Cmd+U)")).clicked() {
-                        self.trigger_update_overlay();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button(self.tr("Auto-Center Selection on Camera Tile")).clicked() {
-                        self.auto_fit_to_camera_tile(false, 2.0);
-                        ui.close_menu();
-                    }
-                    if ui.button(self.tr("Auto-Fit & Scale Selection to Camera Tile (2mm Margin)")).clicked() {
-                        self.auto_fit_to_camera_tile(true, 2.0);
-                        ui.close_menu();
-                    }
-                });
+                        ui.separator();
+                        if !self.camera_manager.is_streaming {
+                            if ui.button(self.tr("Start Stream")).clicked() {
+                                self.camera_manager.start_stream();
+                                ui.close_menu();
+                            }
+                        } else {
+                            if ui.button(self.tr("Stop Stream")).clicked() {
+                                self.camera_manager.stop_stream();
+                                ui.close_menu();
+                            }
+                        }
+                        if ui.button(self.tr("Update Bed Overlay (Cmd+U)")).clicked() {
+                            self.trigger_update_overlay();
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui.button(self.tr("Auto-Center Selection on Camera Tile")).clicked() {
+                            self.auto_fit_to_camera_tile(false, 2.0);
+                            ui.close_menu();
+                        }
+                        if ui.button(self.tr("Auto-Fit & Scale Selection to Camera Tile (2mm Margin)")).clicked() {
+                            self.auto_fit_to_camera_tile(true, 2.0);
+                            ui.close_menu();
+                        }
+                    });
+                }
 
                 ui.separator();
                 let theme_btn_text = if self.device.settings.dark_mode { self.tr("Theme: Dark") } else { self.tr("Theme: Light") };
@@ -5214,32 +5218,34 @@ impl eframe::App for LaserBurnApp {
                 if ui.button(egui::RichText::new(tr("Traffic Log")).strong().color(traffic_color)).on_hover_text(tr("Toggle live Serial / G-code Data Traffic Log panel")).clicked() {
                     self.show_traffic_panel = !self.show_traffic_panel;
                 }
-                if ui.button(tr("Camera")).on_hover_text(format!("Open Camera Feed & Alignment window ({}+K)", cmd)).clicked() {
-                    self.show_camera_window = !self.show_camera_window;
-                }
-                let bg_btn_text = if self.camera_calibration.show_on_canvas { tr("Cam BG") } else { tr("Cam BG") };
-                let bg_btn_color = if self.camera_calibration.show_on_canvas {
-                    c_blue
-                } else {
-                    egui::Color32::GRAY
-                };
-                if ui.button(egui::RichText::new(bg_btn_text).color(bg_btn_color)).on_hover_text(format!("Toggle camera background overlay on the laser bed canvas ({}+Shift+C)", cmd)).clicked() {
-                    self.camera_calibration.show_on_canvas = !self.camera_calibration.show_on_canvas;
-                    let _ = self.camera_calibration.save();
-                }
+                if self.device.settings.enable_camera_support {
+                    if ui.button(tr("Camera")).on_hover_text(format!("Open Camera Feed & Alignment window ({}+K)", cmd)).clicked() {
+                        self.show_camera_window = !self.show_camera_window;
+                    }
+                    let bg_btn_text = if self.camera_calibration.show_on_canvas { tr("Cam BG") } else { tr("Cam BG") };
+                    let bg_btn_color = if self.camera_calibration.show_on_canvas {
+                        c_blue
+                    } else {
+                        egui::Color32::GRAY
+                    };
+                    if ui.button(egui::RichText::new(bg_btn_text).color(bg_btn_color)).on_hover_text(format!("Toggle camera background overlay on the laser bed canvas ({}+Shift+C)", cmd)).clicked() {
+                        self.camera_calibration.show_on_canvas = !self.camera_calibration.show_on_canvas;
+                        let _ = self.camera_calibration.save();
+                    }
 
-                let is_capturing = self.oneshot_snapshot.is_some();
-                let snap_btn = egui::Button::new(
-                    egui::RichText::new(if is_capturing { tr("Capturing...") } else { tr("Update Overlay") })
-                        .strong()
-                        .color(if is_capturing { egui::Color32::from_rgb(255, 230, 80) } else { egui::Color32::WHITE })
-                ).fill(if is_capturing { egui::Color32::from_rgb(180, 100, 20) } else { egui::Color32::from_rgb(33, 115, 185) });
+                    let is_capturing = self.oneshot_snapshot.is_some();
+                    let snap_btn = egui::Button::new(
+                        egui::RichText::new(if is_capturing { tr("Capturing...") } else { tr("Update Overlay") })
+                            .strong()
+                            .color(if is_capturing { egui::Color32::from_rgb(255, 230, 80) } else { egui::Color32::WHITE })
+                    ).fill(if is_capturing { egui::Color32::from_rgb(180, 100, 20) } else { egui::Color32::from_rgb(33, 115, 185) });
 
-                if ui.add(snap_btn).on_hover_text(format!("Capture a fresh photo of the bed with your material (Cmd+U / {}+Shift+U)", cmd)).clicked() {
-                    self.trigger_update_overlay();
-                }
-                if ui.button(tr("Snap to Tile")).on_hover_text("Auto-detect ceramic tile / workpiece on camera bed and center/fit selection onto it (Right-click to also scale to fit)").clicked() {
-                    self.auto_fit_to_camera_tile(false, 2.0);
+                    if ui.add(snap_btn).on_hover_text(format!("Capture a fresh photo of the bed with your material (Cmd+U / {}+Shift+U)", cmd)).clicked() {
+                        self.trigger_update_overlay();
+                    }
+                    if ui.button(tr("Snap to Tile")).on_hover_text("Auto-detect ceramic tile / workpiece on camera bed and center/fit selection onto it (Right-click to also scale to fit)").clicked() {
+                        self.auto_fit_to_camera_tile(false, 2.0);
+                    }
                 }
 
                 // Laser Machine Profile Dropdown
@@ -9685,6 +9691,8 @@ impl eframe::App for LaserBurnApp {
                     ui.separator();
 
                     ui.checkbox(&mut self.device.settings.auto_connect, tr("Auto-connect to laser port on startup"));
+                    ui.checkbox(&mut self.device.settings.enable_camera_support, tr("Enable Camera & Alignment Features"))
+                        .on_hover_text("Uncheck this if your machine does not have an overhead USB camera to hide all camera buttons and menus for a clean, distraction-free interface.");
 
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {

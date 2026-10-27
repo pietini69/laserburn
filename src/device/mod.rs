@@ -197,6 +197,8 @@ pub struct DeviceSettings {
     pub log_status_polls: bool,
     #[serde(default)]
     pub dark_mode: bool,
+    #[serde(default = "default_true")]
+    pub enable_camera_support: bool,
 
     // macOS Apple Shortcuts Automation (On Job Start / On Job Complete)
     #[serde(default)]
@@ -243,10 +245,16 @@ pub struct DeviceProfile {
     pub default_port: String,
     pub default_baud: u32,
     pub auto_connect: bool,
+    #[serde(default = "default_true")]
+    pub enable_camera_support: bool,
 }
 
 fn default_current_profile_name() -> String {
     "Oma 10W (Standard)".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_profiles_list() -> Vec<DeviceProfile> {
@@ -270,6 +278,7 @@ fn default_profiles_list() -> Vec<DeviceProfile> {
             default_port: String::new(),
             default_baud: 115200,
             auto_connect: false,
+            enable_camera_support: true,
         },
         DeviceProfile {
             name: "Compact Diode (200x200)".to_string(),
@@ -290,6 +299,7 @@ fn default_profiles_list() -> Vec<DeviceProfile> {
             default_port: String::new(),
             default_baud: 115200,
             auto_connect: false,
+            enable_camera_support: true,
         },
         DeviceProfile {
             name: "Large Format / CO2 (600x400)".to_string(),
@@ -310,6 +320,7 @@ fn default_profiles_list() -> Vec<DeviceProfile> {
             default_port: String::new(),
             default_baud: 115200,
             auto_connect: false,
+            enable_camera_support: true,
         },
     ]
 }
@@ -367,6 +378,7 @@ impl DeviceSettings {
             self.default_port = prof.default_port;
             self.default_baud = prof.default_baud;
             self.auto_connect = prof.auto_connect;
+            self.enable_camera_support = prof.enable_camera_support;
             self.current_profile_name = prof.name;
             true
         } else {
@@ -399,6 +411,7 @@ impl DeviceSettings {
             default_port: self.default_port.clone(),
             default_baud: self.default_baud,
             auto_connect: self.auto_connect,
+            enable_camera_support: self.enable_camera_support,
         };
         if let Some(existing) = self.profiles.iter_mut().find(|p| p.name.eq_ignore_ascii_case(name)) {
             *existing = prof;
@@ -501,6 +514,7 @@ impl Default for DeviceSettings {
             save_traffic_log: false,
             log_status_polls: false,
             dark_mode: false,
+            enable_camera_support: true,
             run_shortcut_on_start: false,
             shortcut_on_start_name: String::new(),
             run_shortcut_on_complete: false,
