@@ -4,6 +4,29 @@ All notable changes, new features, and bug fixes for **LaserBurn** across every 
 
 ---
 
+## [v1.2.5] – 2026-10-27
+
+### 🌟 New Features & Major Additions
+* **🌐 Web Remote & iPad / Tablet Touch Support:**
+  * Embedded zero-dependency HTTP/1.1 & Server-Sent Events (SSE) web server running on port 8080 (configurable).
+  * Responsive HTML5 + Canvas Web Remote interface optimized for iPad, tablets, and mobile phones with dark mode and Apple PWA standalone support.
+  * Interactive 2D bed preview, jog D-Pad with customizable steps, dual units toggle (mm/in), live coordinate streaming at 10Hz, file upload (`.gcode`, `.lbrn2`, `.svg`), start/pause/stop job streaming, focus light toggle, and instant E-Stop.
+  * Transparent TCP-to-Serial bridge on port 2323 for wireless network connection.
+  * One-click start/stop and browser launch directly from the Desktop toolbar (`🌐 Web Remote`) or headless via `laserburn-bridge`.
+* **🍓 Raspberry Pi Headless Bridge & Ready-to-Flash OS Image:**
+  * Standalone lightweight CLI daemon `laserburn-bridge` for Raspberry Pi (ARM64 & ARMv7) and Linux.
+  * Automated 1-line installation script (`curl -sSL https://raw.githubusercontent.com/pietini69/laserburn/master/scripts/install_pi_bridge.sh | bash`).
+  * Ready-to-flash Raspberry Pi OS Disk Image (`LaserBurn-Pi-OS-arm64.img.xz`) with Avahi mDNS (`laserburn.local:8080`) and auto-launch systemd service.
+* **📷 Optional Camera Mode (Distraction-Free Minimal UI):**
+  * Added **"Enable Camera Support"** setting in Settings (`Cmd+,`).
+  * When unchecked, all camera toolbar buttons (`Camera`, `Cam BG`, `Update Overlay`, `Snap to Tile`), Camera menus, and camera shortcuts are completely hidden from the workspace, providing a clean, distraction-free CAD/CAM layout for users without an overhead camera.
+* **🔍 Job Preview & Cut Simulation:**
+  * Interactive simulation window with animated laser head, scrub timeline, accurate time estimation, and color-coded rapid traverse vs cutting/engraving moves.
+* **📏 Dual Units Display Improvements:**
+  * Status bar coordinates and jog controls now dynamically format in inches when Imperial mode is active.
+
+---
+
 ## [v1.2.0] – 2026-10-27
 
 ### 🌟 New Features & Major Capabilities
