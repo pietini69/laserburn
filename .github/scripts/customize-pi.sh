@@ -14,27 +14,44 @@ apt-get install -y --no-install-recommends avahi-daemon udev libudev1
 echo "photoncam" > /etc/hostname
 sed -i 's/raspberrypi/photoncam/g' /etc/hosts || true
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 3. Enable SSH by default so user can access terminal over network
+mkdir -p /boot/firmware
+touch /boot/firmware/ssh 2>/dev/null || true
+touch /boot/ssh 2>/dev/null || true
 
-# 3. Install photoncam-bridge binary
-if [ -f "$SCRIPT_DIR/photoncam-bridge" ]; then
-    cp "$SCRIPT_DIR/photoncam-bridge" /usr/local/bin/photoncam-bridge
-    chmod +x /usr/local/bin/photoncam-bridge
-elif [ -f "$SCRIPT_DIR/laserburn-bridge" ]; then
-    cp "$SCRIPT_DIR/laserburn-bridge" /usr/local/bin/photoncam-bridge
-    chmod +x /usr/local/bin/photoncam-bridge
-elif [ -f "/photoncam-bridge" ]; then
-    cp /photoncam-bridge /usr/local/bin/photoncam-bridge
-    chmod +x /usr/local/bin/photoncam-bridge
+# 4. Locate and install photoncam-bridge binary
+SRC_BIN=""
+for candidate in \
+    "/mounted-github-repo/.github/scripts/photoncam-bridge" \
+    "/mounted-github-repo/target/aarch64-unknown-linux-gnu/release/photoncam-bridge" \
+    "/mounted-github-repo/photoncam-bridge" \
+    "/mounted-github-repo/dist/photoncam-bridge-linux-arm64" \
+    "$(dirname "$0")/photoncam-bridge" \
+    "/photoncam-bridge"; do
+    if [ -f "$candidate" ]; then
+        SRC_BIN="$candidate"
+        break
+    fi
+done
+
+if [ -z "$SRC_BIN" ]; then
+    echo "ERROR: photoncam-bridge binary not found! Contents of /mounted-github-repo:"
+    ls -la /mounted-github-repo || true
+    ls -la /mounted-github-repo/.github/scripts || true
+    exit 1
 fi
 
+echo "==> Installing photoncam-bridge from $SRC_BIN..."
+cp "$SRC_BIN" /usr/local/bin/photoncam-bridge
+chmod 755 /usr/local/bin/photoncam-bridge
 ln -sf /usr/local/bin/photoncam-bridge /usr/local/bin/laserburn-bridge
 
-# 4. Create systemd service
+# 5. Create systemd service
 cat << 'EOF' > /etc/systemd/system/photoncam-bridge.service
 [Unit]
 Description=PhotonCAM Bridge & Web Server for Laser CAM & CNC
-After=network.target avahi-daemon.service
+After=network.target network-online.target avahi-daemon.service
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -47,12 +64,19 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-# 5. Enable services
-# In a container/chroot build environment, systemd is not PID 1.
+# 6. Enable services
 mkdir -p /etc/systemd/system/multi-user.target.wants
 ln -sf /etc/systemd/system/photoncam-bridge.service /etc/systemd/system/multi-user.target.wants/photoncam-bridge.service
 ln -sf /lib/systemd/system/avahi-daemon.service /etc/systemd/system/multi-user.target.wants/avahi-daemon.service || true
+ln -sf /lib/systemd/system/ssh.service /etc/systemd/system/multi-user.target.wants/ssh.service || true
 systemctl enable avahi-daemon 2>/dev/null || true
+systemctl enable ssh 2>/dev/null || true
 systemctl enable photoncam-bridge.service 2>/dev/null || true
 
-echo "PhotonCAM OS customization complete!"
+# 7. Verification
+if [ ! -x /usr/local/bin/photoncam-bridge ]; then
+    echo "ERROR: /usr/local/bin/photoncam-bridge was not installed properly!"
+    exit 1
+fi
+
+echo "PhotonCAM OS customization complete! Binary installed to /usr/local/bin/photoncam-bridge"

@@ -20,7 +20,7 @@ fi
 ARCH=$(uname -m)
 echo "==> Detected system architecture: $ARCH"
 
-# Add current user to dialout group for serial port access
+# Add current user to dialout group for USB serial laser access
 CURRENT_USER="${SUDO_USER:-$USER}"
 echo "==> Adding user '$CURRENT_USER' to dialout group for USB laser control..."
 usermod -aG dialout "$CURRENT_USER" || true
@@ -33,16 +33,47 @@ elif [ -f "./photoncam-bridge" ]; then
   echo "==> Installing local binary..."
   cp "./photoncam-bridge" "$INSTALL_DIR/photoncam-bridge"
 elif [ -f "./target/release/laserburn-bridge" ]; then
+  echo "==> Installing locally compiled binary..."
   cp "./target/release/laserburn-bridge" "$INSTALL_DIR/photoncam-bridge"
 else
-  echo "==> Compiling or downloading latest release binary..."
-  if command -v cargo &> /dev/null; then
-    cargo build --release --bin photoncam-bridge
-    cp "./target/release/photoncam-bridge" "$INSTALL_DIR/photoncam-bridge"
-  else
-    echo "Error: photoncam-bridge binary not found and cargo is not installed."
-    echo "Please build with 'cargo build --release --bin photoncam-bridge' or copy the binary here."
-    exit 1
+  BIN_NAME=""
+  case "$ARCH" in
+    aarch64|arm64)
+      BIN_NAME="photoncam-bridge-linux-arm64"
+      ;;
+    armv7*|armhf)
+      BIN_NAME="photoncam-bridge-linux-armv7"
+      ;;
+    x86_64|amd64)
+      BIN_NAME="photoncam-bridge-linux-x86_64"
+      ;;
+    *)
+      BIN_NAME=""
+      ;;
+  esac
+
+  if [ -n "$BIN_NAME" ]; then
+    DOWNLOAD_URL="https://github.com/pietini69/photoncam/releases/download/v1.2.5/${BIN_NAME}"
+    echo "==> Downloading precompiled $BIN_NAME from GitHub Releases ($DOWNLOAD_URL)..."
+    if curl -sSL -f -o "$INSTALL_DIR/photoncam-bridge" "$DOWNLOAD_URL"; then
+      echo "==> Successfully downloaded $BIN_NAME!"
+    else
+      echo "==> Release download failed, trying fallback..."
+      FALLBACK_URL="https://github.com/pietini69/photoncam/releases/latest/download/${BIN_NAME}"
+      curl -sSL -f -o "$INSTALL_DIR/photoncam-bridge" "$FALLBACK_URL" || true
+    fi
+  fi
+
+  if [ ! -f "$INSTALL_DIR/photoncam-bridge" ] || [ ! -s "$INSTALL_DIR/photoncam-bridge" ]; then
+    if command -v cargo &> /dev/null; then
+      echo "==> Compiling from source with cargo..."
+      cargo build --release --bin photoncam-bridge
+      cp "./target/release/photoncam-bridge" "$INSTALL_DIR/photoncam-bridge"
+    else
+      echo "Error: Could not download precompiled binary and cargo is not installed."
+      echo "Please download ${BIN_NAME:-photoncam-bridge} manually from https://github.com/pietini69/photoncam/releases"
+      exit 1
+    fi
   fi
 fi
 
@@ -53,12 +84,12 @@ echo "==> Creating systemd service: $SERVICE_FILE..."
 cat << EOF > "$SERVICE_FILE"
 [Unit]
 Description=PhotonCAM Bridge & Web Server for Laser CAM & CNC
-After=network.target
+After=network.target network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=$CURRENT_USER
-WorkingDirectory=/home/$CURRENT_USER
+User=root
 ExecStart=$INSTALL_DIR/photoncam-bridge --port 8080 --tcp-bridge 2323
 Restart=always
 RestartSec=3
@@ -72,7 +103,7 @@ systemctl daemon-reload
 systemctl enable photoncam-bridge.service
 systemctl restart photoncam-bridge.service
 
-IP_ADDR=$(hostname -I | awk '{print $1}')
+IP_ADDR=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
 
 echo ""
 echo "╔═══════════════════════════════════════════════════════════════════╗"
