@@ -32,6 +32,55 @@ pub enum DistributeMode {
     Vertical,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum LengthUnit {
+    Millimeters,
+    Inches,
+}
+
+impl LengthUnit {
+    pub const ALL: &'static [LengthUnit] = &[LengthUnit::Millimeters, LengthUnit::Inches];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            LengthUnit::Millimeters => "Millimeters (mm)",
+            LengthUnit::Inches => "Inches (in)",
+        }
+    }
+
+    pub fn suffix(&self) -> &'static str {
+        match self {
+            LengthUnit::Millimeters => " mm",
+            LengthUnit::Inches => " in",
+        }
+    }
+
+    pub fn to_display(&self, mm: f64) -> f64 {
+        match self {
+            LengthUnit::Millimeters => mm,
+            LengthUnit::Inches => mm / 25.4,
+        }
+    }
+
+    pub fn from_display(&self, val: f64) -> f64 {
+        match self {
+            LengthUnit::Millimeters => val,
+            LengthUnit::Inches => val * 25.4,
+        }
+    }
+
+    pub fn format(&self, mm: f64) -> String {
+        match self {
+            LengthUnit::Millimeters => format!("{:.1} mm", mm),
+            LengthUnit::Inches => format!("{:.3} in", mm / 25.4),
+        }
+    }
+
+    pub fn format_dual(&self, mm: f64) -> String {
+        format!("{:.1} mm ({:.3} in)", mm, mm / 25.4)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PreviewMove {
     pub from: Point2D,
@@ -343,8 +392,12 @@ pub struct LaserBurnApp {
     pub show_device_profiles_window: bool,
     pub profile_new_name: String,
 
+    // Display Units State
+    pub length_unit: LengthUnit,
+
     // Image Trace (Bitmap to Vector) State
     pub show_trace_window: bool,
+    pub trace_mode: crate::trace::TraceMode,
     pub trace_threshold: u8,
     pub trace_invert: bool,
     pub trace_blur_radius: usize,
@@ -507,7 +560,10 @@ impl Default for LaserBurnApp {
             show_device_profiles_window: false,
             profile_new_name: String::new(),
 
+            length_unit: LengthUnit::Millimeters,
+
             show_trace_window: false,
+            trace_mode: crate::trace::TraceMode::Outline,
             trace_threshold: 128,
             trace_invert: false,
             trace_blur_radius: 1,
@@ -831,6 +887,7 @@ impl LaserBurnApp {
         };
 
         let trace_opts = crate::trace::TraceOptions {
+            mode: self.trace_mode,
             threshold: self.trace_threshold,
             invert: self.trace_invert,
             blur_radius: self.trace_blur_radius,
@@ -1741,14 +1798,33 @@ impl LaserBurnApp {
         }
     }
 
+    /// Returns true if the shape at the given index is locked directly or belongs to a locked layer
+    pub fn is_shape_locked(&self, shape_idx: usize) -> bool {
+        if let Some(shape) = self.doc.shapes.get(shape_idx) {
+            if shape.is_locked() {
+                return true;
+            }
+            if let Some(layer) = self.doc.layers.get(&shape.layer_index()) {
+                if layer.locked {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Smart hit testing: finds best shape matching a click point.
     /// Tests if click is inside the shape or near its outline.
     /// Prioritizes smallest enclosing shape so clicking a hole inside a gear selects the hole!
+    /// Skips locked shapes and shapes on locked layers so background templates don't block clicks.
     pub fn find_best_shape_at_point(&self, pt: &Point2D, tolerance: f64) -> Option<usize> {
         let mut candidates: Vec<(usize, f64)> = Vec::new(); // (index, area)
 
         // Pass 1: exact hit test (inside shape or within tolerance of outline)
         for (idx, shape) in self.doc.shapes.iter().enumerate() {
+            if self.is_shape_locked(idx) {
+                continue;
+            }
             if shape.hit_test(pt, tolerance) {
                 let b = shape.bounds();
                 let area = (b.width() * b.height()).max(1.0);
@@ -1759,6 +1835,9 @@ impl LaserBurnApp {
         // Pass 2: slightly broader tolerance (3x) for easy clicking near thin lines / borders
         if candidates.is_empty() {
             for (idx, shape) in self.doc.shapes.iter().enumerate() {
+                if self.is_shape_locked(idx) {
+                    continue;
+                }
                 if shape.hit_test(pt, tolerance * 3.0) {
                     let b = shape.bounds();
                     let area = (b.width() * b.height()).max(1.0);
@@ -2353,7 +2432,7 @@ impl LaserBurnApp {
         let mut locked_count = 0;
         for idx in sorted {
             if idx < self.doc.shapes.len() {
-                if self.doc.shapes[idx].is_locked() {
+                if self.is_shape_locked(idx) {
                     locked_count += 1;
                 } else {
                     self.doc.shapes.remove(idx);
@@ -2552,6 +2631,29 @@ impl LaserBurnApp {
             (10.0, 50.0, 50.0)
         } else {
             (50.0, 100.0, 100.0)
+        }
+    }
+
+    /// Returns adaptive grid subdivisions and ruler steps respecting the active unit system (mm vs inches)
+    pub fn grid_steps_for_zoom_unit(zoom: f32, unit: LengthUnit) -> (f64, f64, f64) {
+        match unit {
+            LengthUnit::Millimeters => Self::grid_steps_for_zoom(zoom),
+            LengthUnit::Inches => {
+                let (minor_in, major_in, label_in) = if zoom >= 10.0 {
+                    (0.05, 0.25, 0.25)
+                } else if zoom >= 5.5 {
+                    (0.1, 0.5, 0.5)
+                } else if zoom >= 2.8 {
+                    (0.25, 1.0, 1.0)
+                } else if zoom >= 1.3 {
+                    (0.5, 1.0, 1.0)
+                } else if zoom >= 0.6 {
+                    (0.5, 2.0, 2.0)
+                } else {
+                    (1.0, 5.0, 5.0)
+                };
+                (minor_in * 25.4, major_in * 25.4, label_in * 25.4)
+            }
         }
     }
 
@@ -4823,6 +4925,19 @@ impl eframe::App for LaserBurnApp {
                     }
                 });
                 ui.separator();
+                let unit_label = match self.length_unit {
+                    LengthUnit::Millimeters => "📏 mm",
+                    LengthUnit::Inches => "📏 in",
+                };
+                ui.menu_button(egui::RichText::new(unit_label).strong(), |ui| {
+                    for &u in LengthUnit::ALL {
+                        if ui.selectable_label(self.length_unit == u, u.label()).clicked() {
+                            self.length_unit = u;
+                            ui.close_menu();
+                        }
+                    }
+                });
+                ui.separator();
                 ui.label(egui::RichText::new(concat!("LaserBurn v", env!("CARGO_PKG_VERSION"))).strong().color(egui::Color32::from_rgb(255, 140, 0)));
                 ui.label(egui::RichText::new(format!("({} | {}+{}: {})", tr("Arrows: Jog Laser"), cmd, tr("Arrows"), tr("Nudge Selection"))).italics().color(egui::Color32::GRAY));
             });
@@ -5200,7 +5315,17 @@ impl eframe::App for LaserBurnApp {
                 ui.label(format!("{} {}", tr("Controller:"), self.device.controller_type.name()));
                 ui.separator();
 
-                ui.label(format!("{} X: {:.1} mm, Y: {:.1} mm", tr("Machine Pos:"), self.device.machine_x, self.device.machine_y));
+                let pos_str = match self.length_unit {
+                    LengthUnit::Millimeters => format!("X: {:.1} mm, Y: {:.1} mm", self.device.machine_x, self.device.machine_y),
+                    LengthUnit::Inches => format!(
+                        "X: {:.3} in, Y: {:.3} in ({:.1} mm, {:.1} mm)",
+                        self.device.machine_x / 25.4,
+                        self.device.machine_y / 25.4,
+                        self.device.machine_x,
+                        self.device.machine_y
+                    ),
+                };
+                ui.label(format!("{} {}", tr("Machine Pos:"), pos_str));
                 ui.separator();
 
                 if self.device.is_job_running {
@@ -5236,7 +5361,17 @@ impl eframe::App for LaserBurnApp {
                 ui.label(egui::RichText::new(disp_status).strong());
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(format!("{} {:.0} x {:.0} mm | {} {} | {} {}", tr("Bed:"), self.doc.width, self.doc.height, tr("Shapes:"), self.doc.shapes.len(), tr("Selected:"), self.selected_shape_indices.len()));
+                    let bed_str = match self.length_unit {
+                        LengthUnit::Millimeters => format!("{:.0} x {:.0} mm", self.doc.width, self.doc.height),
+                        LengthUnit::Inches => format!(
+                            "{:.2} x {:.2} in ({:.0} x {:.0} mm)",
+                            self.doc.width / 25.4,
+                            self.doc.height / 25.4,
+                            self.doc.width,
+                            self.doc.height
+                        ),
+                    };
+                    ui.label(format!("{} {} | {} {} | {} {}", tr("Bed:"), bed_str, tr("Shapes:"), self.doc.shapes.len(), tr("Selected:"), self.selected_shape_indices.len()));
                 });
             });
         });
@@ -5258,24 +5393,33 @@ impl eframe::App for LaserBurnApp {
                     // -------------------------------------------------
                     // 1. TRANSFORM & SIZE INSPECTOR
                     // -------------------------------------------------
-                    ui.heading(tr("Transform & Size"));
+                    ui.horizontal(|ui| {
+                        ui.heading(tr("Transform & Size"));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let (lbl, other) = match self.length_unit {
+                                LengthUnit::Millimeters => ("mm", LengthUnit::Inches),
+                                LengthUnit::Inches => ("in", LengthUnit::Millimeters),
+                            };
+                            if ui.small_button(format!("📏 {}", lbl)).on_hover_text(format!("Click to toggle unit between mm and inches (currently {})", self.length_unit.label())).clicked() {
+                                self.length_unit = other;
+                            }
+                        });
+                    });
                     ui.separator();
 
                     if let Some(bounds) = self.selection_bounds() {
-                        let mut cur_x = bounds.min_x;
-                        let mut cur_y = bounds.min_y;
-                        let mut cur_w = bounds.width();
-                        let mut cur_h = bounds.height();
-
+                        let is_inches = self.length_unit == LengthUnit::Inches;
                         let count = self.selected_shape_indices.len();
+                        let any_locked = self.selected_shape_indices.iter().any(|&idx| self.is_shape_locked(idx));
                         ui.horizontal(|ui| {
                             let label = if count == 1 {
                                 let idx = self.selected_shape_indices[0];
-                                let is_locked = self.doc.shapes[idx].is_locked();
+                                let is_locked = self.is_shape_locked(idx);
                                 let locked_str = if is_locked { format!(" [{}]", tr("Locked")) } else { "".to_string() };
                                 format!("{} #{}{} {}", tr("Shape"), idx + 1, locked_str, tr("Selected"))
                             } else {
-                                format!("{} {}", count, tr("Shapes Selected"))
+                                let locked_str = if any_locked { format!(" [{}]", tr("Locked")) } else { "".to_string() };
+                                format!("{} {}{}", count, tr("Shapes Selected"), locked_str)
                             };
                             ui.label(egui::RichText::new(label).strong().color(egui::Color32::from_rgb(255, 140, 0)));
                             if ui.button(tr("Deselect")).clicked() {
@@ -5283,23 +5427,30 @@ impl eframe::App for LaserBurnApp {
                             }
                         });
 
-                        // Position controls (allows shapes anywhere, even beyond the bed)
+                        // Position controls (supports both mm and inches)
+                        let mut cur_x_disp = self.length_unit.to_display(bounds.min_x);
+                        let mut cur_y_disp = self.length_unit.to_display(bounds.min_y);
+                        let step_pos = if is_inches { 0.05 } else { 1.0 };
+                        let suf = self.length_unit.suffix();
+
                         ui.horizontal(|ui| {
-                            ui.label(tr("X (mm):"));
-                            if ui.add(egui::DragValue::new(&mut cur_x).speed(1.0).range(-2000.0..=5000.0)).changed() {
-                                let dx = cur_x - bounds.min_x;
+                            ui.label(if is_inches { tr("X (in):") } else { tr("X (mm):") });
+                            if ui.add(egui::DragValue::new(&mut cur_x_disp).speed(step_pos).range(-200.0..=5000.0).suffix(suf)).changed() {
+                                let new_x = self.length_unit.from_display(cur_x_disp);
+                                let dx = new_x - bounds.min_x;
                                 for &idx in &self.selected_shape_indices {
-                                    if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                                    if idx < self.doc.shapes.len() && !self.is_shape_locked(idx) {
                                         self.doc.shapes[idx].translate(dx, 0.0);
                                     }
                                 }
                                 self.doc_version = self.doc_version.wrapping_add(1);
                             }
-                            ui.label(tr("Y (mm):"));
-                            if ui.add(egui::DragValue::new(&mut cur_y).speed(1.0).range(-2000.0..=5000.0)).changed() {
-                                let dy = cur_y - bounds.min_y;
+                            ui.label(if is_inches { tr("Y (in):") } else { tr("Y (mm):") });
+                            if ui.add(egui::DragValue::new(&mut cur_y_disp).speed(step_pos).range(-200.0..=5000.0).suffix(suf)).changed() {
+                                let new_y = self.length_unit.from_display(cur_y_disp);
+                                let dy = new_y - bounds.min_y;
                                 for &idx in &self.selected_shape_indices {
-                                    if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                                    if idx < self.doc.shapes.len() && !self.is_shape_locked(idx) {
                                         self.doc.shapes[idx].translate(0.0, dy);
                                     }
                                 }
@@ -5307,36 +5458,42 @@ impl eframe::App for LaserBurnApp {
                             }
                         });
 
-                        // Size controls
+                        // Size controls (supports both mm and inches)
+                        let mut cur_w_disp = self.length_unit.to_display(bounds.width());
+                        let mut cur_h_disp = self.length_unit.to_display(bounds.height());
+                        let step_sz = if is_inches { 0.025 } else { 0.5 };
+
                         ui.horizontal(|ui| {
-                            ui.label(tr("Width (mm):"));
-                            if ui.add(egui::DragValue::new(&mut cur_w).speed(0.5).range(0.1..=5000.0)).changed() {
+                            ui.label(if is_inches { tr("Width (in):") } else { tr("Width (mm):") });
+                            if ui.add(egui::DragValue::new(&mut cur_w_disp).speed(step_sz).range(0.01..=5000.0).suffix(suf)).changed() {
+                                let new_w = self.length_unit.from_display(cur_w_disp);
                                 let new_h = if self.lock_aspect_ratio && bounds.width() > 1e-4 {
-                                    cur_w * (bounds.height() / bounds.width())
+                                    new_w * (bounds.height() / bounds.width())
                                 } else {
-                                    cur_h
+                                    bounds.height()
                                 };
-                                let sx = cur_w / bounds.width().max(1e-4);
+                                let sx = new_w / bounds.width().max(1e-4);
                                 let sy = new_h / bounds.height().max(1e-4);
                                 for &idx in &self.selected_shape_indices {
-                                    if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                                    if idx < self.doc.shapes.len() && !self.is_shape_locked(idx) {
                                         self.doc.shapes[idx].scale(Point2D::new(bounds.min_x, bounds.min_y), sx, sy);
                                     }
                                 }
                                 self.doc_version = self.doc_version.wrapping_add(1);
                             }
 
-                            ui.label(tr("Height (mm):"));
-                            if ui.add(egui::DragValue::new(&mut cur_h).speed(0.5).range(0.1..=5000.0)).changed() {
+                            ui.label(if is_inches { tr("Height (in):") } else { tr("Height (mm):") });
+                            if ui.add(egui::DragValue::new(&mut cur_h_disp).speed(step_sz).range(0.01..=5000.0).suffix(suf)).changed() {
+                                let new_h = self.length_unit.from_display(cur_h_disp);
                                 let new_w = if self.lock_aspect_ratio && bounds.height() > 1e-4 {
-                                    cur_h * (bounds.width() / bounds.height())
+                                    new_h * (bounds.width() / bounds.height())
                                 } else {
-                                    cur_w
+                                    bounds.width()
                                 };
                                 let sx = new_w / bounds.width().max(1e-4);
-                                let sy = cur_h / bounds.height().max(1e-4);
+                                let sy = new_h / bounds.height().max(1e-4);
                                 for &idx in &self.selected_shape_indices {
-                                    if idx < self.doc.shapes.len() && !self.doc.shapes[idx].is_locked() {
+                                    if idx < self.doc.shapes.len() && !self.is_shape_locked(idx) {
                                         self.doc.shapes[idx].scale(Point2D::new(bounds.min_x, bounds.min_y), sx, sy);
                                     }
                                 }
@@ -5739,6 +5896,13 @@ impl eframe::App for LaserBurnApp {
                                             layer_to_remove = Some(*idx);
                                         }
                                     }
+                                    let lock_icon = if layer.locked { "🔒" } else { "🔓" };
+                                    if ui.small_button(lock_icon)
+                                        .on_hover_text(if layer.locked { "Layer is locked (shapes cannot be moved or edited). Click to unlock" } else { "Click to lock layer against accidental mouse moves" })
+                                        .clicked()
+                                    {
+                                        layer.locked = !layer.locked;
+                                    }
                                     if is_tool {
                                         ui.label(egui::RichText::new(tr("No Output")).color(egui::Color32::from_rgb(255, 140, 0)).small())
                                             .on_hover_text("Tool layer: used for visual guides/alignment, laser will never cut");
@@ -6139,9 +6303,18 @@ impl eframe::App for LaserBurnApp {
 
                     ui.horizontal(|ui| {
                         ui.label(tr("Step:"));
-                        ui.selectable_value(&mut self.jog_step, 1.0, "1mm");
-                        ui.selectable_value(&mut self.jog_step, 10.0, "10mm");
-                        ui.selectable_value(&mut self.jog_step, 50.0, "50mm");
+                        match self.length_unit {
+                            LengthUnit::Millimeters => {
+                                ui.selectable_value(&mut self.jog_step, 1.0, "1mm");
+                                ui.selectable_value(&mut self.jog_step, 10.0, "10mm");
+                                ui.selectable_value(&mut self.jog_step, 50.0, "50mm");
+                            }
+                            LengthUnit::Inches => {
+                                ui.selectable_value(&mut self.jog_step, 2.54, "0.1\"");
+                                ui.selectable_value(&mut self.jog_step, 12.7, "0.5\"");
+                                ui.selectable_value(&mut self.jog_step, 25.4, "1.0\"");
+                            }
+                        }
                     });
 
                     ui.horizontal(|ui| {
@@ -6893,9 +7066,9 @@ impl eframe::App for LaserBurnApp {
             let is_origin_bottom = self.device.settings.origin_corner == crate::device::OriginCorner::BottomLeft
                 || self.device.settings.origin_corner == crate::device::OriginCorner::BottomRight;
 
-            // Adaptive grid subdivisions and millimeter ruler labels based on zoom level:
+            // Adaptive grid subdivisions and ruler labels based on zoom level and active units (mm vs inches):
             // (minor_step_mm, major_step_mm, label_step_mm)
-            let (minor_step, major_step, label_step) = Self::grid_steps_for_zoom(self.zoom);
+            let (minor_step, major_step, label_step) = Self::grid_steps_for_zoom_unit(self.zoom, self.length_unit);
 
             let minor_tenths = ((minor_step * 10.0).round() as i64).max(1);
             let major_tenths = ((major_step * 10.0).round() as i64).max(1);
@@ -6929,7 +7102,7 @@ impl eframe::App for LaserBurnApp {
                     let stroke_w = if is_major { 0.8_f32 } else { 0.5_f32 };
                     painter.line_segment([p1, p2], egui::Stroke::new(stroke_w, stroke_color));
 
-                    // Millimeter distance label from origin
+                    // Distance label from origin (in mm or inches)
                     if is_label && dist_tenths_x > 0 {
                         let base_y = if is_origin_bottom {
                             p2.y + 10.0
@@ -6952,10 +7125,22 @@ impl eframe::App for LaserBurnApp {
                             }
                         };
 
-                        let label_str = if dist_tenths_x % 10 == 0 {
-                            format!("{}", dist_tenths_x / 10)
-                        } else {
-                            format!("{:.1}", dist_x)
+                        let label_str = match self.length_unit {
+                            LengthUnit::Millimeters => {
+                                if dist_tenths_x % 10 == 0 {
+                                    format!("{}", dist_tenths_x / 10)
+                                } else {
+                                    format!("{:.1}", dist_x)
+                                }
+                            }
+                            LengthUnit::Inches => {
+                                let dist_in = dist_x / 25.4;
+                                if (dist_in.round() - dist_in).abs() < 0.05 {
+                                    format!("{:.0}\"", dist_in.round())
+                                } else {
+                                    format!("{:.2}\"", dist_in)
+                                }
+                            }
                         };
 
                         let text_pos = egui::pos2(p1.x, text_y);
@@ -7023,10 +7208,22 @@ impl eframe::App for LaserBurnApp {
                             }
                         };
 
-                        let label_str = if dist_tenths_y % 10 == 0 {
-                            format!("{}", dist_tenths_y / 10)
-                        } else {
-                            format!("{:.1}", dist_y)
+                        let label_str = match self.length_unit {
+                            LengthUnit::Millimeters => {
+                                if dist_tenths_y % 10 == 0 {
+                                    format!("{}", dist_tenths_y / 10)
+                                } else {
+                                    format!("{:.1}", dist_y)
+                                }
+                            }
+                            LengthUnit::Inches => {
+                                let dist_in = dist_y / 25.4;
+                                if (dist_in.round() - dist_in).abs() < 0.05 {
+                                    format!("{:.0}\"", dist_in.round())
+                                } else {
+                                    format!("{:.2}\"", dist_in)
+                                }
+                            }
                         };
 
                         let text_pos = egui::pos2(text_x, p1.y);
@@ -7239,9 +7436,9 @@ impl eframe::App for LaserBurnApp {
                             self.drag_start_doc = Some(doc_pt);
                             self.last_drag_doc = Some(doc_pt);
                         } else {
-                            // Check if drag started on an already selected shape
+                            // Check if drag started on an already selected shape (that is not locked)
                             let hit_already_selected = self.selected_shape_indices.iter().any(|&idx| {
-                                idx < self.doc.shapes.len() && self.doc.shapes[idx].hit_test(&doc_pt, hit_tolerance_doc)
+                                idx < self.doc.shapes.len() && !self.is_shape_locked(idx) && self.doc.shapes[idx].hit_test(&doc_pt, hit_tolerance_doc)
                             });
 
                             if hit_already_selected {
@@ -7527,6 +7724,9 @@ impl eframe::App for LaserBurnApp {
 
                             if select_box.width() > 2.0 && select_box.height() > 2.0 {
                                 for (idx, shape) in self.doc.shapes.iter().enumerate() {
+                                    if self.is_shape_locked(idx) {
+                                        continue;
+                                    }
                                     let b = shape.bounds();
                                     if select_box.contains_point(&b.center()) || (b.min_x >= select_box.min_x && b.max_x <= select_box.max_x && b.min_y >= select_box.min_y && b.max_y <= select_box.max_y) {
                                         if !self.selected_shape_indices.contains(&idx) {
@@ -8329,6 +8529,17 @@ impl eframe::App for LaserBurnApp {
                     ui.add_space(6.0);
 
                     let mut changed = false;
+
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Tracing Mode:").strong());
+                        for &m in crate::trace::TraceMode::ALL {
+                            if ui.selectable_value(&mut self.trace_mode, m, m.label()).clicked() {
+                                changed = true;
+                            }
+                        }
+                    });
+                    ui.add_space(4.0);
+
                     egui::Grid::new("trace_params_grid")
                         .spacing([12.0, 8.0])
                         .show(ui, |ui| {
@@ -8840,11 +9051,19 @@ impl eframe::App for LaserBurnApp {
                     egui::Frame::group(ui.style()).show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("Machine Coordinates:").strong());
-                            ui.label(format!("X: {:.2} mm   Y: {:.2} mm", self.device.machine_x, self.device.machine_y));
+                            let m_str = match self.length_unit {
+                                LengthUnit::Millimeters => format!("X: {:.2} mm   Y: {:.2} mm", self.device.machine_x, self.device.machine_y),
+                                LengthUnit::Inches => format!("X: {:.3} in   Y: {:.3} in ({:.1} mm, {:.1} mm)", self.device.machine_x / 25.4, self.device.machine_y / 25.4, self.device.machine_x, self.device.machine_y),
+                            };
+                            ui.label(m_str);
                         });
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("Work Coordinates:").strong());
-                            ui.label(format!("X: {:.2} mm   Y: {:.2} mm", self.device.work_x, self.device.work_y));
+                            let w_str = match self.length_unit {
+                                LengthUnit::Millimeters => format!("X: {:.2} mm   Y: {:.2} mm", self.device.work_x, self.device.work_y),
+                                LengthUnit::Inches => format!("X: {:.3} in   Y: {:.3} in ({:.1} mm, {:.1} mm)", self.device.work_x / 25.4, self.device.work_y / 25.4, self.device.work_x, self.device.work_y),
+                            };
+                            ui.label(w_str);
                         });
                     });
 
@@ -8853,12 +9072,24 @@ impl eframe::App for LaserBurnApp {
                     // Step size buttons
                     ui.horizontal(|ui| {
                         ui.label("Step Size:");
-                        ui.selectable_value(&mut self.jog_step, 0.1, "0.1mm");
-                        ui.selectable_value(&mut self.jog_step, 1.0, "1mm");
-                        ui.selectable_value(&mut self.jog_step, 5.0, "5mm");
-                        ui.selectable_value(&mut self.jog_step, 10.0, "10mm");
-                        ui.selectable_value(&mut self.jog_step, 50.0, "50mm");
-                        ui.selectable_value(&mut self.jog_step, 100.0, "100mm");
+                        match self.length_unit {
+                            LengthUnit::Millimeters => {
+                                ui.selectable_value(&mut self.jog_step, 0.1, "0.1mm");
+                                ui.selectable_value(&mut self.jog_step, 1.0, "1mm");
+                                ui.selectable_value(&mut self.jog_step, 5.0, "5mm");
+                                ui.selectable_value(&mut self.jog_step, 10.0, "10mm");
+                                ui.selectable_value(&mut self.jog_step, 50.0, "50mm");
+                                ui.selectable_value(&mut self.jog_step, 100.0, "100mm");
+                            }
+                            LengthUnit::Inches => {
+                                ui.selectable_value(&mut self.jog_step, 2.54 * 0.05, "0.05\"");
+                                ui.selectable_value(&mut self.jog_step, 2.54 * 0.1, "0.1\"");
+                                ui.selectable_value(&mut self.jog_step, 25.4 * 0.25, "0.25\"");
+                                ui.selectable_value(&mut self.jog_step, 25.4 * 0.5, "0.5\"");
+                                ui.selectable_value(&mut self.jog_step, 25.4 * 1.0, "1.0\"");
+                                ui.selectable_value(&mut self.jog_step, 25.4 * 2.0, "2.0\"");
+                            }
+                        }
                     });
 
                     ui.horizontal(|ui| {
@@ -9245,6 +9476,20 @@ impl eframe::App for LaserBurnApp {
                             });
                     });
                     ui.add_space(4.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(tr("Units:")).strong());
+                        egui::ComboBox::from_id_salt("settings_units_combo")
+                            .selected_text(self.length_unit.label())
+                            .show_ui(ui, |ui| {
+                                for &u in LengthUnit::ALL {
+                                    if ui.selectable_label(self.length_unit == u, u.label()).clicked() {
+                                        self.length_unit = u;
+                                    }
+                                }
+                            });
+                    });
+                    ui.add_space(4.0);
                     ui.separator();
 
                     ui.horizontal(|ui| {
@@ -9270,14 +9515,29 @@ impl eframe::App for LaserBurnApp {
                     ui.add_space(4.0);
                     ui.separator();
 
-                    ui.label(egui::RichText::new(tr("Bed Dimensions (mm):")).strong());
+                    let bed_dim_title = match self.length_unit {
+                        LengthUnit::Millimeters => tr("Bed Dimensions (mm):"),
+                        LengthUnit::Inches => tr("Bed Dimensions (Inches):"),
+                    };
+                    ui.label(egui::RichText::new(bed_dim_title).strong());
                     ui.horizontal(|ui| {
+                        let is_in = self.length_unit == LengthUnit::Inches;
+                        let suf = self.length_unit.suffix();
+                        let spd = if is_in { 0.1 } else { 1.0 };
+                        let min_r = if is_in { 2.0 } else { 50.0 };
+                        let max_r = if is_in { 150.0 } else { 3000.0 };
+
+                        let mut disp_w = self.length_unit.to_display(self.device.settings.bed_width);
+                        let mut disp_h = self.length_unit.to_display(self.device.settings.bed_height);
+
                         ui.label(tr("Width:"));
-                        if ui.add(egui::DragValue::new(&mut self.device.settings.bed_width).speed(1.0).range(50.0..=2000.0).suffix(" mm")).changed() {
+                        if ui.add(egui::DragValue::new(&mut disp_w).speed(spd).range(min_r..=max_r).suffix(suf)).changed() {
+                            self.device.settings.bed_width = self.length_unit.from_display(disp_w);
                             self.doc.width = self.device.settings.bed_width;
                         }
                         ui.label(tr("Height:"));
-                        if ui.add(egui::DragValue::new(&mut self.device.settings.bed_height).speed(1.0).range(50.0..=2000.0).suffix(" mm")).changed() {
+                        if ui.add(egui::DragValue::new(&mut disp_h).speed(spd).range(min_r..=max_r).suffix(suf)).changed() {
+                            self.device.settings.bed_height = self.length_unit.from_display(disp_h);
                             self.doc.height = self.device.settings.bed_height;
                         }
                     });
@@ -10293,6 +10553,117 @@ mod tests {
     }
 
     #[test]
+    fn test_layer_locking_protection() {
+        let mut app = LaserBurnApp::default();
+        app.doc.shapes.clear();
+        app.selected_shape_indices.clear();
+
+        // Add Layer 1 and mark it locked
+        let mut l1 = Layer::new(1, "Jig / Alignment", "#FF8800");
+        l1.locked = true;
+        app.doc.layers.insert(1, l1);
+
+        // Add a shape on Layer 1 (locked layer)
+        app.doc.add_shape(Shape::Rect {
+            layer_index: 1,
+            x: 10.0,
+            y: 10.0,
+            width: 50.0,
+            height: 50.0,
+            corner_radius: 0.0,
+        });
+
+        // Add an unlocked shape on Layer 0
+        app.doc.add_shape(Shape::Circle {
+            layer_index: 0,
+            center: Point2D::new(100.0, 100.0),
+            radius: 15.0,
+        });
+
+        // Shape 0 belongs to locked layer 1
+        assert!(app.is_shape_locked(0), "Shape on locked layer must be reported as locked");
+        assert!(!app.is_shape_locked(1), "Shape on unlocked layer 0 must not be locked");
+
+        // Clicking on shape 0 must be ignored by find_best_shape_at_point
+        let hit = app.find_best_shape_at_point(&Point2D::new(20.0, 20.0), 5.0);
+        assert_eq!(hit, None, "Clicking locked layer shape must return None (clicks fall through)");
+
+        // Clicking on shape 1 must hit shape 1
+        let hit1 = app.find_best_shape_at_point(&Point2D::new(100.0, 100.0), 5.0);
+        assert_eq!(hit1, Some(1), "Clicking unlocked shape must succeed");
+
+        // If both shapes are selected and delete_selected is called:
+        app.selected_shape_indices = vec![0, 1];
+        app.delete_selected();
+
+        // Shape 0 on locked layer must be safely preserved!
+        assert_eq!(app.doc.shapes.len(), 1, "Only unlocked shape should be deleted");
+        assert_eq!(app.doc.shapes[0].layer_index(), 1);
+    }
+
+    #[test]
+    fn test_dual_units_inches_and_metric() {
+        let mut app = LaserBurnApp::default();
+        assert_eq!(app.length_unit, LengthUnit::Millimeters);
+
+        // 25.4 mm is exactly 1.0 inch
+        assert!((app.length_unit.to_display(25.4) - 25.4).abs() < 1e-6);
+
+        app.length_unit = LengthUnit::Inches;
+        assert_eq!(app.length_unit.suffix(), " in");
+        assert!((app.length_unit.to_display(25.4) - 1.0).abs() < 1e-6);
+        assert!((app.length_unit.from_display(2.5) - 63.5).abs() < 1e-6);
+
+        let dual_str = app.length_unit.format_dual(50.8);
+        assert!(dual_str.contains("50.8 mm"));
+        assert!(dual_str.contains("2.000 in"));
+    }
+
+    #[test]
+    fn test_undo_separation_preserves_laser_parameters() {
+        let mut app = LaserBurnApp::default();
+        app.doc.shapes.clear();
+
+        // Calibrate laser parameters on Layer 0
+        if let Some(l0) = app.doc.layers.get_mut(&0) {
+            l0.cut_setting.speed = 850.0;
+            l0.cut_setting.power_max = 95.0;
+            l0.cut_setting.num_passes = 3;
+            l0.cut_setting.air_assist = true;
+        }
+
+        // Draw initial shape
+        app.doc.add_shape(Shape::Rect {
+            layer_index: 0,
+            x: 0.0,
+            y: 0.0,
+            width: 20.0,
+            height: 20.0,
+            corner_radius: 0.0,
+        });
+
+        // Push undo before moving shape
+        app.push_undo();
+        app.doc.shapes[0].translate(50.0, 50.0);
+        let b_moved = app.doc.shapes[0].bounds();
+        assert_eq!(b_moved.min_x, 50.0);
+
+        // Execute Undo
+        app.undo();
+
+        // Geometric shape position must be reverted to 0.0
+        let b_reverted = app.doc.shapes[0].bounds();
+        assert_eq!(b_reverted.min_x, 0.0);
+
+        // CRITICAL: Laser cut parameters must NOT be reverted or lost!
+        let l0 = app.doc.layers.get(&0).expect("Layer 0 must exist");
+        assert_eq!(l0.cut_setting.speed, 850.0, "Speed must be preserved across vector undos");
+        assert_eq!(l0.cut_setting.power_max, 95.0, "Power must be preserved across vector undos");
+        assert_eq!(l0.cut_setting.num_passes, 3);
+        assert!(l0.cut_setting.air_assist);
+    }
+
+    #[test]
     fn test_rotate_selected_and_flip() {
         let mut app = LaserBurnApp::default();
         app.doc.shapes.clear();
@@ -10917,6 +11288,12 @@ mod tests {
         app.update_trace_preview();
         assert!(!app.trace_preview_polylines.is_empty());
 
+        // Test Centerline tracing mode
+        app.trace_mode = crate::trace::TraceMode::Centerline;
+        app.update_trace_preview();
+        assert!(!app.trace_preview_polylines.is_empty(), "Centerline trace should extract paths");
+
+        app.trace_mode = crate::trace::TraceMode::Outline;
         app.trace_threshold = 128;
         app.trace_invert = false;
         app.trace_blur_radius = 0;
