@@ -242,7 +242,23 @@ fn handle_http_client(
     // Route dispatch
     match (method, path) {
         ("GET", "/") | ("GET", "/index.html") => {
-            send_response(&mut stream, 200, "text/html; charset=utf-8", INDEX_HTML.as_bytes());
+            if let Ok(local_html) = std::fs::read_to_string("/usr/local/share/photoncam/web/index.html") {
+                send_response(&mut stream, 200, "text/html; charset=utf-8", local_html.as_bytes());
+            } else if let Ok(local_html) = std::fs::read_to_string("web/index.html") {
+                send_response(&mut stream, 200, "text/html; charset=utf-8", local_html.as_bytes());
+            } else {
+                send_response(&mut stream, 200, "text/html; charset=utf-8", INDEX_HTML.as_bytes());
+            }
+        }
+        ("POST", "/api/system/update") => {
+            std::thread::spawn(|| {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let _ = std::process::Command::new("bash")
+                    .arg("-c")
+                    .arg("curl -sSL https://raw.githubusercontent.com/pietini69/photoncam/master/scripts/install_pi_bridge.sh | bash")
+                    .status();
+            });
+            send_json_ok(&mut stream);
         }
         ("GET", "/manifest.json") => {
             send_response(&mut stream, 200, "application/json", MANIFEST_JSON.as_bytes());

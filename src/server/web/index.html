@@ -454,6 +454,104 @@
       color: var(--text);
       font-size: 0.85rem;
     }
+
+    /* Origin & Settings Modal */
+    .modal-backdrop {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 440px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 10px;
+    }
+    .modal-close-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.3rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 4px;
+    }
+    .setting-label {
+      display: block;
+      font-weight: 700;
+      font-size: 0.85rem;
+      margin-bottom: 6px;
+      color: var(--cyan);
+    }
+    .setting-input {
+      width: 100%;
+      background: #141722;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+    .origin-selector-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .origin-corner-btn {
+      background: #202434;
+      border: 2px solid var(--card-border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 12px 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+    .origin-corner-btn:hover {
+      background: #2b3147;
+    }
+    .origin-corner-btn.active {
+      background: rgba(255, 87, 34, 0.2);
+      border-color: var(--accent);
+      color: var(--accent);
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+    .checkbox-row {
+      margin-top: 10px;
+      font-size: 0.85rem;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .checkbox-row input {
+      accent-color: var(--accent);
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -481,6 +579,7 @@
       <div>Pinnit: <span id="valPins" style="color: var(--yellow);">-</span></div>
     </div>
     <div style="display: flex; gap: 8px; align-items: center;">
+      <button id="btnOpenOrigin" class="unit-toggle" onclick="openOriginModal()" style="border-color: var(--accent); color: var(--accent); font-weight: 700;">🎯 Origo: <span id="topOriginText">Takaoikea</span></button>
       <button id="unitBtn" class="unit-toggle" onclick="toggleUnits()">📏 Yksikkö: mm</button>
       <button class="unit-toggle" onclick="refreshPorts()">🔄 Portit</button>
     </div>
@@ -550,6 +649,7 @@
           Pöytä: <span id="bedDims">400 × 400 mm</span> | Pää: (<span id="overlayX">0</span>, <span id="overlayY">0</span>)
         </div>
         <div class="canvas-tools">
+          <button class="canvas-tool-btn" title="Koneen Nollapiste & Asetukset" onclick="openOriginModal()">⚙️</button>
           <button class="canvas-tool-btn" title="Lähennä" onclick="zoomCanvas(1.2)">➕</button>
           <button class="canvas-tool-btn" title="Loitonna" onclick="zoomCanvas(0.8)">➖</button>
           <button class="canvas-tool-btn" title="Palauta näkymä" onclick="resetCanvasView()">⟲</button>
@@ -609,6 +709,67 @@
 
   </div>
 
+  <!-- Machine Origin & Settings Modal -->
+  <div id="originModal" class="modal-backdrop" style="display: none;" onclick="if(event.target===this) closeOriginModal()">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 style="color: var(--text); font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">⚙️ Laserin Nollapiste (0,0) & Pöytä</h3>
+        <button class="modal-close-btn" onclick="closeOriginModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="setting-label">🎯 Nollapisteen sijainti (Origin Corner):</label>
+        <div class="origin-selector-grid">
+          <button id="orig_top_left" class="origin-corner-btn" onclick="setOriginCorner('top_left')">
+            ↖ Takavasen<br><small style="color: var(--text-muted); font-weight: normal;">Rear-Left</small>
+          </button>
+          <button id="orig_top_right" class="origin-corner-btn" onclick="setOriginCorner('top_right')">
+            ↗ Takaoikea<br><small style="color: var(--text-muted); font-weight: normal;">Rear-Right</small>
+          </button>
+          <button id="orig_bottom_left" class="origin-corner-btn" onclick="setOriginCorner('bottom_left')">
+            ↙ Etuvasen<br><small style="color: var(--text-muted); font-weight: normal;">Front-Left</small>
+          </button>
+          <button id="orig_bottom_right" class="origin-corner-btn" onclick="setOriginCorner('bottom_right')">
+            ↘ Etuoikea<br><small style="color: var(--text-muted); font-weight: normal;">Front-Right</small>
+          </button>
+        </div>
+
+        <label class="setting-label" style="margin-top: 14px;">📐 Työstöalueen koko (mm):</label>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <div style="flex: 1;">
+            <small style="color: var(--text-muted); display: block; margin-bottom: 2px;">Leveys (X mm):</small>
+            <input type="number" id="inputBedW" class="setting-input" value="400" min="50" max="2000" onchange="updateBedSize()">
+          </div>
+          <div style="flex: 1;">
+            <small style="color: var(--text-muted); display: block; margin-bottom: 2px;">Korkeus (Y mm):</small>
+            <input type="number" id="inputBedH" class="setting-input" value="400" min="50" max="2000" onchange="updateBedSize()">
+          </div>
+        </div>
+
+        <label class="setting-label" style="margin-top: 14px;">🔄 Peilaus & Suuntakorjaukset:</label>
+        <div class="checkbox-row">
+          <input type="checkbox" id="chkMirrorX" onchange="toggleMirrorX(this.checked)">
+          <label for="chkMirrorX">Peilaa X-akseli (Mirror X)</label>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="chkMirrorY" onchange="toggleMirrorY(this.checked)">
+          <label for="chkMirrorY">Peilaa Y-akseli (Mirror Y / Ylösalaisin-korjaus)</label>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="chkInvertJogX" onchange="toggleInvertJogX(this.checked)">
+          <label for="chkInvertJogX">Käännä D-Pad X-napit (Invert Jog X)</label>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="chkInvertJogY" onchange="toggleInvertJogY(this.checked)">
+          <label for="chkInvertJogY">Käännä D-Pad Y-napit (Invert Jog Y)</label>
+        </div>
+
+        <button class="action-btn" style="width: 100%; margin-top: 16px; padding: 12px; border-radius: 8px; font-weight: 700; cursor: pointer; background: var(--accent); color: white; border: none; font-size: 0.95rem;" onclick="closeOriginModal()">
+          ✓ Tallenna ja Päivitä Näkymä
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let isImperial = false;
     let jogStep = 10.0;
@@ -617,15 +778,112 @@
     let isPaused = false;
     let currentX = 0.0;
     let currentY = 0.0;
-    let bedW = 400.0;
-    let bedH = 400.0;
+
+    // Machine Origin & Settings
+    let originCorner = localStorage.getItem('photoncam_origin') || 'top_right';
+    let mirrorX = localStorage.getItem('photoncam_mirror_x') === 'true';
+    let mirrorY = localStorage.getItem('photoncam_mirror_y') === 'true';
+    let invertJogX = localStorage.getItem('photoncam_invert_jog_x') === 'true';
+    let invertJogY = localStorage.getItem('photoncam_invert_jog_y') === 'true';
+    let bedW = parseFloat(localStorage.getItem('photoncam_bed_w')) || 400.0;
+    let bedH = parseFloat(localStorage.getItem('photoncam_bed_h')) || 400.0;
+
     let zoomLevel = 1.0;
-    let panX = 40.0;
-    let panY = 40.0;
+    let panX = 0.0;
+    let panY = 0.0;
     let jobPolylines = [];
 
     const canvas = document.getElementById('bedCanvas');
     const ctx = canvas.getContext('2d');
+
+    function originName(key) {
+      switch(key) {
+        case 'top_right': return 'Takaoikea';
+        case 'top_left': return 'Takavasen';
+        case 'bottom_right': return 'Etuoikea';
+        case 'bottom_left':
+        default: return 'Etuvasen';
+      }
+    }
+
+    function updateOriginUI() {
+      const label = originName(originCorner);
+      const elTop = document.getElementById('topOriginText');
+      if (elTop) elTop.textContent = label;
+      const elDims = document.getElementById('bedDims');
+      if (elDims) elDims.textContent = `${formatDist(bedW)} × ${formatDist(bedH)} ${isImperial ? 'in' : 'mm'}`;
+
+      ['top_left', 'top_right', 'bottom_left', 'bottom_right'].forEach(c => {
+        const btn = document.getElementById('orig_' + c);
+        if (btn) {
+          if (c === originCorner) btn.classList.add('active');
+          else btn.classList.remove('active');
+        }
+      });
+      const mx = document.getElementById('chkMirrorX');
+      if (mx) mx.checked = mirrorX;
+      const my = document.getElementById('chkMirrorY');
+      if (my) my.checked = mirrorY;
+      const jx = document.getElementById('chkInvertJogX');
+      if (jx) jx.checked = invertJogX;
+      const jy = document.getElementById('chkInvertJogY');
+      if (jy) jy.checked = invertJogY;
+      const bw = document.getElementById('inputBedW');
+      if (bw) bw.value = bedW;
+      const bh = document.getElementById('inputBedH');
+      if (bh) bh.value = bedH;
+    }
+
+    function setOriginCorner(corner) {
+      originCorner = corner;
+      localStorage.setItem('photoncam_origin', corner);
+      updateOriginUI();
+      drawBed();
+    }
+
+    function toggleMirrorX(val) {
+      mirrorX = val;
+      localStorage.setItem('photoncam_mirror_x', val);
+      drawBed();
+    }
+
+    function toggleMirrorY(val) {
+      mirrorY = val;
+      localStorage.setItem('photoncam_mirror_y', val);
+      drawBed();
+    }
+
+    function toggleInvertJogX(val) {
+      invertJogX = val;
+      localStorage.setItem('photoncam_invert_jog_x', val);
+    }
+
+    function toggleInvertJogY(val) {
+      invertJogY = val;
+      localStorage.setItem('photoncam_invert_jog_y', val);
+    }
+
+    function updateBedSize() {
+      const w = parseFloat(document.getElementById('inputBedW').value);
+      const h = parseFloat(document.getElementById('inputBedH').value);
+      if (w > 0 && h > 0) {
+        bedW = w;
+        bedH = h;
+        localStorage.setItem('photoncam_bed_w', w);
+        localStorage.setItem('photoncam_bed_h', h);
+        updateOriginUI();
+        resetCanvasView();
+      }
+    }
+
+    function openOriginModal() {
+      updateOriginUI();
+      document.getElementById('originModal').style.display = 'flex';
+    }
+
+    function closeOriginModal() {
+      document.getElementById('originModal').style.display = 'none';
+    }
 
     function resizeCanvas() {
       const rect = canvas.parentElement.getBoundingClientRect();
@@ -640,6 +898,7 @@
       document.getElementById('unitBtn').textContent = isImperial ? '📏 Yksikkö: in' : '📏 Yksikkö: mm';
       document.querySelectorAll('.unit-label').forEach(el => el.textContent = isImperial ? 'in' : 'mm');
       updateCoordDisplays(currentX, currentY);
+      updateOriginUI();
       drawBed();
     }
 
@@ -666,99 +925,172 @@
       drawBed();
     }
 
+    function mapPoint(x, y, bedLeft, bedTop, pixelW, pixelH) {
+      let ox, oy, dx, dy;
+      switch (originCorner) {
+        case 'top_right':
+          ox = bedLeft + pixelW;
+          oy = bedTop;
+          dx = -1;
+          dy = 1;
+          break;
+        case 'top_left':
+          ox = bedLeft;
+          oy = bedTop;
+          dx = 1;
+          dy = 1;
+          break;
+        case 'bottom_right':
+          ox = bedLeft + pixelW;
+          oy = bedTop + pixelH;
+          dx = -1;
+          dy = -1;
+          break;
+        case 'bottom_left':
+        default:
+          ox = bedLeft;
+          oy = bedTop + pixelH;
+          dx = 1;
+          dy = -1;
+          break;
+      }
+
+      if (mirrorX) dx = -dx;
+      if (mirrorY) dy = -dy;
+
+      return [
+        ox + (x * zoomLevel * dx),
+        oy + (y * zoomLevel * dy)
+      ];
+    }
+
     function drawBed() {
       if (!canvas.width || !canvas.height) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      ctx.save();
-      // Apply pan & zoom
-      ctx.translate(panX, canvas.height - panY);
-      ctx.scale(zoomLevel, -zoomLevel); // Invert Y so 0,0 is bottom-left
+      const pixelBedW = bedW * zoomLevel;
+      const pixelBedH = bedH * zoomLevel;
+      const bedLeft = (canvas.width - pixelBedW) / 2 + panX;
+      const bedTop = (canvas.height - pixelBedH) / 2 + panY;
 
       // Draw workbed background
       ctx.fillStyle = "#121520";
-      ctx.fillRect(0, 0, bedW, bedH);
+      ctx.fillRect(bedLeft, bedTop, pixelBedW, pixelBedH);
       ctx.strokeStyle = "#2d344d";
-      ctx.lineWidth = 1.5 / zoomLevel;
-      ctx.strokeRect(0, 0, bedW, bedH);
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(bedLeft, bedTop, pixelBedW, pixelBedH);
 
-      // Draw Grid
+      // Draw Grid lines radiating from the machine origin
       ctx.strokeStyle = "#1b2030";
-      ctx.lineWidth = 0.5 / zoomLevel;
-      const step = isImperial ? 25.4 : 20.0;
-      for (let x = step; x < bedW; x += step) {
+      ctx.lineWidth = 0.8;
+      const step = isImperial ? 25.4 : 50.0;
+
+      for (let x = 0; x <= bedW; x += step) {
+        const [p1x, p1y] = mapPoint(x, 0, bedLeft, bedTop, pixelBedW, pixelBedH);
+        const [p2x, p2y] = mapPoint(x, bedH, bedLeft, bedTop, pixelBedW, pixelBedH);
         ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, bedH);
+        ctx.moveTo(p1x, p1y);
+        ctx.lineTo(p2x, p2y);
         ctx.stroke();
       }
-      for (let y = step; y < bedH; y += step) {
+      for (let y = 0; y <= bedH; y += step) {
+        const [p1x, p1y] = mapPoint(0, y, bedLeft, bedTop, pixelBedW, pixelBedH);
+        const [p2x, p2y] = mapPoint(bedW, y, bedLeft, bedTop, pixelBedW, pixelBedH);
         ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(bedW, y);
+        ctx.moveTo(p1x, p1y);
+        ctx.lineTo(p2x, p2y);
         ctx.stroke();
       }
 
       // Draw loaded job paths if any
       if (jobPolylines && jobPolylines.length > 0) {
         ctx.strokeStyle = "#00e5ff";
-        ctx.lineWidth = 1.2 / zoomLevel;
+        ctx.lineWidth = 1.5;
         for (const poly of jobPolylines) {
           if (poly.length < 2) continue;
           ctx.beginPath();
-          ctx.moveTo(poly[0][0], poly[0][1]);
+          const [sx, sy] = mapPoint(poly[0][0], poly[0][1], bedLeft, bedTop, pixelBedW, pixelBedH);
+          ctx.moveTo(sx, sy);
           for (let i = 1; i < poly.length; i++) {
-            ctx.lineTo(poly[i][0], poly[i][1]);
+            const [nx, ny] = mapPoint(poly[i][0], poly[i][1], bedLeft, bedTop, pixelBedW, pixelBedH);
+            ctx.lineTo(nx, ny);
           }
           ctx.stroke();
         }
       }
 
-      // Draw origin axes
-      ctx.lineWidth = 2.0 / zoomLevel;
-      ctx.strokeStyle = "#ff1744"; // X axis (Red)
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(30, 0); ctx.stroke();
-      ctx.strokeStyle = "#00e676"; // Y axis (Green)
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 30); ctx.stroke();
+      // Draw origin point (0, 0) and axes
+      const [oPx, oPy] = mapPoint(0, 0, bedLeft, bedTop, pixelBedW, pixelBedH);
+      const [xPx, xPy] = mapPoint(35, 0, bedLeft, bedTop, pixelBedW, pixelBedH);
+      const [yPx, yPy] = mapPoint(0, 35, bedLeft, bedTop, pixelBedW, pixelBedH);
+
+      // X axis (Red)
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = "#ff1744";
+      ctx.beginPath();
+      ctx.moveTo(oPx, oPy);
+      ctx.lineTo(xPx, xPy);
+      ctx.stroke();
+
+      // Y axis (Green)
+      ctx.strokeStyle = "#00e676";
+      ctx.beginPath();
+      ctx.moveTo(oPx, oPy);
+      ctx.lineTo(yPx, yPy);
+      ctx.stroke();
+
+      // Axis labels
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = "#ff1744";
+      ctx.fillText("X+", xPx + (xPx > oPx ? 4 : -18), xPy + 4);
+      ctx.fillStyle = "#00e676";
+      ctx.fillText("Y+", yPx - 6, yPy + (yPy > oPy ? 14 : -6));
+
+      // Origin dot
+      ctx.fillStyle = "#ff5722";
+      ctx.beginPath();
+      ctx.arc(oPx, oPy, 5, 0, Math.PI * 2);
+      ctx.fill();
 
       // Draw Laser Head Marker
+      const [headPx, headPy] = mapPoint(currentX, currentY, bedLeft, bedTop, pixelBedW, pixelBedH);
       ctx.fillStyle = weakLightOn ? "rgba(255, 87, 34, 0.5)" : "rgba(255, 23, 68, 0.4)";
       ctx.beginPath();
-      ctx.arc(currentX, currentY, 8 / zoomLevel, 0, Math.PI * 2);
+      ctx.arc(headPx, headPy, 9, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.strokeStyle = "#ff1744";
-      ctx.lineWidth = 1.5 / zoomLevel;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(currentX, currentY, 4 / zoomLevel, 0, Math.PI * 2);
+      ctx.arc(headPx, headPy, 4, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Laser crosshairs
+      // Crosshairs
       ctx.beginPath();
-      ctx.moveTo(currentX - 12 / zoomLevel, currentY);
-      ctx.lineTo(currentX + 12 / zoomLevel, currentY);
-      ctx.moveTo(currentX, currentY - 12 / zoomLevel);
-      ctx.lineTo(currentX, currentY + 12 / zoomLevel);
+      ctx.moveTo(headPx - 14, headPy);
+      ctx.lineTo(headPx + 14, headPy);
+      ctx.moveTo(headPx, headPy - 14);
+      ctx.lineTo(headPx, headPy + 14);
       ctx.stroke();
-
-      ctx.restore();
     }
 
     function zoomCanvas(factor) {
       zoomLevel *= factor;
-      zoomLevel = Math.max(0.2, Math.min(zoomLevel, 8.0));
-      document.getElementById('canvasZoomInfo').textContent = `Zoom: ${Math.round(zoomLevel * 100)}%`;
+      zoomLevel = Math.max(0.1, Math.min(zoomLevel, 8.0));
+      const zEl = document.getElementById('canvasZoomInfo');
+      if (zEl) zEl.textContent = `Zoom: ${Math.round(zoomLevel * 100)}%`;
       drawBed();
     }
 
     function resetCanvasView() {
-      const padding = 30;
+      const padding = 35;
       const scaleX = (canvas.width - padding * 2) / bedW;
       const scaleY = (canvas.height - padding * 2) / bedH;
-      zoomLevel = Math.min(scaleX, scaleY);
-      panX = padding;
-      panY = padding;
-      document.getElementById('canvasZoomInfo').textContent = `Zoom: ${Math.round(zoomLevel * 100)}%`;
+      zoomLevel = Math.max(0.1, Math.min(scaleX, scaleY));
+      panX = 0;
+      panY = 0;
+      const zEl = document.getElementById('canvasZoomInfo');
+      if (zEl) zEl.textContent = `Zoom: ${Math.round(zoomLevel * 100)}%`;
       drawBed();
     }
 
@@ -805,8 +1137,12 @@
     }
 
     function jog(dxFactor, dyFactor) {
+      let effDx = dxFactor;
+      let effDy = dyFactor;
+      if (invertJogX) effDx = -effDx;
+      if (invertJogY) effDy = -effDy;
       const dist = jogStep;
-      apiPost('jog', { dx: dxFactor * dist, dy: dyFactor * dist, feed: 3000.0 });
+      apiPost('jog', { dx: effDx * dist, dy: effDy * dist, feed: 3000.0 });
     }
 
     function sendHome() { apiPost('home'); }
@@ -981,10 +1317,10 @@
       document.getElementById('valLaserPower').textContent = s.laser_firing ? (s.laser_power + '%') : (weakLightOn ? '1% (Tähtäin)' : 'Pois');
       document.getElementById('valPins').textContent = s.pin_state || 'Normaali';
 
-      if (s.bed_width && s.bed_height) {
+      if (!localStorage.getItem('photoncam_bed_w') && s.bed_width && s.bed_height) {
         bedW = s.bed_width;
         bedH = s.bed_height;
-        document.getElementById('bedDims').textContent = `${formatDist(bedW)} × ${formatDist(bedH)} ${isImperial ? 'in' : 'mm'}`;
+        updateOriginUI();
       }
 
       // Progress update
@@ -1009,6 +1345,7 @@
 
     // Initialize
     window.addEventListener('load', () => {
+      updateOriginUI();
       resizeCanvas();
       resetCanvasView();
       refreshPorts();
