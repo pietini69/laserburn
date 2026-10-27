@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="LaserBurn">
+  <meta name="theme-color" content="#0f111a">
+  <title>LaserBurn Web Remote</title>
+  <style>
+    :root {
+      --bg: #0f111a;
+      --card-bg: #181b28;
+      --card-border: #282d42;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #ff5722;
+      --accent-glow: rgba(255, 87, 34, 0.4);
+      --cyan: #00e5ff;
+      --green: #00e676;
+      --red: #ff1744;
+      --yellow: #ffd600;
+      --blue: #2979ff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    header {
+      background: rgba(24, 27, 40, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .brand span { color: var(--accent); }
+    .status-badge {
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-weight: 600;
+      background: #2a2e3d;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .status-badge.connected { background: rgba(0, 230, 118, 0.15); color: var(--green); border: 1px solid rgba(0, 230, 118, 0.3); }
+    .status-badge.busy { background: rgba(0, 229, 255, 0.15); color: var(--cyan); border: 1px solid rgba(0, 229, 255, 0.3); }
+    .status-badge.alarm { background: rgba(255, 23, 68, 0.2); color: var(--red); border: 1px solid rgba(255, 23, 68, 0.4); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    
+    .btn-estop {
+      background: linear-gradient(135deg, #d50000, #ff1744);
+      color: white;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-weight: 800;
+      font-size: 0.95rem;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(255, 23, 68, 0.4);
+      transition: transform 0.1s, box-shadow 0.1s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-estop:active { transform: scale(0.94); box-shadow: 0 2px 6px rgba(255, 23, 68, 0.2); }
+
+    .top-coords-bar {
+      background: #141722;
+      border-bottom: 1px solid var(--card-border);
+      padding: 8px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 0.9rem;
+    }
+    .coords-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-weight: 600;
+    }
+    .coord-val { color: var(--cyan); }
+    .unit-toggle {
+      background: #202434;
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .unit-toggle:hover { background: #2a2f45; }
+
+    /* Layout */
+    .main-container {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 340px 1fr 340px;
+      gap: 16px;
+      padding: 16px;
+      max-width: 1800px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    @media (max-width: 1200px) {
+      .main-container {
+        grid-template-columns: 340px 1fr;
+      }
+      .right-panel {
+        grid-column: span 2;
+      }
+    }
+    @media (max-width: 820px) {
+      .main-container {
+        display: flex;
+        flex-direction: column;
+        padding: 12px;
+        gap: 12px;
+      }
+    }
+
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .panel-header {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #232738;
+      padding-bottom: 8px;
+    }
+
+    /* Jog D-Pad */
+    .dpad-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      max-width: 280px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .jog-btn {
+      aspect-ratio: 1;
+      background: #202538;
+      border: 1px solid #2c334d;
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 1.25rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      transition: background 0.1s, transform 0.1s, border-color 0.1s;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    }
+    .jog-btn small { font-size: 0.65rem; color: var(--text-muted); font-weight: normal; }
+    .jog-btn:active {
+      background: var(--accent);
+      color: white;
+      transform: scale(0.95);
+      border-color: var(--accent);
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+    .jog-btn.center {
+      background: #2a3148;
+      font-size: 0.85rem;
+      color: var(--cyan);
+    }
+
+    .step-selector {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      background: #141722;
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+    }
+    .step-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 6px 0;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .step-btn.active {
+      background: #2a3148;
+      color: var(--cyan);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+
+    .quick-actions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .action-btn {
+      background: #202538;
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .action-btn:hover { background: #2a3148; }
+    .action-btn:active { transform: scale(0.96); }
+    .action-btn.laser-on { background: rgba(255, 87, 34, 0.2); border-color: var(--accent); color: var(--accent); }
+
+    /* Canvas */
+    .canvas-wrapper {
+      position: relative;
+      flex: 1;
+      min-height: 400px;
+      background: #0b0d14;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #bedCanvas {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      display: block;
+    }
+    .canvas-overlay-info {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(15, 17, 26, 0.85);
+      backdrop-filter: blur(4px);
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--card-border);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: monospace;
+    }
+    .canvas-tools {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      gap: 6px;
+    }
+    .canvas-tool-btn {
+      background: rgba(32, 37, 56, 0.85);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+    }
+
+    /* Job Controls */
+    .progress-bar-container {
+      background: #141722;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      overflow: hidden;
+      height: 18px;
+      position: relative;
+    }
+    .progress-bar-fill {
+      background: linear-gradient(90deg, var(--cyan), var(--accent));
+      height: 100%;
+      width: 0%;
+      transition: width 0.15s ease-out;
+    }
+    .progress-text {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: white;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    }
+    .job-stats {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .job-buttons-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 8px;
+    }
+    .btn-start {
+      background: linear-gradient(135deg, #00c853, #00e676);
+      color: #0b0d14;
+      border: none;
+      padding: 12px;
+      border-radius: 8px;
+      font-weight: 800;
+      font-size: 1rem;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0, 230, 118, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn-start:active { transform: scale(0.96); }
+    .btn-pause {
+      background: #2a3148;
+      color: var(--yellow);
+      border: 1px solid var(--card-border);
+      padding: 12px;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .dropzone {
+      border: 2px dashed #2e354f;
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--accent);
+      background: rgba(255, 87, 34, 0.05);
+      color: var(--text);
+    }
+    .dropzone input { display: none; }
+
+    /* Console */
+    .console-box {
+      background: #0b0d14;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      height: 180px;
+      overflow-y: auto;
+      padding: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.75rem;
+      color: #a0aec0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .console-line { word-break: break-all; }
+    .console-line.cmd { color: var(--cyan); }
+    .console-line.err { color: var(--red); }
+    .console-line.ok { color: var(--green); }
+    .console-input-row {
+      display: flex;
+      gap: 6px;
+    }
+    .console-input {
+      flex: 1;
+      background: #141722;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--text);
+      font-family: monospace;
+      font-size: 0.85rem;
+    }
+    .console-send-btn {
+      background: #202538;
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* Port select */
+    .port-select-row {
+      display: flex;
+      gap: 6px;
+    }
+    .port-select {
+      flex: 1;
+      background: #141722;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 8px;
+      color: var(--text);
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      🔥 <span>LaserBurn</span> Web Remote
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <div id="statusBadge" class="status-badge">
+        <span class="status-dot"></span>
+        <span id="statusText">Yhdistetään...</span>
+      </div>
+      <button class="btn-estop" onclick="sendEStop()">
+        ⛔ HÄTÄSEIS
+      </button>
+    </div>
+  </header>
+
+  <div class="top-coords-bar">
+    <div class="coords-group">
+      <div>X: <span id="valX" class="coord-val">0.000</span> <span class="unit-label">mm</span></div>
+      <div>Y: <span id="valY" class="coord-val">0.000</span> <span class="unit-label">mm</span></div>
+      <div>Laser: <span id="valLaserPower" style="color: var(--accent);">Pois</span></div>
+      <div>Pinnit: <span id="valPins" style="color: var(--yellow);">-</span></div>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <button id="unitBtn" class="unit-toggle" onclick="toggleUnits()">📏 Yksikkö: mm</button>
+      <button class="unit-toggle" onclick="refreshPorts()">🔄 Portit</button>
+    </div>
+  </div>
+
+  <div class="main-container">
+    
+    <!-- LEFT PANEL: Jog & Machine Control -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>🕹️ Ohjaus & Siirrot</span>
+      </div>
+
+      <div class="step-selector">
+        <button class="step-btn" onclick="setJogStep(0.1, this)">0.1</button>
+        <button class="step-btn" onclick="setJogStep(1.0, this)">1.0</button>
+        <button class="step-btn" onclick="setJogStep(5.0, this)">5.0</button>
+        <button class="step-btn active" onclick="setJogStep(10.0, this)">10</button>
+        <button class="step-btn" onclick="setJogStep(50.0, this)">50</button>
+        <button class="step-btn" onclick="setJogStep(100.0, this)">100</button>
+      </div>
+
+      <div class="dpad-grid">
+        <button class="jog-btn" onclick="jog(-1, 1)">↖</button>
+        <button class="jog-btn" onclick="jog(0, 1)">▲<small>Y+</small></button>
+        <button class="jog-btn" onclick="jog(1, 1)">↗</button>
+
+        <button class="jog-btn" onclick="jog(-1, 0)">◀<small>X-</small></button>
+        <button class="jog-btn center" onclick="goToZero()">🎯<small>0,0</small></button>
+        <button class="jog-btn" onclick="jog(1, 0)">▶<small>X+</small></button>
+
+        <button class="jog-btn" onclick="jog(-1, -1)">↙</button>
+        <button class="jog-btn" onclick="jog(0, -1)">▼<small>Y-</small></button>
+        <button class="jog-btn" onclick="jog(1, -1)">↘</button>
+      </div>
+
+      <div class="quick-actions-grid">
+        <button class="action-btn" onclick="sendHome()">🏠 Kotiin ($H)</button>
+        <button class="action-btn" onclick="sendZero()">📍 Nollaa X/Y</button>
+        <button id="weakLightBtn" class="action-btn" onclick="toggleWeakLight()">💡 Tähtäysvalo (1%)</button>
+        <button class="action-btn" onclick="sendFrame()">📐 Bounding Box</button>
+        <button class="action-btn" onclick="sendUnlock()">🔓 Avaa lukitus ($X)</button>
+        <button class="action-btn" onclick="sendReset()">🔄 Nollaa ohjain</button>
+      </div>
+
+      <div class="panel-header" style="margin-top: 10px;">
+        <span>🔌 Laiteyhteys</span>
+      </div>
+      <div class="port-select-row">
+        <select id="portSelect" class="port-select">
+          <option value="Virtual Port (Demo / Offline)">Virtuaaliportti (Demo / Offline)</option>
+        </select>
+        <button id="connectBtn" class="action-btn" style="padding: 6px 12px;" onclick="toggleConnect()">Yhdistä</button>
+      </div>
+    </div>
+
+    <!-- CENTER PANEL: 2D Live Workbed Canvas -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>📐 Työpöytä & Leikkausalue</span>
+        <span id="canvasZoomInfo" style="font-size: 0.75rem; text-transform: none;">Zoom: 100%</span>
+      </div>
+
+      <div class="canvas-wrapper">
+        <canvas id="bedCanvas"></canvas>
+        <div class="canvas-overlay-info">
+          Pöytä: <span id="bedDims">400 × 400 mm</span> | Pää: (<span id="overlayX">0</span>, <span id="overlayY">0</span>)
+        </div>
+        <div class="canvas-tools">
+          <button class="canvas-tool-btn" title="Lähennä" onclick="zoomCanvas(1.2)">➕</button>
+          <button class="canvas-tool-btn" title="Loitonna" onclick="zoomCanvas(0.8)">➖</button>
+          <button class="canvas-tool-btn" title="Palauta näkymä" onclick="resetCanvasView()">⟲</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL: Job Streaming & Console -->
+    <div class="panel right-panel">
+      <div class="panel-header">
+        <span>📁 Työn Ajo & Tiedostot</span>
+      </div>
+
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+        📄 <strong>Vedä tiedosto tähän</strong> tai napauta<br>
+        <small style="margin-top: 4px; display: block;">(.gcode, .nc, .lbrn2, .svg)</small>
+        <input type="file" id="fileInput" accept=".gcode,.nc,.gc,.lbrn2,.svg" onchange="handleFileSelect(event)">
+      </div>
+
+      <div id="fileDetails" style="font-size: 0.8rem; display: none;">
+        Tiedosto: <strong id="loadedFileName" style="color: var(--cyan);">-</strong><br>
+        Rivejä: <span id="loadedLines">0</span> | Arvioitu kesto: <span id="loadedTime">-</span>
+      </div>
+
+      <div class="progress-bar-container">
+        <div id="jobProgressFill" class="progress-bar-fill"></div>
+        <div id="jobProgressText" class="progress-text">0.0%</div>
+      </div>
+
+      <div class="job-stats">
+        <div>Rivi: <span id="jobLineCount">0 / 0</span></div>
+        <div>Aika: <span id="jobTime">00:00</span></div>
+      </div>
+
+      <div class="job-buttons-grid">
+        <button id="startBtn" class="btn-start" onclick="startJob()">
+          ▶️ ALOITA LEIKKAUS
+        </button>
+        <button id="pauseBtn" class="btn-pause" onclick="togglePause()">
+          ⏸️ Tauko
+        </button>
+      </div>
+
+      <div class="panel-header" style="margin-top: 10px;">
+        <span>💻 Terminaali & Lokit</span>
+      </div>
+
+      <div id="consoleBox" class="console-box">
+        <div class="console-line ok">[LaserBurn Web] Järjestelmä valmiina.</div>
+      </div>
+
+      <div class="console-input-row">
+        <input type="text" id="cmdInput" class="console-input" placeholder="G-koodi komento (esim. $$, ?)" onkeydown="if(event.key==='Enter') sendCmd()">
+        <button class="console-send-btn" onclick="sendCmd()">Lähetä</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let isImperial = false;
+    let jogStep = 10.0;
+    let weakLightOn = false;
+    let isConnected = false;
+    let isPaused = false;
+    let currentX = 0.0;
+    let currentY = 0.0;
+    let bedW = 400.0;
+    let bedH = 400.0;
+    let zoomLevel = 1.0;
+    let panX = 40.0;
+    let panY = 40.0;
+    let jobPolylines = [];
+
+    const canvas = document.getElementById('bedCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+      drawBed();
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    function toggleUnits() {
+      isImperial = !isImperial;
+      document.getElementById('unitBtn').textContent = isImperial ? '📏 Yksikkö: in' : '📏 Yksikkö: mm';
+      document.querySelectorAll('.unit-label').forEach(el => el.textContent = isImperial ? 'in' : 'mm');
+      updateCoordDisplays(currentX, currentY);
+      drawBed();
+    }
+
+    function setJogStep(val, btn) {
+      jogStep = val;
+      document.querySelectorAll('.step-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
+    function formatDist(mm) {
+      if (isImperial) {
+        return (mm / 25.4).toFixed(3);
+      }
+      return mm.toFixed(2);
+    }
+
+    function updateCoordDisplays(x, y) {
+      currentX = x;
+      currentY = y;
+      document.getElementById('valX').textContent = formatDist(x);
+      document.getElementById('valY').textContent = formatDist(y);
+      document.getElementById('overlayX').textContent = formatDist(x);
+      document.getElementById('overlayY').textContent = formatDist(y);
+      drawBed();
+    }
+
+    function drawBed() {
+      if (!canvas.width || !canvas.height) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.save();
+      // Apply pan & zoom
+      ctx.translate(panX, canvas.height - panY);
+      ctx.scale(zoomLevel, -zoomLevel); // Invert Y so 0,0 is bottom-left
+
+      // Draw workbed background
+      ctx.fillStyle = "#121520";
+      ctx.fillRect(0, 0, bedW, bedH);
+      ctx.strokeStyle = "#2d344d";
+      ctx.lineWidth = 1.5 / zoomLevel;
+      ctx.strokeRect(0, 0, bedW, bedH);
+
+      // Draw Grid
+      ctx.strokeStyle = "#1b2030";
+      ctx.lineWidth = 0.5 / zoomLevel;
+      const step = isImperial ? 25.4 : 20.0;
+      for (let x = step; x < bedW; x += step) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, bedH);
+        ctx.stroke();
+      }
+      for (let y = step; y < bedH; y += step) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(bedW, y);
+        ctx.stroke();
+      }
+
+      // Draw loaded job paths if any
+      if (jobPolylines && jobPolylines.length > 0) {
+        ctx.strokeStyle = "#00e5ff";
+        ctx.lineWidth = 1.2 / zoomLevel;
+        for (const poly of jobPolylines) {
+          if (poly.length < 2) continue;
+          ctx.beginPath();
+          ctx.moveTo(poly[0][0], poly[0][1]);
+          for (let i = 1; i < poly.length; i++) {
+            ctx.lineTo(poly[i][0], poly[i][1]);
+          }
+          ctx.stroke();
+        }
+      }
+
+      // Draw origin axes
+      ctx.lineWidth = 2.0 / zoomLevel;
+      ctx.strokeStyle = "#ff1744"; // X axis (Red)
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(30, 0); ctx.stroke();
+      ctx.strokeStyle = "#00e676"; // Y axis (Green)
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 30); ctx.stroke();
+
+      // Draw Laser Head Marker
+      ctx.fillStyle = weakLightOn ? "rgba(255, 87, 34, 0.5)" : "rgba(255, 23, 68, 0.4)";
+      ctx.beginPath();
+      ctx.arc(currentX, currentY, 8 / zoomLevel, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "#ff1744";
+      ctx.lineWidth = 1.5 / zoomLevel;
+      ctx.beginPath();
+      ctx.arc(currentX, currentY, 4 / zoomLevel, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Laser crosshairs
+      ctx.beginPath();
+      ctx.moveTo(currentX - 12 / zoomLevel, currentY);
+      ctx.lineTo(currentX + 12 / zoomLevel, currentY);
+      ctx.moveTo(currentX, currentY - 12 / zoomLevel);
+      ctx.lineTo(currentX, currentY + 12 / zoomLevel);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function zoomCanvas(factor) {
+      zoomLevel *= factor;
+      zoomLevel = Math.max(0.2, Math.min(zoomLevel, 8.0));
+      document.getElementById('canvasZoomInfo').textContent = `Zoom: ${Math.round(zoomLevel * 100)}%`;
+      drawBed();
+    }
+
+    function resetCanvasView() {
+      const padding = 30;
+      const scaleX = (canvas.width - padding * 2) / bedW;
+      const scaleY = (canvas.height - padding * 2) / bedH;
+      zoomLevel = Math.min(scaleX, scaleY);
+      panX = padding;
+      panY = padding;
+      document.getElementById('canvasZoomInfo').textContent = `Zoom: ${Math.round(zoomLevel * 100)}%`;
+      drawBed();
+    }
+
+    // Touch and Drag on Canvas
+    let isDragging = false;
+    let dragStartX = 0, dragStartY = 0;
+    canvas.addEventListener('mousedown', e => { isDragging = true; dragStartX = e.clientX - panX; dragStartY = e.clientY - panY; });
+    window.addEventListener('mousemove', e => { if (isDragging) { panX = e.clientX - dragStartX; panY = e.clientY - dragStartY; drawBed(); } });
+    window.addEventListener('mouseup', () => isDragging = false);
+
+    canvas.addEventListener('touchstart', e => {
+      if (e.touches.length === 1) {
+        isDragging = true;
+        dragStartX = e.touches[0].clientX - panX;
+        dragStartY = e.touches[0].clientY - panY;
+      }
+    }, { passive: true });
+    window.addEventListener('touchmove', e => {
+      if (isDragging && e.touches.length === 1) {
+        panX = e.touches[0].clientX - dragStartX;
+        panY = e.touches[0].clientY - dragStartY;
+        drawBed();
+      }
+    }, { passive: true });
+    window.addEventListener('touchend', () => isDragging = false);
+
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      zoomCanvas(e.deltaY < 0 ? 1.15 : 0.85);
+    }, { passive: false });
+
+    // --- API Calls ---
+    async function apiPost(endpoint, body = {}) {
+      try {
+        const res = await fetch('/api/' + endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        return await res.json();
+      } catch (err) {
+        logConsole('Virhe: ' + err.message, 'err');
+      }
+    }
+
+    function jog(dxFactor, dyFactor) {
+      const dist = jogStep;
+      apiPost('jog', { dx: dxFactor * dist, dy: dyFactor * dist, feed: 3000.0 });
+    }
+
+    function sendHome() { apiPost('home'); }
+    function sendZero() { apiPost('zero'); }
+    function goToZero() { apiPost('goto_zero'); }
+    function sendFrame() { apiPost('frame'); }
+    function sendUnlock() { apiPost('unlock'); }
+    function sendReset() { apiPost('reset'); }
+    function sendEStop() { apiPost('stop'); }
+
+    function toggleWeakLight() {
+      weakLightOn = !weakLightOn;
+      apiPost('weak_light', { enabled: weakLightOn });
+      const btn = document.getElementById('weakLightBtn');
+      if (weakLightOn) {
+        btn.classList.add('laser-on');
+        btn.textContent = '💡 Tähtäysvalo: PÄÄLLÄ';
+      } else {
+        btn.classList.remove('laser-on');
+        btn.textContent = '💡 Tähtäysvalo (1%)';
+      }
+      drawBed();
+    }
+
+    async function toggleConnect() {
+      const port = document.getElementById('portSelect').value;
+      const btn = document.getElementById('connectBtn');
+      if (isConnected) {
+        await apiPost('disconnect');
+      } else {
+        await apiPost('connect', { port, baud: 115200 });
+      }
+    }
+
+    async function refreshPorts() {
+      try {
+        const res = await fetch('/api/ports');
+        const data = await res.json();
+        const sel = document.getElementById('portSelect');
+        sel.innerHTML = '';
+        data.ports.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p;
+          opt.textContent = p;
+          sel.appendChild(opt);
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function sendCmd() {
+      const input = document.getElementById('cmdInput');
+      const val = input.value.trim();
+      if (!val) return;
+      logConsole('> ' + val, 'cmd');
+      apiPost('gcode', { command: val });
+      input.value = '';
+    }
+
+    function startJob() {
+      apiPost('start');
+    }
+
+    function togglePause() {
+      isPaused = !isPaused;
+      if (isPaused) {
+        apiPost('pause');
+        document.getElementById('pauseBtn').textContent = '▶️ Jatka';
+      } else {
+        apiPost('resume');
+        document.getElementById('pauseBtn').textContent = '⏸️ Tauko';
+      }
+    }
+
+    function logConsole(msg, type = '') {
+      const box = document.getElementById('consoleBox');
+      const div = document.createElement('div');
+      div.className = 'console-line ' + type;
+      div.textContent = msg;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    // --- File Drop & Upload ---
+    const dropzone = document.getElementById('dropzone');
+    dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) {
+        uploadFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    function handleFileSelect(e) {
+      if (e.target.files.length > 0) {
+        uploadFile(e.target.files[0]);
+      }
+    }
+
+    async function uploadFile(file) {
+      logConsole('Ladataan tiedostoa: ' + file.name + '...');
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('fileDetails').style.display = 'block';
+          document.getElementById('loadedFileName').textContent = file.name;
+          document.getElementById('loadedLines').textContent = data.total_lines || '-';
+          document.getElementById('loadedTime').textContent = data.estimated_time || '-';
+          if (data.preview_polylines) {
+            jobPolylines = data.preview_polylines;
+            drawBed();
+          }
+          logConsole('✅ Tiedosto ladattu onnistuneesti (' + data.total_lines + ' riviä)!', 'ok');
+        } else {
+          logConsole('❌ Tiedoston lataus epäonnistui: ' + data.error, 'err');
+        }
+      } catch (err) {
+        logConsole('❌ Latausvirhe: ' + err.message, 'err');
+      }
+    }
+
+    // --- Server-Sent Events (Live Telemetry at 10Hz) ---
+    function initEventStream() {
+      const evtSource = new EventSource('/api/events');
+      evtSource.onmessage = e => {
+        try {
+          const s = JSON.parse(e.data);
+          updateStatus(s);
+        } catch (err) {
+          console.error(err);
+        }
+      };
+      evtSource.onerror = () => {
+        document.getElementById('statusBadge').className = 'status-badge';
+        document.getElementById('statusText').textContent = 'Yhteys katkennut (yhdistetään...)';
+      };
+    }
+
+    function updateStatus(s) {
+      isConnected = s.connected;
+      const badge = document.getElementById('statusBadge');
+      const text = document.getElementById('statusText');
+      const connectBtn = document.getElementById('connectBtn');
+
+      if (!s.connected) {
+        badge.className = 'status-badge';
+        text.textContent = 'Ei yhteyttä';
+        connectBtn.textContent = 'Yhdistä';
+      } else if (s.grbl_state === 'Alarm') {
+        badge.className = 'status-badge alarm';
+        text.textContent = 'ALARM (Lukittu)';
+        connectBtn.textContent = 'Katkaise';
+      } else if (s.job_running) {
+        badge.className = 'status-badge busy';
+        text.textContent = 'Ajo käynnissä (' + s.grbl_state + ')';
+        connectBtn.textContent = 'Katkaise';
+      } else {
+        badge.className = 'status-badge connected';
+        text.textContent = s.grbl_state + ' (' + (s.port || 'USB') + ')';
+        connectBtn.textContent = 'Katkaise';
+      }
+
+      updateCoordDisplays(s.work_x, s.work_y);
+
+      document.getElementById('valLaserPower').textContent = s.laser_firing ? (s.laser_power + '%') : (weakLightOn ? '1% (Tähtäin)' : 'Pois');
+      document.getElementById('valPins').textContent = s.pin_state || 'Normaali';
+
+      if (s.bed_width && s.bed_height) {
+        bedW = s.bed_width;
+        bedH = s.bed_height;
+        document.getElementById('bedDims').textContent = `${formatDist(bedW)} × ${formatDist(bedH)} ${isImperial ? 'in' : 'mm'}`;
+      }
+
+      // Progress update
+      if (s.job_running) {
+        const pct = (s.job_progress * 100).toFixed(1);
+        document.getElementById('jobProgressFill').style.width = pct + '%';
+        document.getElementById('jobProgressText').textContent = pct + '%';
+        document.getElementById('jobLineCount').textContent = `${s.job_idx} / ${s.job_total_lines}`;
+        const mins = Math.floor(s.elapsed_sec / 60);
+        const secs = Math.floor(s.elapsed_sec % 60);
+        document.getElementById('jobTime').textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      } else if (s.job_total_lines > 0 && s.job_progress >= 1.0) {
+        document.getElementById('jobProgressFill').style.width = '100%';
+        document.getElementById('jobProgressText').textContent = '100% Valmis!';
+      }
+
+      // Console logs
+      if (s.recent_logs && s.recent_logs.length > 0) {
+        s.recent_logs.forEach(l => logConsole(l));
+      }
+    }
+
+    // Initialize
+    window.addEventListener('load', () => {
+      resizeCanvas();
+      resetCanvasView();
+      refreshPorts();
+      initEventStream();
+    });
+  </script>
+</body>
+</html>

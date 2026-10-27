@@ -12,6 +12,7 @@ pub mod simulator;
 pub mod text;
 pub mod trace;
 pub mod nesting;
+pub mod server;
 
 #[cfg(feature = "gui")]
 pub mod gui;
@@ -22,6 +23,7 @@ pub use material::{MaterialEntry, MaterialLibrary, MaterialOperation, ThicknessE
 pub use formats::{DxfFormat, GCodeConfig, GCodeGenerator, Lbrn2File, PdfFormat, RuidaGenerator, SvgFormat};
 pub use geometry::{BoundingBox, Point2D, Polyline, Vector2D};
 pub use trace::{TraceOptions, trace_image_to_polylines};
+pub use server::BridgeServer;
 #[cfg(feature = "gui")]
 pub use gui::LaserBurnApp;
 pub use hatch::generate_hatch;

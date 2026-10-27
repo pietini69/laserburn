@@ -532,8 +532,7 @@ pub struct DeviceManager {
     pub pending_ok_count: usize,
     pub framing_target_sent: bool,
     pub rx_buffer: String,
-    #[cfg(feature = "gui")]
-    last_status_poll: Option<Instant>,
+    pub last_status_poll: Option<Instant>,
 
     // Real-time limit switch & input pin state (GRBL Pn: reporting via $10=19)
     pub pin_state: String,
@@ -567,7 +566,6 @@ pub struct DeviceManager {
     pub console_history: VecDeque<String>,
     pub max_history: usize,
 
-    #[cfg(feature = "gui")]
     active_port: Option<Box<dyn serialport::SerialPort>>,
 }
 
@@ -596,7 +594,6 @@ impl DeviceManager {
             pending_ok_count: 0,
             framing_target_sent: false,
             rx_buffer: String::new(),
-            #[cfg(feature = "gui")]
             last_status_poll: None,
 
             pin_state: String::new(),
@@ -628,7 +625,6 @@ impl DeviceManager {
             console_history: VecDeque::new(),
             max_history: 2000,
 
-            #[cfg(feature = "gui")]
             active_port: None,
         };
 
@@ -970,24 +966,16 @@ impl DeviceManager {
 
     /// Checks if a physical hardware serial port is currently open
     pub fn is_physically_connected(&self) -> bool {
-        #[cfg(feature = "gui")]
-        {
-            self.active_port.is_some()
-        }
-        #[cfg(not(feature = "gui"))]
-        false
+        self.active_port.is_some()
     }
 
     /// Enumerate all currently available system serial / USB ports
     pub fn scan_available_ports() -> Vec<String> {
         let mut ports = Vec::new();
 
-        #[cfg(feature = "gui")]
-        {
-            if let Ok(available) = serialport::available_ports() {
-                for p in available {
-                    ports.push(p.port_name);
-                }
+        if let Ok(available) = serialport::available_ports() {
+            for p in available {
+                ports.push(p.port_name);
             }
         }
 
@@ -1031,48 +1019,45 @@ impl DeviceManager {
             return Ok(());
         }
 
-        #[cfg(feature = "gui")]
-        {
-            if !port_name.is_empty() {
-                self.log(&format!("[CONNECTION] Connecting to port {} ({} baud)...", port_name, baud));
-                match serialport::new(port_name, baud)
-                    .timeout(Duration::from_millis(100))
-                    .open()
-                {
-                    Ok(port) => {
-                        self.active_port = Some(port);
-                        self.status = ConnectionStatus::Connected;
-                        self.rx_buffer.clear();
-                        self.pending_ok_count = 0;
-                        self.framing_target_sent = false;
-                        self.grbl_state = "Idle".to_string();
-                        self.abort_phase = None;
-                        self.homing_phase = None;
+        if !port_name.is_empty() {
+            self.log(&format!("[CONNECTION] Connecting to port {} ({} baud)...", port_name, baud));
+            match serialport::new(port_name, baud)
+                .timeout(Duration::from_millis(100))
+                .open()
+            {
+                Ok(port) => {
+                    self.active_port = Some(port);
+                    self.status = ConnectionStatus::Connected;
+                    self.rx_buffer.clear();
+                    self.pending_ok_count = 0;
+                    self.framing_target_sent = false;
+                    self.grbl_state = "Idle".to_string();
+                    self.abort_phase = None;
+                    self.homing_phase = None;
 
-                        // Remember successful physical connection and auto-save settings
-                        if port_name != "Virtual Port (Demo / Offline)" && port_name != "Virtuaaliportti (Demo / Offline)" {
-                            self.settings.default_port = port_name.to_string();
-                            self.settings.default_baud = baud;
-                            self.settings.auto_connect = true;
-                            let _ = self.settings.save();
-                        }
+                    // Remember successful physical connection and auto-save settings
+                    if port_name != "Virtual Port (Demo / Offline)" && port_name != "Virtuaaliportti (Demo / Offline)" {
+                        self.settings.default_port = port_name.to_string();
+                        self.settings.default_baud = baud;
+                        self.settings.auto_connect = true;
+                        let _ = self.settings.save();
+                    }
 
-                        self.log(&format!("[CONNECTION] ✅ Successfully connected to device: {} ({} baud)", port_name, baud));
-                        // Send wake-up reset to GRBL, enable pin reporting ($10=19: MPos+Buffers+PinState), hard limits ($21=1) and immediate status poll
-                        self.send_raw("\r\n\r\n");
-                        self.send_raw("$10=19");
-                        self.send_raw("$21=1");
-                        self.send_raw("$$");
-                        self.send_realtime(b'?');
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        self.active_port = None;
-                        self.status = ConnectionStatus::Disconnected;
-                        let err_msg = format!("Cannot connect to port {}: {}. Ensure laser is powered on and USB cable is connected!", port_name, e);
-                        self.log(&format!("[ERROR] ❌ {}", err_msg));
-                        return Err(err_msg);
-                    }
+                    self.log(&format!("[CONNECTION] ✅ Successfully connected to device: {} ({} baud)", port_name, baud));
+                    // Send wake-up reset to GRBL, enable pin reporting ($10=19: MPos+Buffers+PinState), hard limits ($21=1) and immediate status poll
+                    self.send_raw("\r\n\r\n");
+                    self.send_raw("$10=19");
+                    self.send_raw("$21=1");
+                    self.send_raw("$$");
+                    self.send_realtime(b'?');
+                    return Ok(());
+                }
+                Err(e) => {
+                    self.active_port = None;
+                    self.status = ConnectionStatus::Disconnected;
+                    let err_msg = format!("Cannot connect to port {}: {}. Ensure laser is powered on and USB cable is connected!", port_name, e);
+                    self.log(&format!("[ERROR] ❌ {}", err_msg));
+                    return Err(err_msg);
                 }
             }
         }
@@ -1085,10 +1070,7 @@ impl DeviceManager {
 
     /// Disconnect from port
     pub fn disconnect(&mut self) {
-        #[cfg(feature = "gui")]
-        {
-            self.active_port = None;
-        }
+        self.active_port = None;
         self.status = ConnectionStatus::Disconnected;
         self.is_weak_light_on = false;
         self.is_framing_active = false;
@@ -1104,13 +1086,10 @@ impl DeviceManager {
             self.log(&format!("> {}", trimmed));
         }
 
-        #[cfg(feature = "gui")]
-        {
-            if let Some(ref mut port) = self.active_port {
-                use std::io::Write;
-                let _ = writeln!(port, "{}", trimmed);
-                let _ = port.flush();
-            }
+        if let Some(ref mut port) = self.active_port {
+            use std::io::Write;
+            let _ = writeln!(port, "{}", trimmed);
+            let _ = port.flush();
         }
 
         // Mock echo response for virtual mode
@@ -1139,13 +1118,10 @@ impl DeviceManager {
 
     /// Send a single real-time byte directly without newline (e.g. '?' for status, '!' for feed hold, '~' for cycle start)
     pub fn send_realtime(&mut self, byte: u8) {
-        #[cfg(feature = "gui")]
-        {
-            if let Some(ref mut port) = self.active_port {
-                use std::io::Write;
-                let _ = port.write_all(&[byte]);
-                let _ = port.flush();
-            }
+        if let Some(ref mut port) = self.active_port {
+            use std::io::Write;
+            let _ = port.write_all(&[byte]);
+            let _ = port.flush();
         }
     }
 
@@ -1745,71 +1721,68 @@ impl DeviceManager {
         self.step_abort_sequence();
         self.step_homing_sequence();
 
-        #[cfg(feature = "gui")]
-        {
-            if self.is_physically_connected() {
-                let now = Instant::now();
-                let poll_interval = if self.is_job_running || self.is_framing_active || self.homing_phase.is_some() || self.grbl_state == "Run" || self.grbl_state == "Jog" || self.grbl_state == "Home" {
-                    Duration::from_millis(50)
-                } else {
-                    Duration::from_millis(150)
-                };
+        if self.is_physically_connected() {
+            let now = Instant::now();
+            let poll_interval = if self.is_job_running || self.is_framing_active || self.homing_phase.is_some() || self.grbl_state == "Run" || self.grbl_state == "Jog" || self.grbl_state == "Home" {
+                Duration::from_millis(50)
+            } else {
+                Duration::from_millis(150)
+            };
 
-                if self.last_status_poll.map_or(true, |t| now.duration_since(t) >= poll_interval) {
-                    self.last_status_poll = Some(now);
-                    self.send_realtime(b'?');
-                }
+            if self.last_status_poll.map_or(true, |t| now.duration_since(t) >= poll_interval) {
+                self.last_status_poll = Some(now);
+                self.send_realtime(b'?');
+            }
 
-                if let Some(ref mut port) = self.active_port {
-                    if let Ok(available) = port.bytes_to_read() {
-                        if available > 0 {
-                            use std::io::Read;
-                            let mut buf = vec![0u8; available as usize];
-                            if let Ok(n) = port.read(&mut buf) {
-                                if n > 0 {
-                                    let s = String::from_utf8_lossy(&buf[..n]);
-                                    self.rx_buffer.push_str(&s);
-                                }
+            if let Some(ref mut port) = self.active_port {
+                if let Ok(available) = port.bytes_to_read() {
+                    if available > 0 {
+                        use std::io::Read;
+                        let mut buf = vec![0u8; available as usize];
+                        if let Ok(n) = port.read(&mut buf) {
+                            if n > 0 {
+                                let s = String::from_utf8_lossy(&buf[..n]);
+                                self.rx_buffer.push_str(&s);
                             }
                         }
                     }
                 }
+            }
 
-                // Process complete lines from rx_buffer
-                while let Some(idx) = self.rx_buffer.find(|c| c == '\n' || c == '\r') {
-                    let line = self.rx_buffer[..idx].trim().to_string();
-                    self.rx_buffer = self.rx_buffer[idx + 1..].to_string();
-                    if line.is_empty() {
-                        continue;
-                    }
-                    if line.starts_with('<') && line.ends_with('>') {
-                        self.parse_grbl_status(&line);
-                        if self.settings.log_status_polls {
-                            self.log(&format!("< {}", line));
-                        }
-                    } else {
+            // Process complete lines from rx_buffer
+            while let Some(idx) = self.rx_buffer.find(|c| c == '\n' || c == '\r') {
+                let line = self.rx_buffer[..idx].trim().to_string();
+                self.rx_buffer = self.rx_buffer[idx + 1..].to_string();
+                if line.is_empty() {
+                    continue;
+                }
+                if line.starts_with('<') && line.ends_with('>') {
+                    self.parse_grbl_status(&line);
+                    if self.settings.log_status_polls {
                         self.log(&format!("< {}", line));
-                        if line == "ok" {
-                            self.pending_ok_count = self.pending_ok_count.saturating_sub(1);
-                        } else if line.contains("ALARM:1") || line.contains("ALARM") {
-                            self.grbl_state = "Alarm".to_string();
+                    }
+                } else {
+                    self.log(&format!("< {}", line));
+                    if line == "ok" {
+                        self.pending_ok_count = self.pending_ok_count.saturating_sub(1);
+                    } else if line.contains("ALARM:1") || line.contains("ALARM") {
+                        self.grbl_state = "Alarm".to_string();
 
-                            if matches!(self.homing_phase, Some(SwitchHomingPhase::MovingX { .. })) {
-                                self.log("[RESET] X limit switch triggered (ALARM). Halting motion instantly with soft reset...");
-                                self.send_realtime(0x18);
-                                self.homing_phase = Some(SwitchHomingPhase::ResettingX { started_at: Instant::now() });
-                            } else if matches!(self.homing_phase, Some(SwitchHomingPhase::MovingY { .. })) {
-                                self.log("[RESET] Y limit switch triggered (ALARM). Halting motion instantly with soft reset...");
-                                self.send_realtime(0x18);
-                                self.homing_phase = Some(SwitchHomingPhase::ResettingY { started_at: Instant::now() });
-                            }
+                        if matches!(self.homing_phase, Some(SwitchHomingPhase::MovingX { .. })) {
+                            self.log("[RESET] X limit switch triggered (ALARM). Halting motion instantly with soft reset...");
+                            self.send_realtime(0x18);
+                            self.homing_phase = Some(SwitchHomingPhase::ResettingX { started_at: Instant::now() });
+                        } else if matches!(self.homing_phase, Some(SwitchHomingPhase::MovingY { .. })) {
+                            self.log("[RESET] Y limit switch triggered (ALARM). Halting motion instantly with soft reset...");
+                            self.send_realtime(0x18);
+                            self.homing_phase = Some(SwitchHomingPhase::ResettingY { started_at: Instant::now() });
                         }
                     }
                 }
+            }
 
-                if self.rx_buffer.len() > 2048 {
-                    self.rx_buffer.clear();
-                }
+            if self.rx_buffer.len() > 2048 {
+                self.rx_buffer.clear();
             }
         }
     }

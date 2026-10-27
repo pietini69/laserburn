@@ -304,6 +304,10 @@ pub struct LaserBurnApp {
     // Windows / Dialogs State
     pub show_connection_window: bool,
     pub show_settings_window: bool,
+    pub show_web_remote_window: bool,
+    pub web_remote_port: u16,
+    pub web_remote_active: bool,
+    pub web_remote_stopper: Option<std::sync::Arc<std::sync::Mutex<bool>>>,
     pub show_move_window: bool,
     pub show_camera_window: bool,
     pub show_text_dialog: bool,
@@ -497,6 +501,10 @@ impl Default for LaserBurnApp {
 
             show_connection_window: false,
             show_settings_window: false,
+            show_web_remote_window: false,
+            web_remote_port: 8080,
+            web_remote_active: false,
+            web_remote_stopper: None,
             show_move_window: false,
             show_camera_window: false,
             show_text_dialog: false,
@@ -3020,6 +3028,34 @@ impl LaserBurnApp {
         }
     }
 
+    pub fn start_web_remote(&mut self) {
+        if self.web_remote_active {
+            return;
+        }
+        let stopper = std::sync::Arc::new(std::sync::Mutex::new(true));
+        self.web_remote_stopper = Some(std::sync::Arc::clone(&stopper));
+        self.web_remote_active = true;
+        let port = self.web_remote_port;
+
+        std::thread::spawn(move || {
+            let mut server = crate::server::BridgeServer::new(port, Some(2323));
+            server.running = stopper;
+            let _ = server.run();
+        });
+        self.status_msg = format!("Web Remote Server started on port {}", self.web_remote_port);
+    }
+
+    pub fn stop_web_remote(&mut self) {
+        if let Some(stopper) = &self.web_remote_stopper {
+            if let Ok(mut run) = stopper.lock() {
+                *run = false;
+            }
+        }
+        self.web_remote_active = false;
+        self.web_remote_stopper = None;
+        self.status_msg = "Web Remote Server stopped.".to_string();
+    }
+
     /// Theme-aware blue/cyan accent color for labels on either Dark or Light backgrounds
     fn color_blue(&self) -> egui::Color32 {
         if self.device.settings.dark_mode {
@@ -4861,6 +4897,11 @@ impl eframe::App for LaserBurnApp {
                         ui.close_menu();
                     }
                     ui.separator();
+                    if ui.button("🌐 Web Remote & iPad Bridge...").clicked() {
+                        self.show_web_remote_window = true;
+                        ui.close_menu();
+                    }
+                    ui.separator();
                     let traffic_lbl = if self.show_traffic_panel { self.tr("Hide Data Traffic Log Panel") } else { self.tr("Show Data Traffic Log Panel") };
                     if ui.button(traffic_lbl).clicked() {
                         self.show_traffic_panel = !self.show_traffic_panel;
@@ -4937,6 +4978,11 @@ impl eframe::App for LaserBurnApp {
                         }
                     }
                 });
+                ui.separator();
+                let web_status_color = if self.web_remote_active { egui::Color32::from_rgb(0, 230, 118) } else { egui::Color32::from_rgb(0, 229, 255) };
+                if ui.button(egui::RichText::new("🌐 Web Remote").strong().color(web_status_color)).on_hover_text("Open Web Remote & iPad Bridge control").clicked() {
+                    self.show_web_remote_window = true;
+                }
                 ui.separator();
                 ui.label(egui::RichText::new(concat!("LaserBurn v", env!("CARGO_PKG_VERSION"))).strong().color(egui::Color32::from_rgb(255, 140, 0)));
                 ui.label(egui::RichText::new(format!("({} | {}+{}: {})", tr("Arrows: Jog Laser"), cmd, tr("Arrows"), tr("Nudge Selection"))).italics().color(egui::Color32::GRAY));
@@ -9672,6 +9718,83 @@ impl eframe::App for LaserBurnApp {
             }
             if do_import_settings {
                 self.prompt_import_settings(ctx);
+            }
+        }
+
+        // -------------------------------------------------------------
+        // WEB REMOTE & IPAD BRIDGE IKKUNA
+        // -------------------------------------------------------------
+        if self.show_web_remote_window {
+            let mut is_open = self.show_web_remote_window;
+            let mut do_start = false;
+            let mut do_stop = false;
+            let web_active = self.web_remote_active;
+            let web_port = self.web_remote_port;
+
+            egui::Window::new("🌐 LaserBurn Web Remote & iPad Bridge")
+                .collapsible(false)
+                .resizable(false)
+                .default_width(460.0)
+                .open(&mut is_open)
+                .show(ctx, |ui| {
+                    ui.heading("🌐 Ohjaa laseria iPadilla tai puhelimella");
+                    ui.label("Voit ohjata laseria verstaalla millä tahansa tabletilla tai puhelimella langattomasti selaimen kautta.");
+                    ui.add_space(8.0);
+
+                    let local_ip = crate::server::BridgeServer::detect_local_ip();
+                    let web_url = format!("http://{}:{}", local_ip, web_port);
+
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Palvelimen tila:").strong());
+                            if web_active {
+                                ui.label(egui::RichText::new("🟢 PÄÄLLÄ").color(egui::Color32::from_rgb(0, 230, 118)).strong());
+                            } else {
+                                ui.label(egui::RichText::new("⚪ POIS PÄÄLTÄ").color(egui::Color32::GRAY));
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("iPad / Selainosoite:").strong());
+                            ui.label(egui::RichText::new(&web_url).color(egui::Color32::from_rgb(0, 229, 255)).strong());
+                        });
+
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if !web_active {
+                                if ui.button(egui::RichText::new("▶️ Käynnistä Web Remote").strong()).clicked() {
+                                    do_start = true;
+                                }
+                            } else {
+                                if ui.button(egui::RichText::new("⏹️ Pysäytä Palvelin").strong()).clicked() {
+                                    do_stop = true;
+                                }
+                                if ui.button("🌐 Avaa selaimessa").clicked() {
+                                    ctx.open_url(egui::OpenUrl::new_tab(&web_url));
+                                }
+                            }
+                        });
+                    });
+
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new("📱 iPad / iPhone -käyttöohje:").strong());
+                    ui.label("1. Varmista, että iPad on samassa Wi-Fi -verkossa kuin tämä Mac/PC.");
+                    ui.label(format!("2. Avaa iPadin Safari ja kirjoita osoitteeksi: {}", web_url));
+                    ui.label("3. Napauta Safarin 'Jaa' -painiketta ja valitse 'Lisää Koti-valikkoon' (Add to Home Screen).");
+                    ui.label("👉 Tällöin LaserBurn aukeaa koko ruudun itsenäisenä sovelluksena suoraan iPadin kotivalikosta!");
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.label(egui::RichText::new("🍓 Raspberry Pi -käyttö ilman tietokonetta:").strong());
+                    ui.label("Voit ajaa 'laserburn-bridge' -palvelinta suoraan pienellä Raspberry Pi:llä, jolloin verstaalle ei tarvita tietokonetta lainkaan!");
+                });
+
+            self.show_web_remote_window = is_open;
+            if do_start {
+                self.start_web_remote();
+            }
+            if do_stop {
+                self.stop_web_remote();
             }
         }
 

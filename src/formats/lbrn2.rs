@@ -309,6 +309,15 @@ fn convert_path_to_polylines(
 pub struct Lbrn2File;
 
 impl Lbrn2File {
+    /// Loads a LightBurn project (.lbrn2 or .lbrn) from a string
+    pub fn load_from_str(content: &str, doc_name: &str) -> Result<Document, String> {
+        if content.trim_start().starts_with('<') {
+            Self::parse_xml(content, doc_name)
+        } else {
+            Self::parse_json(content, doc_name)
+        }
+    }
+
     /// Loads a LightBurn project (.lbrn2 or .lbrn) XML or JSON file
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Document, String> {
         let mut file = File::open(path.as_ref())
@@ -323,13 +332,7 @@ impl Lbrn2File {
             .and_then(|s| s.to_str())
             .unwrap_or("LightBurn_Project");
 
-        // First attempt parsing as standard LightBurn XML
-        if content.trim_start().starts_with('<') {
-            Self::parse_xml(&content, doc_name)
-        } else {
-            // Fallback: try parsing JSON if someone used the previous format
-            Self::parse_json(&content, doc_name)
-        }
+        Self::load_from_str(&content, doc_name)
     }
 
     fn parse_xml(content: &str, doc_name: &str) -> Result<Document, String> {

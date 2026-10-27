@@ -33,3 +33,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "laser_burn"
 path = "src/main.rs"
+
+[[bin]]
+name = "laserburn-bridge"
+path = "src/bin/bridge.rs"
