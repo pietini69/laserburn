@@ -9,6 +9,8 @@ on:
 jobs:
   build-pi-image:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
