@@ -6,7 +6,33 @@ Voit ohjata laseria, ajaa tiedostoja, siirtää akseleita ja valvoa työtä mill
 
 ---
 
-## 🚀 Pika-asennus Raspberry Pi:lle (1 komento)
+## 🎯 Tapa 1: Valmis LaserBurn Pi -levykuva (Helpoin tapa – Ei komentoriviä!)
+
+Tämä on **kaikkein helpoin tapa**, joka ei vaadi lainkaan Linux-komentoja tai tiedostojen siirtelyä:
+
+1. **Lataa valmis levykuva:**
+   - Lataa **`LaserBurn-Pi-OS-arm64.img.xz`** [LaserBurn GitHub Releases](https://github.com/pietini69/laserburn/releases) -sivulta.
+2. **Avaa Raspberry Pi Imager:**
+   - Lataa ilmainen [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (saatavilla Macille, Windowsille ja Linuxille).
+3. **Valitse levykuva ja Wi-Fi:**
+   - Paina **Choose OS** (Valitse käyttöjärjestelmä) -> rullaa alas ja valitse **Use custom** (Käytä omaa).
+   - Valitse lataamasi `LaserBurn-Pi-OS-arm64.img.xz`.
+   - Kun Imager kysyy *"Would you like to apply OS customisation settings?"*, valitse **Edit Settings**:
+     - Syötä kotisi/verstaasi **Wi-Fi -nimi (SSID)** ja **salasana**.
+     - Aseta haluamasi käyttäjänimi ja salasana (esim. `pi` ja oma salasana).
+4. **Kirjoita SD-kortille:**
+   - Valitse micro-SD -korttisi ja paina **Write**.
+5. **Käynnistä ja nauti:**
+   - Laita SD-kortti Raspberry Pi:hin, kytke laser USB-kaapelilla kiinni ja laita virrat päälle!
+   - Avaa iPadin tai puhelimen Safari ja mene suoraan osoitteeseen:
+     ```text
+     http://laserburn.local:8080
+     ```
+   - ✨ **Valmista!** Palvelin käynnistyy automaattisesti taustalla joka kerta, kun Raspi saa virtaa.
+
+---
+
+## 💻 Tapa 2: Pika-asennus olemassa olevaan Raspberry Pi:hin (1 komento)
 
 Kytke Raspberry Pi laserisi USB-porttiin, kirjaudu sisään SSH:lla ja aja:
 
