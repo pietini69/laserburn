@@ -139,6 +139,8 @@ mod tests {
         assert_eq!(t("Tabs / Bridges:", Language::Spanish), "Puentes de sujeción (Tabs):");
         assert_eq!(t("Auto-Nest (Material Packing)", Language::Finnish), "Automaattinen pesitys (Nesting)");
         assert_eq!(t("Auto-Nest", Language::German), "Verschachteln");
+        assert_eq!(t("Bed overlay updated from camera.", Language::Finnish), "Alustan taustakuva päivitetty kamerasta.");
+        assert_eq!(t("Bed overlay updated from camera.", Language::German), "Tisch-Hintergrundbild von Kamera aktualisiert.");
     }
 
     #[test]
