@@ -484,6 +484,33 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Enable tabs / bridges to keep cut parts attached" => "Haltestege aktivieren, damit Schnittteile fixiert bleiben",
         "Count:" => "Anzahl:",
 
+        // Smart Auto-Nesting
+        "Auto-Nest (Material Packing)" => "Automatisches Verschachteln (Nesting)",
+        "Auto-Nest Shapes (Material Packing)..." => "Formen automatisch verschachteln (Nesting)...",
+        "Auto-Nest" => "Verschachteln",
+        "Nest" => "Verschachteln",
+        "Auto-Nest Materials Optimizer" => "Automatischer Materialverschachtelungs-Optimierer",
+        "Sheet / Bed Size:" => "Platten- / Tischgröße:",
+        "Use Bed Size" => "Tischgröße verwenden",
+        "Part Spacing:" => "Teileabstand:",
+        "Margin:" => "Randabstand:",
+        "Allowed Rotations:" => "Erlaubte Drehungen:",
+        "0° (No Rotation)" => "0° (Keine Drehung)",
+        "0°, 90° (2-Way)" => "0°, 90° (2 Richtungen)",
+        "90° Steps (4-Way)" => "90°-Schritte (4 Richtungen)",
+        "45° Steps (8-Way)" => "45°-Schritte (8 Richtungen)",
+        "Nest Target:" => "Verschachtelungsziel:",
+        "Selected Shapes Only" => "Nur ausgewählte Formen",
+        "All Shapes on Canvas" => "Alle Formen auf der Arbeitsfläche",
+        "⚡ Run Auto-Nesting" => "⚡ Verschachtelung starten",
+        "Apply Nesting" => "Verschachtelung anwenden",
+        "Placed:" => "Platziert:",
+        "Unplaced:" => "Nicht platziert:",
+        "Material Utilization:" => "Materialausnutzung:",
+        "Used Area:" => "Genutzte Fläche:",
+        "Select shapes to nest or switch to All Shapes" => "Wählen Sie Formen aus oder wechseln Sie zu Alle Formen",
+        "Cannot fit parts onto sheet - try smaller margins or larger sheet" => "Teile passen nicht auf die Platte - kleinere Ränder oder größere Platte versuchen",
+
         // Fallback: return original key
         _ => key,
     }

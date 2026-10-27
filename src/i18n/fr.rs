@@ -484,6 +484,33 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Enable tabs / bridges to keep cut parts attached" => "Activer les ponts d'attache pour maintenir les pièces",
         "Count:" => "Nombre :",
 
+        // Smart Auto-Nesting
+        "Auto-Nest (Material Packing)" => "Imbrication automatique (Nesting)",
+        "Auto-Nest Shapes (Material Packing)..." => "Imbrication automatique des formes (Nesting)...",
+        "Auto-Nest" => "Imbrication",
+        "Nest" => "Imbriquer",
+        "Auto-Nest Materials Optimizer" => "Optimiseur d'imbrication automatique",
+        "Sheet / Bed Size:" => "Dimensions plateau / tôle :",
+        "Use Bed Size" => "Utiliser taille du plateau",
+        "Part Spacing:" => "Espacement des pièces :",
+        "Margin:" => "Marge du bord :",
+        "Allowed Rotations:" => "Rotations autorisées :",
+        "0° (No Rotation)" => "0° (Sans rotation)",
+        "0°, 90° (2-Way)" => "0°, 90° (2 directions)",
+        "90° Steps (4-Way)" => "Pas de 90° (4 directions)",
+        "45° Steps (8-Way)" => "Pas de 45° (8 directions)",
+        "Nest Target:" => "Cible d'imbrication :",
+        "Selected Shapes Only" => "Formes sélectionnées uniquement",
+        "All Shapes on Canvas" => "Toutes les formes du plateau",
+        "⚡ Run Auto-Nesting" => "⚡ Lancer l'imbrication",
+        "Apply Nesting" => "Appliquer l'imbrication",
+        "Placed:" => "Placées :",
+        "Unplaced:" => "Non placées :",
+        "Material Utilization:" => "Utilisation du matériau :",
+        "Used Area:" => "Zone utilisée :",
+        "Select shapes to nest or switch to All Shapes" => "Sélectionnez des formes ou choisissez Toutes les formes",
+        "Cannot fit parts onto sheet - try smaller margins or larger sheet" => "Impossible d'ajuster les pièces sur la tôle - réduisez les marges ou agrandissez la tôle",
+
         // Fallback: return original key
         _ => key,
     }

@@ -484,6 +484,33 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Enable tabs / bridges to keep cut parts attached" => "Jätä leikkausviivoihin kiinnityssillat estämään osien putoamista",
         "Count:" => "Määrä:",
 
+        // Smart Auto-Nesting
+        "Auto-Nest (Material Packing)" => "Automaattinen pesitys (Nesting)",
+        "Auto-Nest Shapes (Material Packing)..." => "Automaattinen pesitys (Nesting)...",
+        "Auto-Nest" => "Pesitys",
+        "Nest" => "Pesitys",
+        "Auto-Nest Materials Optimizer" => "Automaattinen pesitys ja materiaalin optimointi",
+        "Sheet / Bed Size:" => "Levyn / alustan koko:",
+        "Use Bed Size" => "Käytä alustan kokoa",
+        "Part Spacing:" => "Kappaleiden väli:",
+        "Margin:" => "Reunamarginaali:",
+        "Allowed Rotations:" => "Sallitut kääntökulmat:",
+        "0° (No Rotation)" => "0° (Älä käännä)",
+        "0°, 90° (2-Way)" => "0°, 90° (2 suuntaa)",
+        "90° Steps (4-Way)" => "90° askelin (4 suuntaa)",
+        "45° Steps (8-Way)" => "45° askelin (8 suuntaa)",
+        "Nest Target:" => "Pesityksen kohde:",
+        "Selected Shapes Only" => "Vain valitut muodot",
+        "All Shapes on Canvas" => "Kaikki alustan muodot",
+        "⚡ Run Auto-Nesting" => "⚡ Suorita pesitys",
+        "Apply Nesting" => "Sovella alustalle",
+        "Placed:" => "Sijoitettu:",
+        "Unplaced:" => "Ei mahtunut:",
+        "Material Utilization:" => "Materiaalin hyötysuhde:",
+        "Used Area:" => "Käytetty alue:",
+        "Select shapes to nest or switch to All Shapes" => "Valitse pesitettävät muodot tai valitse Kaikki muodot",
+        "Cannot fit parts onto sheet - try smaller margins or larger sheet" => "Kappaleet eivät mahdu levylle - kokeile pienempää marginaalia tai isompaa levyä",
+
         // Fallback: return original key
         _ => key,
     }

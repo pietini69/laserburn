@@ -11,6 +11,7 @@ pub mod optimizer;
 pub mod simulator;
 pub mod text;
 pub mod trace;
+pub mod nesting;
 
 #[cfg(feature = "gui")]
 pub mod gui;

@@ -484,6 +484,33 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Enable tabs / bridges to keep cut parts attached" => "Habilitar puentes de sujeción para mantener unidas las piezas",
         "Count:" => "Cantidad:",
 
+        // Smart Auto-Nesting
+        "Auto-Nest (Material Packing)" => "Anidamiento automático (Nesting)",
+        "Auto-Nest Shapes (Material Packing)..." => "Anidamiento automático de figuras (Nesting)...",
+        "Auto-Nest" => "Anidar",
+        "Nest" => "Anidar",
+        "Auto-Nest Materials Optimizer" => "Optimizador de anidamiento automático",
+        "Sheet / Bed Size:" => "Tamaño de chapa / mesa:",
+        "Use Bed Size" => "Usar tamaño de mesa",
+        "Part Spacing:" => "Espaciado de piezas:",
+        "Margin:" => "Margen del borde:",
+        "Allowed Rotations:" => "Rotaciones permitidas:",
+        "0° (No Rotation)" => "0° (Sin rotación)",
+        "0°, 90° (2-Way)" => "0°, 90° (2 direcciones)",
+        "90° Steps (4-Way)" => "Pasos de 90° (4 direcciones)",
+        "45° Steps (8-Way)" => "Pasos de 45° (8 direcciones)",
+        "Nest Target:" => "Objetivo de anidamiento:",
+        "Selected Shapes Only" => "Solo figuras seleccionadas",
+        "All Shapes on Canvas" => "Todas las figuras en mesa",
+        "⚡ Run Auto-Nesting" => "⚡ Ejecutar anidamiento",
+        "Apply Nesting" => "Aplicar anidamiento",
+        "Placed:" => "Colocadas:",
+        "Unplaced:" => "No colocadas:",
+        "Material Utilization:" => "Aprovechamiento de material:",
+        "Used Area:" => "Área utilizada:",
+        "Select shapes to nest or switch to All Shapes" => "Selecciona figuras para anidar o cambia a Todas las figuras",
+        "Cannot fit parts onto sheet - try smaller margins or larger sheet" => "No caben las piezas en la chapa - prueba con márgenes menores o chapa más grande",
+
         // Fallback: return original key
         _ => key,
     }

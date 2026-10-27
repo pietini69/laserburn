@@ -400,6 +400,11 @@ pub struct LaserBurnApp {
     pub preview_speed: f64,
     pub preview_job: Option<PreviewJobData>,
     pub preview_job_version: u64,
+
+    // Smart 2D Auto-Nesting Material Packing State
+    pub show_nesting_window: bool,
+    pub nesting_options: crate::nesting::NestingOptions,
+    pub nesting_result: Option<crate::nesting::NestingResult>,
 }
 
 #[cfg(feature = "gui")]
@@ -547,6 +552,9 @@ impl Default for LaserBurnApp {
             preview_speed: 1.0,
             preview_job: None,
             preview_job_version: 0,
+            show_nesting_window: false,
+            nesting_options: crate::nesting::NestingOptions::default(),
+            nesting_result: None,
             file_dialog_tx,
             file_dialog_rx,
         };
@@ -3814,6 +3822,166 @@ impl LaserBurnApp {
             self.preview_playing = false;
         }
     }
+
+    /// Renders the Smart 2D Auto-Nesting & Material Packing dialog window
+    pub fn show_nesting_dialog_window(&mut self, ctx: &egui::Context) {
+        if !self.show_nesting_window {
+            return;
+        }
+
+        let lang = self.device.settings.language;
+        let tr = |k| crate::i18n::t(k, lang);
+
+        let mut is_open = true;
+        let mut do_apply = false;
+        let mut do_run = false;
+
+        egui::Window::new(tr("Auto-Nest Materials Optimizer"))
+            .open(&mut is_open)
+            .default_size([440.0, 460.0])
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.heading(tr("Auto-Nest (Material Packing)"));
+                ui.label(
+                    egui::RichText::new("Packs shapes tightly onto the sheet to minimize scrap waste.")
+                        .small()
+                        .weak(),
+                );
+                ui.add_space(6.0);
+
+                egui::Grid::new("nesting_params_grid")
+                    .num_columns(2)
+                    .spacing([10.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label(tr("Sheet / Bed Size:"));
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(&mut self.nesting_options.sheet_width).speed(1.0).range(20.0..=3000.0).suffix(" mm"));
+                            ui.label("×");
+                            ui.add(egui::DragValue::new(&mut self.nesting_options.sheet_height).speed(1.0).range(20.0..=3000.0).suffix(" mm"));
+                            if ui.small_button(tr("Use Bed Size")).clicked() {
+                                self.nesting_options.sheet_width = self.doc.width;
+                                self.nesting_options.sheet_height = self.doc.height;
+                            }
+                        });
+                        ui.end_row();
+
+                        ui.label(tr("Part Spacing:"));
+                        ui.add(egui::DragValue::new(&mut self.nesting_options.part_spacing).speed(0.1).range(0.1..=50.0).suffix(" mm"));
+                        ui.end_row();
+
+                        ui.label(tr("Margin:"));
+                        ui.add(egui::DragValue::new(&mut self.nesting_options.sheet_margin).speed(0.1).range(0.0..=50.0).suffix(" mm"));
+                        ui.end_row();
+
+                        ui.label(tr("Allowed Rotations:"));
+                        egui::ComboBox::from_id_salt("nesting_rotations_combo")
+                            .selected_text(self.nesting_options.allowed_rotations.label())
+                            .show_ui(ui, |ui| {
+                                for &rot in crate::nesting::AllowedRotations::ALL {
+                                    ui.selectable_value(&mut self.nesting_options.allowed_rotations, rot, rot.label());
+                                }
+                            });
+                        ui.end_row();
+
+                        ui.label(tr("Nest Target:"));
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut self.nesting_options.only_selected, true, tr("Selected Shapes Only"));
+                            ui.radio_value(&mut self.nesting_options.only_selected, false, tr("All Shapes on Canvas"));
+                        });
+                        ui.end_row();
+                    });
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                let has_selection = !self.selected_shape_indices.is_empty();
+                let can_run = if self.nesting_options.only_selected { has_selection } else { !self.doc.shapes.is_empty() };
+
+                ui.horizontal(|ui| {
+                    let run_btn = egui::Button::new(
+                        egui::RichText::new(tr("⚡ Run Auto-Nesting")).strong().color(egui::Color32::WHITE),
+                    ).fill(egui::Color32::from_rgb(0, 120, 200));
+
+                    if ui.add_enabled(can_run, run_btn).clicked() {
+                        do_run = true;
+                    }
+
+                    if !can_run && self.nesting_options.only_selected {
+                        ui.label(egui::RichText::new(tr("Select shapes to nest or switch to All Shapes")).small().color(egui::Color32::from_rgb(255, 160, 50)));
+                    }
+                });
+
+                if let Some(ref res) = self.nesting_result {
+                    ui.add_space(8.0);
+                    egui::Frame::group(ui.style()).fill(egui::Color32::from_rgba_unmultiplied(30, 40, 55, 120)).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(tr("Placed:")).strong());
+                            let count_text = format!("{}/{} ({:.0}%)", res.placed_count, res.total_parts, (res.placed_count as f64 / res.total_parts.max(1) as f64) * 100.0);
+                            ui.label(egui::RichText::new(count_text).color(egui::Color32::from_rgb(100, 220, 100)).strong());
+
+                            if res.unplaced_count > 0 {
+                                ui.separator();
+                                ui.label(egui::RichText::new(tr("Unplaced:")).strong());
+                                ui.label(egui::RichText::new(format!("{}", res.unplaced_count)).color(egui::Color32::from_rgb(255, 100, 100)).strong());
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(tr("Material Utilization:")).strong());
+                            ui.label(egui::RichText::new(format!("{:.1}%", res.material_utilization_pct)).color(egui::Color32::from_rgb(255, 200, 60)).strong());
+
+                            ui.separator();
+                            ui.label(egui::RichText::new(tr("Used Area:")).strong());
+                            ui.label(format!("{:.1} × {:.1} mm", res.used_bounds.width(), res.used_bounds.height()));
+                        });
+                    });
+
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        let apply_btn = egui::Button::new(
+                            egui::RichText::new(tr("Apply Nesting")).strong().color(egui::Color32::WHITE),
+                        ).fill(egui::Color32::from_rgb(34, 139, 34));
+
+                        if ui.add(apply_btn).clicked() {
+                            do_apply = true;
+                        }
+
+                        if ui.button("Cancel").clicked() {
+                            self.nesting_result = None;
+                        }
+                    });
+                }
+            });
+
+        if !is_open {
+            self.show_nesting_window = false;
+        }
+
+        if do_run {
+            let indices: Vec<usize> = if self.nesting_options.only_selected {
+                self.selected_shape_indices.clone()
+            } else {
+                (0..self.doc.shapes.len()).collect()
+            };
+
+            let res = crate::nesting::run_nesting(&self.doc.shapes, &indices, &self.nesting_options);
+            self.nesting_result = Some(res);
+        }
+
+        if do_apply {
+            if let Some(res) = self.nesting_result.take() {
+                self.push_undo();
+                crate::nesting::apply_nesting_result(&mut self.doc, &res);
+                self.doc_version = self.doc_version.wrapping_add(1);
+                self.status_msg = format!(
+                    "Auto-nested {}/{} parts with {:.1}% material efficiency!",
+                    res.placed_count, res.total_parts, res.material_utilization_pct
+                );
+                self.show_nesting_window = false;
+            }
+        }
+    }
 }
 
 #[cfg(feature = "gui")]
@@ -4495,6 +4663,13 @@ impl eframe::App for LaserBurnApp {
                         self.distribute_selection(DistributeMode::Vertical);
                         ui.close_menu();
                     }
+                    if ui.add_enabled(!self.doc.shapes.is_empty(), egui::Button::new(self.tr("Auto-Nest Shapes (Material Packing)...")))
+                        .on_hover_text("Pack parts tightly onto the sheet to minimize scrap waste")
+                        .clicked()
+                    {
+                        self.show_nesting_window = true;
+                        ui.close_menu();
+                    }
                     ui.separator();
                     if ui.add_enabled(has_selection, egui::Button::new(self.tr("Grid Array (Matrix)...")))
                         .on_hover_text("Duplicate selected shape(s) in a rectangular grid of rows and columns")
@@ -4725,6 +4900,9 @@ impl eframe::App for LaserBurnApp {
                 }
                 if ui.add_enabled(has_selection, egui::Button::new(tr("Radial Array"))).on_hover_text("Duplicate selected shape(s) in a circular pattern around a center point").clicked() {
                     self.show_radial_array_window = true;
+                }
+                if ui.add_enabled(!self.doc.shapes.is_empty(), egui::Button::new(tr("⚡ Nest"))).on_hover_text("Automatically pack and nest parts onto sheet (minimize material waste)").clicked() {
+                    self.show_nesting_window = true;
                 }
                 let is_image_sel = self.selected_shape_indices.iter().any(|&i| i < self.doc.shapes.len() && matches!(self.doc.shapes[i], Shape::Image { .. }));
                 if ui.add_enabled(is_image_sel, egui::Button::new(tr("Trace Image"))).on_hover_text("Vectorize selected raster image into cutting / engraving paths").clicked() {
@@ -5198,6 +5376,9 @@ impl eframe::App for LaserBurnApp {
                             }
                             if ui.button("⤒⤓").on_hover_text(tr("Distribute Vertically")).clicked() {
                                 self.distribute_selection(DistributeMode::Vertical);
+                            }
+                            if ui.button(tr("⚡ Nest")).on_hover_text(tr("Auto-Nest (Material Packing)")).clicked() {
+                                self.show_nesting_window = true;
                             }
                         });
                         ui.add_space(4.0);
@@ -8462,6 +8643,7 @@ impl eframe::App for LaserBurnApp {
         self.show_material_library_window(ctx);
         self.show_save_material_dialog_window(ctx);
         self.show_preview_simulator_window(ctx);
+        self.show_nesting_dialog_window(ctx);
 
         // -------------------------------------------------------------
         // 1. DEVICE CONNECTION & CONSOLE WINDOW
@@ -10948,5 +11130,32 @@ mod tests {
         let rapid_moves = job_data.moves.iter().filter(|m| !m.is_cut).count();
         assert!(cut_moves >= 2, "Must contain cut segments for both shapes");
         assert!(rapid_moves >= 1, "Must contain rapid travel segments");
+    }
+
+    #[test]
+    fn test_auto_nesting_gui() {
+        let mut app = LaserBurnApp::default();
+        app.doc.width = 400.0;
+        app.doc.height = 400.0;
+        app.doc.shapes.clear();
+
+        for i in 0..6 {
+            app.doc.add_shape(Shape::Rect {
+                layer_index: 0,
+                x: 10.0 + (i as f64) * 35.0,
+                y: 10.0 + (i as f64) * 35.0,
+                width: 30.0,
+                height: 25.0,
+                corner_radius: 0.0,
+            });
+        }
+
+        let indices: Vec<usize> = (0..app.doc.shapes.len()).collect();
+        let res = crate::nesting::run_nesting(&app.doc.shapes, &indices, &app.nesting_options);
+        assert_eq!(res.placed_count, 6);
+        assert_eq!(res.unplaced_count, 0);
+
+        crate::nesting::apply_nesting_result(&mut app.doc, &res);
+        assert_eq!(app.doc.shapes.len(), 6);
     }
 }

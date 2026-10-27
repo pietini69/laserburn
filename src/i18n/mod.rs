@@ -131,12 +131,14 @@ mod tests {
         assert_eq!(t("Scan Ports", Language::Italian), "Cerca porte");
         assert_eq!(t("Scan Ports", Language::Spanish), "Escanear puertos");
 
-        // Align & Distribute, Preview, Tabs
+        // Align & Distribute, Preview, Tabs, Auto-Nest
         assert_eq!(t("Align & Distribute", Language::Finnish), "Kohdista ja tasaa");
         assert_eq!(t("Align & Distribute", Language::German), "Ausrichten & Verteilen");
         assert_eq!(t("Center to Bed (P)", Language::Finnish), "Keskitä alustalle (P)");
         assert_eq!(t("Laser Cut Preview & Simulation", Language::French), "Aperçu et simulation de découpe laser");
         assert_eq!(t("Tabs / Bridges:", Language::Spanish), "Puentes de sujeción (Tabs):");
+        assert_eq!(t("Auto-Nest (Material Packing)", Language::Finnish), "Automaattinen pesitys (Nesting)");
+        assert_eq!(t("Auto-Nest", Language::German), "Verschachteln");
     }
 
     #[test]

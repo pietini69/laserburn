@@ -484,6 +484,33 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Enable tabs / bridges to keep cut parts attached" => "Abilita ponti di tenuta per non far cadere i pezzi tagliati",
         "Count:" => "Numero:",
 
+        // Smart Auto-Nesting
+        "Auto-Nest (Material Packing)" => "Nesting automatico (Ottimizzazione)",
+        "Auto-Nest Shapes (Material Packing)..." => "Nesting automatico forme (Ottimizzazione)...",
+        "Auto-Nest" => "Nesting",
+        "Nest" => "Nesting",
+        "Auto-Nest Materials Optimizer" => "Ottimizzatore nesting automatico",
+        "Sheet / Bed Size:" => "Dimensione piano / lastra:",
+        "Use Bed Size" => "Usa dimensione piano",
+        "Part Spacing:" => "Spaziatura pezzi:",
+        "Margin:" => "Margine bordo:",
+        "Allowed Rotations:" => "Rotazioni consentite:",
+        "0° (No Rotation)" => "0° (Nessuna rotazione)",
+        "0°, 90° (2-Way)" => "0°, 90° (2 direzioni)",
+        "90° Steps (4-Way)" => "Passi di 90° (4 direzioni)",
+        "45° Steps (8-Way)" => "Passi di 45° (8 direzioni)",
+        "Nest Target:" => "Destinazione nesting:",
+        "Selected Shapes Only" => "Solo forme selezionate",
+        "All Shapes on Canvas" => "Tutte le forme sul piano",
+        "⚡ Run Auto-Nesting" => "⚡ Avvia nesting",
+        "Apply Nesting" => "Applica nesting",
+        "Placed:" => "Posizionati:",
+        "Unplaced:" => "Non posizionati:",
+        "Material Utilization:" => "Utilizzo materiale:",
+        "Used Area:" => "Area utilizzata:",
+        "Select shapes to nest or switch to All Shapes" => "Seleziona forme da annidare o scegli Tutte le forme",
+        "Cannot fit parts onto sheet - try smaller margins or larger sheet" => "Impossibile inserire i pezzi nella lastra - prova margini minori o lastra più grande",
+
         // Fallback: return original key
         _ => key,
     }
