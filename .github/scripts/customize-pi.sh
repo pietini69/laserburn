@@ -14,12 +14,24 @@ apt-get install -y --no-install-recommends avahi-daemon udev libudev1
 echo "photoncam" > /etc/hostname
 sed -i 's/raspberrypi/photoncam/g' /etc/hosts || true
 
-# 3. Enable SSH by default so user can access terminal over network
+# 3. Create default user 'pi' (password: raspberry) with full sudo access
+useradd -m -s /bin/bash -G sudo,dialout pi 2>/dev/null || true
+echo "pi:raspberry" | chpasswd
+echo "pi ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/010_pi-nopasswd
+chmod 0440 /etc/sudoers.d/010_pi-nopasswd
+
+# Also set userconf.txt in boot partition for Raspberry Pi OS first-boot compatibility
+PASS_HASH='$6$lO003f6.ZlQ6xZHz$xvHTDBjtC1eQqkt30JW2N0NMNPHTnkGyXmuuSDU2z9Viq83FLCoFcoabxBYTft.X/V5mz7mhiKCHQULRnFLb71'
+mkdir -p /boot/firmware
+echo "pi:$PASS_HASH" > /boot/firmware/userconf.txt 2>/dev/null || true
+echo "pi:$PASS_HASH" > /boot/userconf.txt 2>/dev/null || true
+
+# 4. Enable SSH by default so user can access terminal over network
 mkdir -p /boot/firmware
 touch /boot/firmware/ssh 2>/dev/null || true
 touch /boot/ssh 2>/dev/null || true
 
-# 4. Locate and install photoncam-bridge binary
+# 5. Locate and install photoncam-bridge binary
 SRC_BIN=""
 for candidate in \
     "/mounted-github-repo/.github/scripts/photoncam-bridge" \
