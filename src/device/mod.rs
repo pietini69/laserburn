@@ -481,9 +481,9 @@ impl DeviceSettings {
             .ok()?;
         let docs = PathBuf::from(&home).join("Documents");
         if docs.exists() {
-            Some(docs.join("LaserBurn_traffic.log"))
+            Some(docs.join("PhotonCAM_traffic.log"))
         } else {
-            Some(PathBuf::from(home).join("LaserBurn_traffic.log"))
+            Some(PathBuf::from(home).join("PhotonCAM_traffic.log"))
         }
     }
 }
@@ -642,7 +642,7 @@ impl DeviceManager {
             active_port: None,
         };
 
-        dm.log("[LaserBurn] Controller subsystem initialized.");
+        dm.log("[PhotonCAM] Controller subsystem initialized.");
 
         // Auto-connect to previous device if enabled and port exists
         if dm.settings.auto_connect && !default_port.trim().is_empty() {

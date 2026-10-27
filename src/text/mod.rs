@@ -36,7 +36,7 @@ pub struct TextOptions {
 impl Default for TextOptions {
     fn default() -> Self {
         Self {
-            text: "LaserBurn".to_string(),
+            text: "PhotonCAM".to_string(),
             font_type: FontType::TrueType {
                 path: default_system_font(),
             },

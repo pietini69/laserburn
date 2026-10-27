@@ -2877,7 +2877,7 @@ impl LaserBurnApp {
         let power_s = (max_s * (self.camera_calibration.burn_power_percent.clamp(1.0, 100.0) as f64 / 100.0)).round();
 
         let mut lines = Vec::new();
-        lines.push("; LaserBurn 4-Point Camera Alignment Targets".to_string());
+        lines.push("; PhotonCAM 4-Point Camera Alignment Targets".to_string());
         lines.push("G21 ; millimeters".to_string());
         lines.push("G90 ; absolute coordinates".to_string());
         lines.push("M5 ; ensure laser off".to_string());
@@ -3079,7 +3079,7 @@ impl LaserBurnApp {
         if let Some(ref cat) = self.mat_lib_selected_category {
             self.save_mat_category = cat.clone();
         } else if self.save_mat_category.is_empty() {
-            self.save_mat_category = "LaserBurn Oletus (10W-20W)".to_string();
+            self.save_mat_category = "PhotonCAM Oletus (10W-20W)".to_string();
         }
         if let Some(layer) = self.doc.layers.get(&self.selected_layer) {
             if !layer.name.is_empty() && layer.name != format!("L{:02}", self.selected_layer) {
@@ -3171,7 +3171,7 @@ impl LaserBurnApp {
                         if ui.button("📤 Export JSON").on_hover_text("Export this material database to a .json file").clicked() {
                             do_prompt_export = true;
                         }
-                        if ui.button("📥 Import (.json / .clb)").on_hover_text("Import materials from LaserBurn JSON or LightBurn .clb library").clicked() {
+                        if ui.button("📥 Import (.json / .clb)").on_hover_text("Import materials from PhotonCAM JSON or LightBurn .clb library").clicked() {
                             do_prompt_import = true;
                         }
                         if ui.button("➕ Save Active Layer").on_hover_text("Save current selected layer's cut settings as a new preset").clicked() {
@@ -6886,7 +6886,7 @@ impl eframe::App for LaserBurnApp {
                     ui.horizontal(|ui| {
                         let log_path_str = crate::device::DeviceSettings::traffic_log_path()
                             .map(|p| p.display().to_string())
-                            .unwrap_or_else(|| "~/Documents/LaserBurn_traffic.log".to_string());
+                            .unwrap_or_else(|| "~/Documents/PhotonCAM_traffic.log".to_string());
                         if ui.checkbox(&mut self.device.settings.save_traffic_log, tr("Save to Log File"))
                             .on_hover_text(format!("Record all TX/RX data traffic to:\n{}", log_path_str))
                             .changed()
@@ -6903,7 +6903,7 @@ impl eframe::App for LaserBurnApp {
                             if ui.small_button(tr("Open Log")).on_hover_text(format!("Open log file:\n{}", log_path_str)).clicked() {
                                 if let Some(path) = crate::device::DeviceSettings::traffic_log_path() {
                                     if !path.exists() {
-                                        let _ = std::fs::write(&path, "# LaserBurn Data Traffic Log\n");
+                                        let _ = std::fs::write(&path, "# PhotonCAM Data Traffic Log\n");
                                     }
                                     #[cfg(target_os = "macos")]
                                     let _ = std::process::Command::new("open").arg(&path).spawn();

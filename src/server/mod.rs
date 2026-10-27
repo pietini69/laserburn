@@ -88,7 +88,7 @@ impl BridgeServer {
     pub fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         let local_ip = Self::detect_local_ip();
         println!("\n╔═══════════════════════════════════════════════════════════════════╗");
-        println!("║   🔥  LaserBurn Bridge & Web Remote Server v1.0.0                ║");
+        println!("║   🔥  PhotonCAM Bridge & Web Remote Server v1.0.0               ║");
         println!("╠═══════════════════════════════════════════════════════════════════╣");
         println!("║   🌐  Web UI (Safari / Chrome / iPad):                            ║");
         println!("║       http://localhost:{}                                       ║", self.port);

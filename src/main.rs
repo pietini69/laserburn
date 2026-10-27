@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             #[cfg(not(feature = "gui"))]
             {
-                println!("LaserBurn CLI. Use --help for available commands.");
+                println!("PhotonCAM CLI. Use --help for available commands.");
                 return Ok(());
             }
         }
@@ -113,7 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let doc = load_document(&input)?;
             let bounds = doc.bounds();
             println!("=======================================================");
-            println!(" LaserBurn Document: {}", doc.name);
+            println!(" PhotonCAM Document: {}", doc.name);
             println!("=======================================================");
             println!("Workspace Bed:   {:.1} x {:.1} mm", doc.width, doc.height);
             println!("Bounding Box:    {:.2}, {:.2} -> {:.2}, {:.2} (Size: {:.2} x {:.2} mm)",
@@ -172,7 +172,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let stats = sim.simulate(&doc, &job);
 
             println!("=======================================================");
-            println!(" LaserBurn Simulation: {}", doc.name);
+            println!(" PhotonCAM Simulation: {}", doc.name);
             println!("=======================================================");
             println!("Toolpath Cuts:       {}", stats.cut_count);
             println!("Cut Distance:        {:.2} mm", stats.total_cut_distance_mm);
@@ -284,7 +284,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut viewport = eframe::egui::ViewportBuilder::default()
                 .with_inner_size([1880.0, 1050.0])
                 .with_min_inner_size([1280.0, 750.0])
-                .with_title("LaserBurn - Modern Laser CAM");
+                .with_title("PhotonCAM - Modern Laser CAM");
 
             // Load window and taskbar icon
             let icon_bytes = include_bytes!("../assets/laserburn_icon_256.png");

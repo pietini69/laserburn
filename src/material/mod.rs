@@ -130,7 +130,7 @@ fn default_version() -> u32 {
 }
 
 fn default_profile() -> String {
-    "LaserBurn Oletus (10W-20W)".to_string()
+    "PhotonCAM Oletus (10W-20W)".to_string()
 }
 
 impl Default for MaterialLibrary {
@@ -140,21 +140,24 @@ impl Default for MaterialLibrary {
 }
 
 impl MaterialLibrary {
-    /// Returns default storage path (`~/Documents/LaserBurn_materials.json` or fallback to home).
+    /// Returns default storage path (`~/Documents/PhotonCAM_materials.json` or fallback to home).
+    /// If an old `LaserBurn_materials.json` exists and `PhotonCAM_materials.json` does not, it migrates it.
     pub fn default_path() -> PathBuf {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap_or_else(|_| ".".to_string());
         let docs = PathBuf::from(&home).join("Documents");
-        if docs.exists() && docs.is_dir() {
-            docs.join("LaserBurn_materials.json")
-        } else {
-            PathBuf::from(home).join("LaserBurn_materials.json")
+        let dir = if docs.exists() && docs.is_dir() { docs } else { PathBuf::from(home) };
+        let new_path = dir.join("PhotonCAM_materials.json");
+        let old_path = dir.join("LaserBurn_materials.json");
+        if !new_path.exists() && old_path.exists() {
+            let _ = fs::copy(&old_path, &new_path);
         }
+        new_path
     }
 
-    /// Migrates any legacy material categories ("Wood & Plywood", "Ceramics & Stone", etc.)
-    /// to the unified default library category "LaserBurn Oletus (10W-20W)".
+    /// Migrates any legacy material categories ("Wood & Plywood", "Ceramics & Stone", "LaserBurn Oletus...", etc.)
+    /// to the unified default library category "PhotonCAM Oletus (10W-20W)".
     pub fn migrate_legacy_categories(&mut self) -> bool {
         let legacy_categories = [
             "Wood & Plywood",
@@ -162,11 +165,12 @@ impl MaterialLibrary {
             "Paper & Packaging",
             "Plastics & Acrylic",
             "Leather & Textiles",
+            "LaserBurn Oletus (10W-20W)",
         ];
         let mut changed = false;
         for mat in &mut self.materials {
             if legacy_categories.iter().any(|&c| c.eq_ignore_ascii_case(&mat.category)) {
-                mat.category = "LaserBurn Oletus (10W-20W)".to_string();
+                mat.category = "PhotonCAM Oletus (10W-20W)".to_string();
                 changed = true;
             }
         }
@@ -185,7 +189,7 @@ impl MaterialLibrary {
                     return lib;
                 }
                 Err(e) => {
-                    eprintln!("[LaserBurn] Failed to load {}: {}. Using default library.", path.display(), e);
+                    eprintln!("[PhotonCAM] Failed to load {}: {}. Using default library.", path.display(), e);
                 }
             }
         }
@@ -608,7 +612,7 @@ impl MaterialLibrary {
 
     /// Built-in curated library with factory presets for standard 10W-20W diode lasers.
     pub fn default_library() -> Self {
-        const DEFAULT_CAT: &str = "LaserBurn Oletus (10W-20W)";
+        const DEFAULT_CAT: &str = "PhotonCAM Oletus (10W-20W)";
         let mut materials = Vec::new();
 
         // 1. Wood & Plywood (Birch Plywood)
@@ -902,7 +906,7 @@ mod tests {
         assert!(lib.materials.len() >= 6);
 
         let birch = lib.find_material("Birch Plywood (Koivuvaneri)").expect("Birch Plywood must exist");
-        assert_eq!(birch.category, "LaserBurn Oletus (10W-20W)");
+        assert_eq!(birch.category, "PhotonCAM Oletus (10W-20W)");
         let thick_3 = birch.find_thickness(3.0).expect("3.0 mm must exist");
         let cut = thick_3.find_operation("Clean Cut").expect("Clean Cut must exist");
         assert_eq!(cut.cut_setting.speed, 3.0);
@@ -1098,7 +1102,7 @@ mod tests {
         custom_setting.speed = 99.0;
         let op = MaterialOperation::new("Super Cut", custom_setting, "");
         let thick = ThicknessEntry::new(3.0, "3.0 mm", vec![op]);
-        let mat = MaterialEntry::new("Birch Plywood (Koivuvaneri)", "LaserBurn Oletus (10W-20W)", "", vec![thick]);
+        let mat = MaterialEntry::new("Birch Plywood (Koivuvaneri)", "PhotonCAM Oletus (10W-20W)", "", vec![thick]);
         incoming_lib.materials.push(mat);
 
         base_lib.merge(incoming_lib);
@@ -1118,15 +1122,17 @@ mod tests {
                 MaterialEntry::new("Birch Plywood", "Wood & Plywood", "", Vec::new()),
                 MaterialEntry::new("Tile", "Ceramics & Stone", "", Vec::new()),
                 MaterialEntry::new("Acrylic", "Plastics & Acrylic", "", Vec::new()),
+                MaterialEntry::new("Old LaserBurn", "LaserBurn Oletus (10W-20W)", "", Vec::new()),
                 MaterialEntry::new("Custom", "My Custom Machine", "", Vec::new()),
             ],
         };
 
         assert!(lib.migrate_legacy_categories());
-        assert_eq!(lib.materials[0].category, "LaserBurn Oletus (10W-20W)");
-        assert_eq!(lib.materials[1].category, "LaserBurn Oletus (10W-20W)");
-        assert_eq!(lib.materials[2].category, "LaserBurn Oletus (10W-20W)");
-        assert_eq!(lib.materials[3].category, "My Custom Machine");
+        assert_eq!(lib.materials[0].category, "PhotonCAM Oletus (10W-20W)");
+        assert_eq!(lib.materials[1].category, "PhotonCAM Oletus (10W-20W)");
+        assert_eq!(lib.materials[2].category, "PhotonCAM Oletus (10W-20W)");
+        assert_eq!(lib.materials[3].category, "PhotonCAM Oletus (10W-20W)");
+        assert_eq!(lib.materials[4].category, "My Custom Machine");
         assert!(!lib.migrate_legacy_categories(), "Second run should make no changes");
     }
 }
