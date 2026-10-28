@@ -3148,7 +3148,7 @@ impl LaserBurnApp {
             .min_width(680.0)
             .min_height(460.0)
             .resizable(true)
-            .collapsible(false)
+            .collapsible(true)
             .show(ctx, |ui| {
                 // Top Bar: Search, Category Filter, and Action Buttons
                 ui.horizontal(|ui| {
@@ -3525,7 +3525,7 @@ impl LaserBurnApp {
 
         egui::Window::new(tr("Save Layer to Material Library"))
             .open(&mut is_open)
-            .collapsible(false)
+            .collapsible(true)
             .resizable(false)
             .default_width(380.0)
             .show(ctx, |ui| {
@@ -7939,7 +7939,7 @@ impl eframe::App for LaserBurnApp {
             let mut is_open = true;
 
             egui::Window::new(tr("Text Tool"))
-                .collapsible(false)
+                .collapsible(true)
                 .resizable(false)
                 .default_width(380.0)
                 .open(&mut is_open)
@@ -8089,7 +8089,7 @@ impl eframe::App for LaserBurnApp {
             let mut is_open = true;
 
             egui::Window::new(tr("Offset Shapes (Contour)"))
-                .collapsible(false)
+                .collapsible(true)
                 .resizable(false)
                 .default_width(340.0)
                 .open(&mut is_open)
@@ -8162,7 +8162,7 @@ impl eframe::App for LaserBurnApp {
             let mut is_open = true;
 
             egui::Window::new(tr("Grid Array"))
-                .collapsible(false)
+                .collapsible(true)
                 .resizable(false)
                 .default_width(340.0)
                 .open(&mut is_open)
@@ -8234,7 +8234,7 @@ impl eframe::App for LaserBurnApp {
             let mut is_open = true;
 
             egui::Window::new(tr("Radial Array (Circular)"))
-                .collapsible(false)
+                .collapsible(true)
                 .resizable(false)
                 .default_width(340.0)
                 .open(&mut is_open)
@@ -8314,7 +8314,7 @@ impl eframe::App for LaserBurnApp {
             let total_pts: usize = self.trace_preview_polylines.iter().map(|p| p.points.len()).sum();
 
             egui::Window::new(tr("Trace Image (Bitmap to Vector)"))
-                .collapsible(false)
+                .collapsible(true)
                 .resizable(false)
                 .default_width(400.0)
                 .open(&mut is_open)
@@ -8471,7 +8471,7 @@ impl eframe::App for LaserBurnApp {
             let mut is_open = true;
 
             egui::Window::new(tr("Manage Machine Profiles"))
-                .collapsible(false)
+                .collapsible(true)
                 .resizable(true)
                 .default_width(460.0)
                 .open(&mut is_open)
@@ -8567,7 +8567,7 @@ impl eframe::App for LaserBurnApp {
             let mut is_open = true;
 
             egui::Window::new(tr("Material Test Generator"))
-                .collapsible(false)
+                .collapsible(true)
                 .resizable(false)
                 .default_width(390.0)
                 .open(&mut is_open)
@@ -8660,7 +8660,7 @@ impl eframe::App for LaserBurnApp {
             let c_green = self.color_green();
             let c_orange = self.color_orange();
             egui::Window::new(tr("Device Connection & Console"))
-                .collapsible(false)
+                .collapsible(true)
                 .resizable(true)
                 .default_width(450.0)
                 .default_height(480.0)
@@ -8858,7 +8858,7 @@ impl eframe::App for LaserBurnApp {
             let c_orange = self.color_orange();
 
             egui::Window::new(tr("Laser Control & Positioning"))
-                .collapsible(false)
+                .collapsible(true)
                 .resizable(false)
                 .default_width(380.0)
                 .open(&mut self.show_move_window)
@@ -9273,7 +9273,7 @@ impl eframe::App for LaserBurnApp {
             let tr = |k| crate::i18n::t(k, lang);
 
             egui::Window::new(tr("Device & Bed Settings"))
-                .collapsible(false)
+                .collapsible(true)
                 .resizable(false)
                 .default_width(420.0)
                 .open(&mut self.show_settings_window)
@@ -9507,7 +9507,7 @@ impl eframe::App for LaserBurnApp {
             let web_port = self.web_remote_port;
 
             egui::Window::new("🌐 PhotonCAM Web Remote & iPad Bridge")
-                .collapsible(false)
+                .collapsible(true)
                 .resizable(false)
                 .default_width(460.0)
                 .open(&mut is_open)
