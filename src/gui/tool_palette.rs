@@ -24,17 +24,15 @@ impl LaserBurnApp {
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("photoncam_v2_tools_viewport"),
                 egui::ViewportBuilder::default()
-                    .with_title("PhotonCAM - Työkalut")
-                    .with_inner_size([68.0, 340.0])
-                    .with_min_inner_size([58.0, 300.0])
-                    .with_resizable(true)
-                    .with_always_on_top(),
+                    .with_title("Työkalut")
+                    .with_inner_size([48.0, 295.0])
+                    .with_resizable(false),
                 |ctx, _class| {
                     egui::CentralPanel::default()
                         .frame(
                             egui::Frame::default()
-                                .fill(if is_dark { egui::Color32::from_rgb(24, 25, 30) } else { egui::Color32::from_rgb(240, 242, 246) })
-                                .inner_margin(egui::Margin::symmetric(6, 8))
+                                .fill(if is_dark { egui::Color32::from_rgb(26, 28, 34) } else { egui::Color32::from_rgb(245, 246, 250) })
+                                .inner_margin(egui::Margin::symmetric(4, 6))
                         )
                         .show(ctx, |ui| {
                             self.render_palette_vertical_buttons(ui, ctx, true);
@@ -42,60 +40,102 @@ impl LaserBurnApp {
                 },
             );
         } else {
-            let mut is_open = self.show_tools_palette;
-            let window = egui::Window::new("🛠 Työkalut")
+            let window = egui::Window::new("tools_palette_window")
                 .id(egui::Id::new("floating_v2_tools_window"))
                 .default_pos([14.0, 75.0])
                 .resizable(false)
-                .collapsible(true)
-                .title_bar(true)
-                .open(&mut is_open);
+                .collapsible(false)
+                .title_bar(false)
+                .auto_sized()
+                .frame(
+                    egui::Frame::window(ctx.style().as_ref())
+                        .corner_radius(8.0)
+                        .shadow(egui::Shadow {
+                            offset: [0, 4],
+                            blur: 10,
+                            spread: 0,
+                            color: egui::Color32::from_black_alpha(if is_dark { 140 } else { 60 }),
+                        })
+                        .stroke(egui::Stroke::new(1.0_f32, if is_dark { egui::Color32::from_rgb(55, 60, 72) } else { egui::Color32::from_rgb(205, 210, 220) }))
+                        .fill(if is_dark { egui::Color32::from_rgb(26, 28, 34) } else { egui::Color32::from_rgb(245, 246, 250) })
+                        .inner_margin(egui::Margin::symmetric(4, 6))
+                );
 
             window.show(ctx, |ui| {
                 self.render_palette_vertical_buttons(ui, ctx, false);
             });
-
-            self.show_tools_palette = is_open;
         }
 
         // Render flyout submenu to the side of the active category button
         self.render_palette_flyout_card(ctx);
     }
 
-    /// Renders the vertical button strip
+    /// Renders the vertical button strip (compact, icon-only, borderless)
     fn render_palette_vertical_buttons(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, is_detached: bool) {
-        // Header controls (Detach / Dock toggle)
+        let is_dark = self.device.settings.dark_mode;
+
+        // Slim drag handle & detach button at the top
         ui.horizontal(|ui| {
+            let grip_w = (ui.available_width() - 18.0).max(16.0);
+            let (grip_rect, _resp) = ui.allocate_exact_size(egui::vec2(grip_w, 14.0), egui::Sense::hover());
+            let (btn_rect, mut btn_resp) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
+
+            let painter = ui.painter();
+            let center = grip_rect.center();
+            let grip_col = if is_dark { egui::Color32::from_gray(90) } else { egui::Color32::from_gray(160) };
+
+            // 2 subtle horizontal grip lines
+            painter.line_segment(
+                [egui::pos2(center.x - 7.0, center.y - 2.0), egui::pos2(center.x + 7.0, center.y - 2.0)],
+                egui::Stroke::new(1.5_f32, grip_col),
+            );
+            painter.line_segment(
+                [egui::pos2(center.x - 7.0, center.y + 2.5), egui::pos2(center.x + 7.0, center.y + 2.5)],
+                egui::Stroke::new(1.5_f32, grip_col),
+            );
+
+            // Detach / Dock icon button
             let detach_icon = if is_detached { "⤡" } else { "⤢" };
             let detach_tip = if is_detached {
-                "Telakoi takaisin pääikkunan sisään"
+                "Telakoi takaisin pääikkunaan"
             } else {
-                "Irrota omaksi työpöytäikkunaksi pääikkunan ulkopuolelle (Multi-viewport)"
+                "Irrota omaksi työpöytäikkunaksi pääikkunan ulkopuolelle"
             };
 
-            if ui.button(egui::RichText::new(detach_icon).strong().size(13.0))
-                .on_hover_text(detach_tip)
-                .clicked()
-            {
+            if btn_resp.hovered() {
+                let hover_bg = if is_dark {
+                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 30)
+                } else {
+                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 20)
+                };
+                painter.rect_filled(btn_rect, 3.0, hover_bg);
+            }
+            painter.text(
+                btn_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                detach_icon,
+                egui::FontId::proportional(11.0),
+                grip_col,
+            );
+            btn_resp = btn_resp.on_hover_text(detach_tip);
+            if btn_resp.clicked() {
                 self.detach_tools_window = !self.detach_tools_window;
             }
-
-            ui.label(egui::RichText::new("V2").size(10.0).color(egui::Color32::GRAY));
         });
 
-        ui.add_space(4.0);
+        ui.add_space(2.0);
         ui.separator();
-        ui.add_space(4.0);
+        ui.add_space(2.0);
 
         // Category 1: Valinta & Solmut (Select / NodeEdit)
         let is_select_active = self.active_tool == ActiveTool::Select || self.active_tool == ActiveTool::NodeEdit;
         let is_select_open = self.open_flyout == Some(ToolCategory::Select);
         let select_icon = if self.active_tool == ActiveTool::NodeEdit { "🔲" } else { "↖" };
-        if self.draw_palette_tool_btn(ui, select_icon, is_select_active, is_select_open, "Valintatyökalut & Solmumuokkaus (Klikkaa avataksesi alivalikon)") {
+        if self.draw_palette_tool_btn(ui, select_icon, is_select_active, is_select_open, "Valintatyökalut & Solmumuokkaus (Klikkaa avataksesi alityökalut)") {
             self.toggle_flyout(ToolCategory::Select);
         }
 
-        ui.add_space(4.0);
+        ui.add_space(2.0);
 
         // Category 2: Piirtotyökalut (Shapes: Rect, Circle, Line, Text)
         let is_shape_active = matches!(self.active_tool, ActiveTool::DrawRect | ActiveTool::DrawCircle | ActiveTool::DrawLine | ActiveTool::DrawText);
@@ -111,7 +151,7 @@ impl LaserBurnApp {
             self.toggle_flyout(ToolCategory::Shapes);
         }
 
-        ui.add_space(4.0);
+        ui.add_space(2.0);
 
         // Category 3: Kamera & Kohdistus (Camera & Vision)
         let is_cam_capturing = self.oneshot_snapshot.is_some();
@@ -119,7 +159,7 @@ impl LaserBurnApp {
         let is_cam_open = self.open_flyout == Some(ToolCategory::Camera);
         let cam_icon = if is_cam_capturing { "⏳" } else { "📷" };
         let cam_btn_tip = if is_cam_capturing {
-            "Otetaan kuvaa alustasta... (Klikkaa avataksesi kameran toiminnot)"
+            "Otetaan kuvaa alustasta... (Klikkaa avataksesi toiminnot)"
         } else if is_cam_showing {
             "Kamera: Taustakuva aktiivinen (Klikkaa avataksesi toiminnot)"
         } else {
@@ -129,7 +169,7 @@ impl LaserBurnApp {
             self.toggle_flyout(ToolCategory::Camera);
         }
 
-        ui.add_space(4.0);
+        ui.add_space(2.0);
 
         // Category 4: Laser CAM & Täyttö (CAM: Hatch, Offset, Array, Materiaali)
         let is_cam_tool_open = self.open_flyout == Some(ToolCategory::Cam);
@@ -137,7 +177,7 @@ impl LaserBurnApp {
             self.toggle_flyout(ToolCategory::Cam);
         }
 
-        ui.add_space(4.0);
+        ui.add_space(2.0);
 
         // Category 5: Laserohjaus & Kohdistus (Machine & Jog)
         let is_machine_open = self.open_flyout == Some(ToolCategory::Machine);
@@ -147,19 +187,35 @@ impl LaserBurnApp {
             self.toggle_flyout(ToolCategory::Machine);
         }
 
-        ui.add_space(6.0);
+        ui.add_space(4.0);
         ui.separator();
-        ui.add_space(6.0);
+        ui.add_space(4.0);
 
-        // File Import Shortcut Button
-        let import_btn = egui::Button::new(egui::RichText::new("📂").size(16.0))
-            .min_size(egui::vec2(38.0, 32.0));
-        if ui.add(import_btn).on_hover_text("Tuo tiedosto (DXF, PDF, SVG, Kuvat)").clicked() {
+        // File Import Shortcut: flat centered icon
+        let (import_rect, mut import_resp) = ui.allocate_exact_size(egui::vec2(36.0, 32.0), egui::Sense::click());
+        let painter = ui.painter();
+        if import_resp.hovered() {
+            let hover_bg = if is_dark {
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 30)
+            } else {
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 20)
+            };
+            painter.rect_filled(import_rect, 6.0, hover_bg);
+        }
+        painter.text(
+            import_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "📂",
+            egui::FontId::proportional(17.0),
+            if is_dark { egui::Color32::from_rgb(215, 220, 230) } else { egui::Color32::from_rgb(50, 55, 65) },
+        );
+        import_resp = import_resp.on_hover_text("Tuo tiedosto (DXF, PDF, SVG, Kuvat)");
+        if import_resp.clicked() {
             self.prompt_import_image(ctx);
         }
     }
 
-    /// Draws a square Photoshop-style toolbar button with a tiny flyout triangle mark in the corner
+    /// Draws a borderless, flat icon-only tool button (Photoshop style) with centered glyph and corner mark
     fn draw_palette_tool_btn(
         &mut self,
         ui: &mut egui::Ui,
@@ -168,62 +224,71 @@ impl LaserBurnApp {
         is_open: bool,
         tooltip: &str,
     ) -> bool {
-        let btn_size = egui::vec2(40.0, 40.0);
+        let btn_size = egui::vec2(36.0, 36.0);
         let is_dark = self.device.settings.dark_mode;
 
-        let fill_color = if is_active || is_open {
-            if is_dark {
+        let (rect, response) = ui.allocate_exact_size(btn_size, egui::Sense::click());
+        let painter = ui.painter();
+        let is_hovered = response.hovered();
+
+        // Background highlight: flat transparent when idle, soft pill when hovered, solid accent when active/open
+        if is_active || is_open {
+            let active_bg = if is_dark {
                 egui::Color32::from_rgb(33, 115, 185)
             } else {
                 egui::Color32::from_rgb(50, 130, 205)
-            }
-        } else if is_dark {
-            egui::Color32::from_rgb(38, 42, 50)
-        } else {
-            egui::Color32::from_rgb(228, 232, 240)
-        };
+            };
+            painter.rect_filled(rect, 6.0, active_bg);
+        } else if is_hovered {
+            let hover_bg = if is_dark {
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 30)
+            } else {
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 22)
+            };
+            painter.rect_filled(rect, 6.0, hover_bg);
+        }
 
-        let stroke = if is_active || is_open {
-            egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(100, 180, 255))
-        } else {
-            egui::Stroke::new(1.0_f32, if is_dark { egui::Color32::from_rgb(55, 60, 72) } else { egui::Color32::from_rgb(205, 210, 220) })
-        };
-
-        let button = egui::Button::new(
-            egui::RichText::new(icon)
-                .size(17.0)
-                .color(if is_active || is_open { egui::Color32::WHITE } else if is_dark { egui::Color32::from_rgb(220, 225, 235) } else { egui::Color32::from_rgb(40, 45, 55) })
-        )
-        .min_size(btn_size)
-        .corner_radius(6.0)
-        .fill(fill_color)
-        .stroke(stroke);
-
-        let response = ui.add(button).on_hover_text(tooltip);
-
-        // Draw Photoshop-style tiny corner triangle in bottom-right corner
-        let r = response.rect;
-        let painter = ui.painter();
-        let triangle_color = if is_active || is_open {
+        // Perfectly centered icon glyph
+        let icon_color = if is_active || is_open {
             egui::Color32::WHITE
+        } else if is_hovered {
+            if is_dark { egui::Color32::WHITE } else { egui::Color32::BLACK }
         } else if is_dark {
-            egui::Color32::from_gray(140)
+            egui::Color32::from_rgb(215, 220, 230)
         } else {
-            egui::Color32::from_gray(110)
+            egui::Color32::from_rgb(50, 55, 65)
         };
 
-        let p1 = egui::pos2(r.max.x - 3.0, r.max.y - 3.0);
-        let p2 = egui::pos2(r.max.x - 7.5, r.max.y - 3.0);
-        let p3 = egui::pos2(r.max.x - 3.0, r.max.y - 7.5);
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            icon,
+            egui::FontId::proportional(19.0),
+            icon_color,
+        );
+
+        // Subtle micro-triangle in bottom-right corner for flyout indicator
+        let triangle_color = if is_active || is_open {
+            egui::Color32::from_white_alpha(210)
+        } else if is_dark {
+            egui::Color32::from_gray(110)
+        } else {
+            egui::Color32::from_gray(150)
+        };
+
+        let p1 = egui::pos2(rect.max.x - 2.5, rect.max.y - 2.5);
+        let p2 = egui::pos2(rect.max.x - 6.5, rect.max.y - 2.5);
+        let p3 = egui::pos2(rect.max.x - 2.5, rect.max.y - 6.5);
         painter.add(egui::Shape::convex_polygon(
             vec![p1, p2, p3],
             triangle_color,
             egui::Stroke::NONE,
         ));
 
+        let response = response.on_hover_text(tooltip);
+
         if response.clicked() {
-            // Save anchor screen position for the flyout card
-            self.last_flyout_anchor = Some(r);
+            self.last_flyout_anchor = Some(rect);
             true
         } else {
             false
@@ -248,12 +313,12 @@ impl LaserBurnApp {
 
         let is_dark = self.device.settings.dark_mode;
         let anchor = self.last_flyout_anchor.unwrap_or(egui::Rect::from_min_size(
-            egui::pos2(70.0, 100.0),
-            egui::vec2(40.0, 40.0),
+            egui::pos2(55.0, 100.0),
+            egui::vec2(36.0, 36.0),
         ));
 
-        // Position flyout immediately to the right of the button
-        let flyout_pos = egui::pos2(anchor.max.x + 8.0, (anchor.min.y - 4.0).max(60.0));
+        // Position flyout immediately to the right of the slim button strip
+        let flyout_pos = egui::pos2(anchor.max.x + 6.0, (anchor.min.y - 4.0).max(60.0));
 
         let bg_color = if is_dark {
             egui::Color32::from_rgb(26, 28, 35)
