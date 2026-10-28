@@ -5,6 +5,8 @@ use crate::geometry::{BoundingBox, Point2D, Polyline};
 use crate::optimizer::CutOptimizer;
 use eframe::egui;
 
+pub mod tool_palette;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTool {
     Select,
@@ -462,6 +464,12 @@ pub struct LaserBurnApp {
     pub show_nesting_window: bool,
     pub nesting_options: crate::nesting::NestingOptions,
     pub nesting_result: Option<crate::nesting::NestingResult>,
+
+    // Photoshop-Style V2 Tool Palette State
+    pub show_tools_palette: bool,
+    pub detach_tools_window: bool,
+    pub open_flyout: Option<tool_palette::ToolCategory>,
+    pub last_flyout_anchor: Option<egui::Rect>,
 }
 
 #[cfg(feature = "gui")]
@@ -619,6 +627,10 @@ impl Default for LaserBurnApp {
             show_nesting_window: false,
             nesting_options: crate::nesting::NestingOptions::default(),
             nesting_result: None,
+            show_tools_palette: true,
+            detach_tools_window: false,
+            open_flyout: None,
+            last_flyout_anchor: None,
             file_dialog_tx,
             file_dialog_rx,
         };
@@ -4847,6 +4859,20 @@ impl eframe::App for LaserBurnApp {
                         self.doc.shapes.clear();
                         self.selected_shape_indices.clear();
                         ui.close_menu();
+                    }
+                });
+
+                ui.menu_button(self.tr("View"), |ui| {
+                    ui.checkbox(&mut self.show_tools_palette, "🛠 Työkalupaletti (V2)");
+                    if self.show_tools_palette {
+                        ui.checkbox(&mut self.detach_tools_window, "⤢ Irrota työpöydälle (Multi-viewport)");
+                    }
+                    ui.separator();
+                    if ui.checkbox(&mut self.camera_calibration.show_on_canvas, "📷 Kameran taustakuva kankaalla").changed() {
+                        let _ = self.camera_calibration.save();
+                    }
+                    if ui.checkbox(&mut self.camera_calibration.show_guide_grid, "▦ Kameran kohdistusruudukko").changed() {
+                        let _ = self.camera_calibration.save();
                     }
                 });
 
@@ -10515,6 +10541,9 @@ impl eframe::App for LaserBurnApp {
 
             self.show_camera_window = is_open;
         }
+
+        // V2 Photoshop-Style Tool Palette & Flyouts
+        self.render_tool_palette_v2(ctx);
     }
 }
 

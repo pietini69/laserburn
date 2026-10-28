@@ -22,11 +22,11 @@ export PATH="$HOME/.cargo/bin:$PATH"
 package_target() {
     local target_name="$1"    # "arm64", "intel-x86_64", or "universal"
     local bin_source="$2"
-    local vol_name="PhotonCAM ${VERSION}"
-    local app_dir="$DIST_DIR/PhotonCAM_${target_name}.app"
+    local vol_name="PhotonCAM Beta ${VERSION}"
+    local app_dir="$DIST_DIR/PhotonCAM_Beta_${target_name}.app"
     local dmg_root="$DIST_DIR/dmg_${target_name}_root"
-    local dmg_path="$DIST_DIR/PhotonCAM-${VERSION}-${target_name}.dmg"
-    local zip_path="$DIST_DIR/PhotonCAM-${VERSION}-macos-${target_name}.zip"
+    local dmg_path="$DIST_DIR/PhotonCAM-Beta-${VERSION}-${target_name}.dmg"
+    local zip_path="$DIST_DIR/PhotonCAM-Beta-${VERSION}-macos-${target_name}.zip"
 
     echo "==> Constructing ${target_name} .app bundle..."
     rm -rf "$app_dir" "$dmg_root"
@@ -44,19 +44,19 @@ package_target() {
 
     echo "==> Packaging DMG: $dmg_path..."
     mkdir -p "$dmg_root"
-    cp -R "$app_dir" "$dmg_root/PhotonCAM.app"
+    cp -R "$app_dir" "$dmg_root/PhotonCAM Beta.app"
     ln -s /Applications "$dmg_root/Applications"
     rm -f "$dmg_path"
     hdiutil create -volname "$vol_name" -srcfolder "$dmg_root" -ov -format UDZO "$dmg_path"
 
     echo "==> Packaging ZIP: $zip_path..."
     rm -f "$zip_path"
-    (cd "$DIST_DIR" && zip -r "$zip_path" "PhotonCAM_${target_name}.app")
+    (cd "$DIST_DIR" && zip -r "$zip_path" "PhotonCAM_Beta_${target_name}.app")
 
     if [[ "$target_name" == "universal" || "$target_name" == "arm64" ]]; then
-        echo "==> Installing latest build into /Applications/PhotonCAM.app..."
-        rm -rf /Applications/PhotonCAM.app
-        cp -R "$app_dir" /Applications/PhotonCAM.app
+        echo "==> Installing latest build into /Applications/PhotonCAM Beta.app..."
+        rm -rf "/Applications/PhotonCAM Beta.app"
+        cp -R "$app_dir" "/Applications/PhotonCAM Beta.app"
     fi
 
     rm -rf "$dmg_root" "$app_dir"
