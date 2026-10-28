@@ -5188,19 +5188,19 @@ impl eframe::App for LaserBurnApp {
                     // -------------------------------------------------
                     // 1. TRANSFORM & SIZE INSPECTOR
                     // -------------------------------------------------
-                    ui.horizontal(|ui| {
-                        ui.heading(tr("Transform & Size"));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let (lbl, other) = match self.length_unit {
-                                LengthUnit::Millimeters => ("mm", LengthUnit::Inches),
-                                LengthUnit::Inches => ("in", LengthUnit::Millimeters),
-                            };
-                            if ui.small_button(format!("📏 {}", lbl)).on_hover_text(format!("Click to toggle unit between mm and inches (currently {})", self.length_unit.label())).clicked() {
-                                self.length_unit = other;
-                            }
-                        });
-                    });
-                    ui.separator();
+                    egui::CollapsingHeader::new(egui::RichText::new(format!("📐 {}", tr("Transform & Size"))).strong().size(13.0))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let (lbl, other) = match self.length_unit {
+                                    LengthUnit::Millimeters => ("mm", LengthUnit::Inches),
+                                    LengthUnit::Inches => ("in", LengthUnit::Millimeters),
+                                };
+                                if ui.small_button(format!("📏 Yksikkö: {}", lbl)).on_hover_text(format!("Click to toggle unit between mm and inches (currently {})", self.length_unit.label())).clicked() {
+                                    self.length_unit = other;
+                                }
+                            });
+                            ui.separator();
 
                     if let Some(bounds) = self.selection_bounds() {
                         let is_inches = self.length_unit == LengthUnit::Inches;
@@ -5576,53 +5576,58 @@ impl eframe::App for LaserBurnApp {
                         ui.label(egui::RichText::new(tr("No shape selected.")).italics().color(egui::Color32::GRAY));
                         ui.label(tr("Click directly INSIDE any shape or click on the Objects List below."));
                     }
+                });
 
-                    ui.add_space(8.0);
-                    ui.separator();
+                ui.add_space(4.0);
+                ui.separator();
 
-                    // -------------------------------------------------
-                    // 2. OBJECTS / SHAPES LIST (100% Reliable selection!)
-                    // -------------------------------------------------
-                    ui.heading(tr("Objects List"));
-                    egui::ScrollArea::vertical().max_height(80.0).show(ui, |ui| {
-                        for (idx, shape) in self.doc.shapes.iter().enumerate() {
-                            let is_sel = self.selected_shape_indices.contains(&idx);
-                            let b = shape.bounds();
-                            let lock_str = if shape.is_locked() { format!(" [{}]", tr("Locked")) } else { "".to_string() };
-                            let layer_tag = if shape.layer_index() >= 30 {
-                                format!("[T{:02}]", shape.layer_index() - 29)
-                            } else {
-                                format!("[L{:02}]", shape.layer_index())
-                            };
-                            let desc = match shape {
-                                Shape::Group { shapes, .. } => format!("#{}: {} ({} {}) {}{}", idx + 1, tr("Group (Shape)"), shapes.len(), tr("shapes"), layer_tag, lock_str),
-                                Shape::Path { .. } => format!("#{}: {} ({:.1}x{:.1}mm) {}{}", idx + 1, tr("Path"), b.width(), b.height(), layer_tag, lock_str),
-                                Shape::Rect { .. } => format!("#{}: {} ({:.1}x{:.1}mm) {}{}", idx + 1, tr("Rect"), b.width(), b.height(), layer_tag, lock_str),
-                                Shape::Circle { radius, .. } => format!("#{}: {} (D={:.1}mm) {}{}", idx + 1, tr("Circle"), radius * 2.0, layer_tag, lock_str),
-                                Shape::Image { .. } => format!("#{}: {} ({:.1}x{:.1}mm) {}{}", idx + 1, tr("Image"), b.width(), b.height(), layer_tag, lock_str),
-                            };
-
-                            let shift_held = ui.input(|i| i.modifiers.shift);
-                            if ui.selectable_label(is_sel, desc).clicked() {
-                                if shift_held {
-                                    if is_sel {
-                                        self.selected_shape_indices.retain(|&i| i != idx);
-                                    } else {
-                                        self.selected_shape_indices.push(idx);
-                                    }
+                // -------------------------------------------------
+                // 2. OBJECTS / SHAPES LIST (100% Reliable selection!)
+                // -------------------------------------------------
+                let obj_count = self.doc.shapes.len();
+                egui::CollapsingHeader::new(egui::RichText::new(format!("📑 {} ({})", tr("Objects List"), obj_count)).strong().size(13.0))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                            for (idx, shape) in self.doc.shapes.iter().enumerate() {
+                                let is_sel = self.selected_shape_indices.contains(&idx);
+                                let b = shape.bounds();
+                                let lock_str = if shape.is_locked() { format!(" [{}]", tr("Locked")) } else { "".to_string() };
+                                let layer_tag = if shape.layer_index() >= 30 {
+                                    format!("[T{:02}]", shape.layer_index() - 29)
                                 } else {
-                                    self.selected_shape_indices = vec![idx];
+                                    format!("[L{:02}]", shape.layer_index())
+                                };
+                                let desc = match shape {
+                                    Shape::Group { shapes, .. } => format!("#{}: {} ({} {}) {}{}", idx + 1, tr("Group (Shape)"), shapes.len(), tr("shapes"), layer_tag, lock_str),
+                                    Shape::Path { .. } => format!("#{}: {} ({:.1}x{:.1}mm) {}{}", idx + 1, tr("Path"), b.width(), b.height(), layer_tag, lock_str),
+                                    Shape::Rect { .. } => format!("#{}: {} ({:.1}x{:.1}mm) {}{}", idx + 1, tr("Rect"), b.width(), b.height(), layer_tag, lock_str),
+                                    Shape::Circle { radius, .. } => format!("#{}: {} (D={:.1}mm) {}{}", idx + 1, tr("Circle"), radius * 2.0, layer_tag, lock_str),
+                                    Shape::Image { .. } => format!("#{}: {} ({:.1}x{:.1}mm) {}{}", idx + 1, tr("Image"), b.width(), b.height(), layer_tag, lock_str),
+                                };
+
+                                let shift_held = ui.input(|i| i.modifiers.shift);
+                                if ui.selectable_label(is_sel, desc).clicked() {
+                                    if shift_held {
+                                        if is_sel {
+                                            self.selected_shape_indices.retain(|&i| i != idx);
+                                        } else {
+                                            self.selected_shape_indices.push(idx);
+                                        }
+                                    } else {
+                                        self.selected_shape_indices = vec![idx];
+                                    }
+                                    if idx < self.doc.shapes.len() {
+                                        self.selected_layer = self.doc.shapes[idx].layer_index();
+                                    }
+                                    self.status_msg = format!("Selected shape #{}", idx + 1);
                                 }
-                                if idx < self.doc.shapes.len() {
-                                    self.selected_layer = self.doc.shapes[idx].layer_index();
-                                }
-                                self.status_msg = format!("Selected shape #{}", idx + 1);
                             }
-                        }
+                        });
                     });
 
-                    ui.add_space(8.0);
-                    ui.separator();
+                ui.add_space(4.0);
+                ui.separator();
 
                     // -------------------------------------------------
                     // 3. CUT & LAYER SETTINGS
@@ -5630,8 +5635,10 @@ impl eframe::App for LaserBurnApp {
                     let mut layer_to_remove: Option<usize> = None;
                     let can_remove_layer = self.doc.layers.len() > 1;
 
-                    ui.heading(tr("Cut & Layer Settings"));
-                    ui.add_space(3.0);
+                    egui::CollapsingHeader::new(egui::RichText::new(format!("⚙️ {}", tr("Cut & Layer Settings"))).strong().size(13.0))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            ui.add_space(2.0);
 
                     ui.horizontal_wrapped(|ui| {
                         if ui.button(tr("+ Layer")).on_hover_text("Add a new color/cut layer").clicked() {
@@ -6082,19 +6089,22 @@ impl eframe::App for LaserBurnApp {
                         self.image_textures.clear();
                         self.doc_version = self.doc_version.wrapping_add(1);
                     }
+                });
 
-                    ui.add_space(8.0);
-                    ui.separator();
+                ui.add_space(4.0);
+                ui.separator();
 
-                    // -------------------------------------------------
-                    // 4. LASER JOGGING & CONTROL
-                    // -------------------------------------------------
-                    ui.horizontal(|ui| {
-                        ui.heading(tr("Laser Jogging"));
-                        if ui.button(tr("Open Jog Window")).on_hover_text("Open full laser control & jog window (Cmd+M)").clicked() {
-                            self.show_move_window = true;
-                        }
-                    });
+                // -------------------------------------------------
+                // 4. LASER JOGGING & CONTROL
+                // -------------------------------------------------
+                egui::CollapsingHeader::new(egui::RichText::new(format!("🎯 {}", tr("Laser Jogging"))).strong().size(13.0))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui.button(tr("Open Jog Window")).on_hover_text("Open full laser control & jog window (Cmd+M)").clicked() {
+                                self.show_move_window = true;
+                            }
+                        });
 
                     ui.horizontal(|ui| {
                         ui.label(tr("Step:"));
@@ -6427,10 +6437,22 @@ impl eframe::App for LaserBurnApp {
                             self.device.clear_boundary_corners();
                         }
                     });
+                });
 
-                    ui.add_space(6.0);
-                    ui.separator();
-                    ui.heading(tr("Job Execution (G-Code)"));
+                ui.add_space(4.0);
+                ui.separator();
+
+                // -------------------------------------------------
+                // 5. JOB EXECUTION (G-CODE)
+                // -------------------------------------------------
+                let job_header_text = if self.device.is_job_running {
+                    format!("⚡ {} [KÄYNNISSÄ]", tr("Job Execution (G-Code)"))
+                } else {
+                    format!("▶ {}", tr("Job Execution (G-Code)"))
+                };
+                egui::CollapsingHeader::new(egui::RichText::new(job_header_text).strong().size(13.0))
+                    .default_open(true)
+                    .show(ui, |ui| {
 
                     if !self.device.is_job_running {
                         let est = self.get_job_estimate();
@@ -6587,36 +6609,45 @@ impl eframe::App for LaserBurnApp {
                             });
                         });
                     }
-
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.heading(tr("Simulation Stats"));
-
-                    let stats = self.get_job_estimate();
-                    ui.label(format!("{} {:.1} mm", tr("Cut Distance:"), stats.total_cut_distance_mm));
-                    ui.label(format!("{} {:.1} mm", tr("Rapid Distance:"), stats.total_rapid_distance_mm));
-                    ui.label(egui::RichText::new(format!("{} {}", tr("Est. Time:"), stats.formatted_time)).strong().color(egui::Color32::from_rgb(0, 180, 255)));
                 });
+
+                ui.add_space(4.0);
+                ui.separator();
+
+                // -------------------------------------------------
+                // 6. SIMULATION STATS
+                // -------------------------------------------------
+                egui::CollapsingHeader::new(egui::RichText::new(format!("📊 {}", tr("Simulation Stats"))).strong().size(13.0))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        let stats = self.get_job_estimate();
+                        ui.label(format!("{} {:.1} mm", tr("Cut Distance:"), stats.total_cut_distance_mm));
+                        ui.label(format!("{} {:.1} mm", tr("Rapid Distance:"), stats.total_rapid_distance_mm));
+                        ui.label(egui::RichText::new(format!("{} {}", tr("Est. Time:"), stats.formatted_time)).strong().color(egui::Color32::from_rgb(0, 180, 255)));
+                    });
             });
+        });
 
         // -------------------------------------------------------------
-        // DATA TRAFFIC LOG PANEL (Docked immediately left of the right inspector)
+        // DATA TRAFFIC LOG WINDOW (Floating, resizable, rollup window)
         // -------------------------------------------------------------
         if self.show_traffic_panel {
-            egui::SidePanel::right("serial_traffic_panel")
+            let lang = self.device.settings.language;
+            let tr = |k| crate::i18n::t(k, lang);
+            let mut is_traffic_open = true;
+            egui::Window::new(tr("Data Traffic (TX / RX)"))
+                .id(egui::Id::new("serial_traffic_window"))
+                .open(&mut is_traffic_open)
+                .default_pos([ctx.screen_rect().width() - 480.0, 140.0])
+                .default_size([360.0, 480.0])
+                .min_width(260.0)
+                .min_height(200.0)
                 .resizable(true)
-                .default_width(240.0)
-                .min_width(190.0)
-                .max_width(420.0)
+                .collapsible(true)
                 .show(ctx, |ui| {
-                    let lang = self.device.settings.language;
-                    let tr = |k| crate::i18n::t(k, lang);
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(tr("Data Traffic (TX / RX)")).strong());
+                        ui.label(egui::RichText::new("📊 Live G-code Stream").weak().size(11.0));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("✖").on_hover_text("Hide Data Traffic panel").clicked() {
-                                self.show_traffic_panel = false;
-                            }
                             if ui.small_button(tr("Clear")).on_hover_text("Clear traffic history").clicked() {
                                 self.device.console_history.clear();
                             }
@@ -6805,6 +6836,7 @@ impl eframe::App for LaserBurnApp {
                                 });
                         });
                 });
+            self.show_traffic_panel = is_traffic_open;
         }
 
         // -------------------------------------------------------------
