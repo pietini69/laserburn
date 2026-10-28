@@ -11,7 +11,7 @@ pub enum ToolCategory {
 }
 
 impl LaserBurnApp {
-    /// Renders the V2 Photoshop-style floating/detachable tool palette and flyouts
+    /// Renders the V2 Photoshop-style floating tool palette inside the canvas window
     pub fn render_tool_palette_v2(&mut self, ctx: &egui::Context) {
         if !self.show_tools_palette {
             return;
@@ -19,110 +19,63 @@ impl LaserBurnApp {
 
         let is_dark = self.device.settings.dark_mode;
 
-        // Render in detached native OS window if requested, else floating inside main window
-        if self.detach_tools_window {
-            ctx.show_viewport_immediate(
-                egui::ViewportId::from_hash_of("photoncam_v2_tools_viewport"),
-                egui::ViewportBuilder::default()
-                    .with_title("Työkalut")
-                    .with_inner_size([46.0, 290.0])
-                    .with_resizable(false),
-                |ctx, _class| {
-                    egui::CentralPanel::default()
-                        .frame(
-                            egui::Frame::default()
-                                .fill(if is_dark { egui::Color32::from_rgb(26, 28, 34) } else { egui::Color32::from_rgb(245, 246, 250) })
-                                .inner_margin(egui::Margin::symmetric(4, 6))
-                        )
-                        .show(ctx, |ui| {
-                            self.render_palette_vertical_buttons(ui, ctx, true);
-                        });
-                },
+        // Strictly constrain the floating palette to 44 px width inside the main window
+        let window = egui::Window::new("tools_palette_window")
+            .id(egui::Id::new("floating_v2_tools_window"))
+            .default_pos([14.0, 160.0])
+            .resizable(false)
+            .collapsible(false)
+            .title_bar(false)
+            .fixed_size([44.0, 275.0])
+            .frame(
+                egui::Frame::window(ctx.style().as_ref())
+                    .corner_radius(8.0)
+                    .shadow(egui::Shadow {
+                        offset: [0, 4],
+                        blur: 10,
+                        spread: 0,
+                        color: egui::Color32::from_black_alpha(if is_dark { 140 } else { 60 }),
+                    })
+                    .stroke(egui::Stroke::new(1.0_f32, if is_dark { egui::Color32::from_rgb(55, 60, 72) } else { egui::Color32::from_rgb(205, 210, 220) }))
+                    .fill(if is_dark { egui::Color32::from_rgb(26, 28, 34) } else { egui::Color32::from_rgb(245, 246, 250) })
+                    .inner_margin(egui::Margin::symmetric(4, 6))
             );
-        } else {
-            // Strictly constrain the window to 44 px width (never full window width!)
-            let window = egui::Window::new("tools_palette_window")
-                .id(egui::Id::new("floating_v2_tools_window"))
-                .default_pos([14.0, 160.0])
-                .resizable(false)
-                .collapsible(false)
-                .title_bar(false)
-                .fixed_size([44.0, 290.0])
-                .frame(
-                    egui::Frame::window(ctx.style().as_ref())
-                        .corner_radius(8.0)
-                        .shadow(egui::Shadow {
-                            offset: [0, 4],
-                            blur: 10,
-                            spread: 0,
-                            color: egui::Color32::from_black_alpha(if is_dark { 140 } else { 60 }),
-                        })
-                        .stroke(egui::Stroke::new(1.0_f32, if is_dark { egui::Color32::from_rgb(55, 60, 72) } else { egui::Color32::from_rgb(205, 210, 220) }))
-                        .fill(if is_dark { egui::Color32::from_rgb(26, 28, 34) } else { egui::Color32::from_rgb(245, 246, 250) })
-                        .inner_margin(egui::Margin::symmetric(4, 6))
-                );
 
-            window.show(ctx, |ui| {
-                self.render_palette_vertical_buttons(ui, ctx, false);
-            });
-        }
+        window.show(ctx, |ui| {
+            self.render_palette_vertical_buttons(ui, ctx);
+        });
 
         // Render flyout submenu to the side of the active category button
         self.render_palette_flyout_card(ctx);
     }
 
     /// Renders the vertical button strip (strictly 36 px wide content)
-    fn render_palette_vertical_buttons(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, is_detached: bool) {
+    fn render_palette_vertical_buttons(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.set_width(36.0);
         let is_dark = self.device.settings.dark_mode;
 
-        // Slim drag handle & detach button at the top (exact width 36 px)
-        ui.horizontal(|ui| {
-            let (grip_rect, _resp) = ui.allocate_exact_size(egui::vec2(20.0, 14.0), egui::Sense::hover());
-            let (btn_rect, mut btn_resp) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
-
-            let painter = ui.painter();
-            let center = grip_rect.center();
-            let grip_col = if is_dark { egui::Color32::from_gray(90) } else { egui::Color32::from_gray(160) };
-
-            // 2 subtle horizontal grip lines
-            painter.line_segment(
-                [egui::pos2(center.x - 7.0, center.y - 2.0), egui::pos2(center.x + 7.0, center.y - 2.0)],
-                egui::Stroke::new(1.5_f32, grip_col),
-            );
-            painter.line_segment(
-                [egui::pos2(center.x - 7.0, center.y + 2.5), egui::pos2(center.x + 7.0, center.y + 2.5)],
-                egui::Stroke::new(1.5_f32, grip_col),
-            );
-
-            // Detach / Dock icon button
-            let detach_icon = if is_detached { "⤡" } else { "⤢" };
-            let detach_tip = if is_detached {
-                "Telakoi takaisin pääikkunaan"
+        // Slim drag grip handle at the top (exact width 36 px, clean horizontal grip bars)
+        let (grip_rect, grip_resp) = ui.allocate_exact_size(egui::vec2(36.0, 12.0), egui::Sense::hover());
+        if grip_resp.hovered() {
+            ui.ctx().set_cursor_icon(if ui.ctx().input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
+                egui::CursorIcon::Grabbing
             } else {
-                "Irrota omaksi työpöytäikkunaksi pääikkunan ulkopuolelle"
-            };
+                egui::CursorIcon::Grab
+            });
+        }
+        let painter = ui.painter();
+        let center = grip_rect.center();
+        let grip_col = if is_dark { egui::Color32::from_gray(90) } else { egui::Color32::from_gray(160) };
 
-            if btn_resp.hovered() {
-                let hover_bg = if is_dark {
-                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 30)
-                } else {
-                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 20)
-                };
-                painter.rect_filled(btn_rect, 3.0, hover_bg);
-            }
-            painter.text(
-                btn_rect.center(),
-                egui::Align2::CENTER_CENTER,
-                detach_icon,
-                egui::FontId::proportional(11.0),
-                grip_col,
-            );
-            btn_resp = btn_resp.on_hover_text(detach_tip);
-            if btn_resp.clicked() {
-                self.detach_tools_window = !self.detach_tools_window;
-            }
-        });
+        // 2 subtle horizontal grip lines
+        painter.line_segment(
+            [egui::pos2(center.x - 10.0, center.y - 2.0), egui::pos2(center.x + 10.0, center.y - 2.0)],
+            egui::Stroke::new(1.5_f32, grip_col),
+        );
+        painter.line_segment(
+            [egui::pos2(center.x - 10.0, center.y + 2.5), egui::pos2(center.x + 10.0, center.y + 2.5)],
+            egui::Stroke::new(1.5_f32, grip_col),
+        );
 
         ui.add_space(2.0);
         ui.separator();
@@ -166,7 +119,7 @@ impl LaserBurnApp {
         } else {
             "Kameran toiminnot & Alustan kohdistus (Klikkaa avataksesi toiminnot)"
         };
-        // Note: is_active is false so it doesn't stay solid blue when not in use. has_dot shows if background is on!
+        // has_dot: green LED when camera bed overlay is showing
         if self.draw_palette_tool_btn(ui, cam_icon, false, is_cam_open, is_cam_showing, cam_btn_tip) {
             self.toggle_flyout(ToolCategory::Camera);
         }
@@ -298,6 +251,10 @@ impl LaserBurnApp {
         ));
 
         let response = response.on_hover_text(tooltip);
+
+        if is_open {
+            self.last_flyout_anchor = Some(rect);
+        }
 
         if response.clicked() {
             self.last_flyout_anchor = Some(rect);

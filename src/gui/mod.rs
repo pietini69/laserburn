@@ -4864,9 +4864,6 @@ impl eframe::App for LaserBurnApp {
 
                 ui.menu_button(self.tr("View"), |ui| {
                     ui.checkbox(&mut self.show_tools_palette, "🛠 Työkalupaletti (V2)");
-                    if self.show_tools_palette {
-                        ui.checkbox(&mut self.detach_tools_window, "⤢ Irrota työpöydälle (Multi-viewport)");
-                    }
                     ui.separator();
                     if ui.checkbox(&mut self.camera_calibration.show_on_canvas, "📷 Kameran taustakuva kankaalla").changed() {
                         let _ = self.camera_calibration.save();
