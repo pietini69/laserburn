@@ -163,7 +163,11 @@ pub(crate) fn translate<'a>(key: &'a str) -> &'a str {
         "Jog laser to corner and save:" => "Aja laser kulmaan ja tallenna:",
 
         // Job Execution
+        "Job Control" => "Työn ohjaus",
+        "Job Control & Execution" => "Työn ohjaus & Ajo",
         "Job Execution (G-Code)" => "Työn ajo (G-koodi)",
+        "Properties & Layers" => "Ominaisuudet & Tasot",
+        "Open Objects List..." => "Avaa objektilista...",
         "Estimated Time:" => "Arvioitu aika:",
         " START JOB (CUT) " => " ALOITA TYÖ (LEIKKAUS) ",
         "JOB PAUSED" => "TYÖ KESKEYTETTY",

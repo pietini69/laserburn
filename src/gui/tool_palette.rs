@@ -637,6 +637,17 @@ impl LaserBurnApp {
         if ui.add_enabled(has_sel, egui::Button::new("🎯 Keskitä alustalle")).on_hover_text("Siirrä valitut kuviot alustan keskelle").clicked() {
             self.align_selection(AlignMode::CenterToBed);
         }
+
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(4.0);
+        if ui.add_sized([ui.available_width(), 24.0], egui::Button::new("📑 Kuviolista (Objektilista)..."))
+            .on_hover_text("Avaa erillinen objektilistaus ja kappaleiden hallintaikkuna")
+            .clicked()
+        {
+            self.show_objects_window = true;
+            *close_requested = true;
+        }
     }
 
     /// Category: Shapes flyout content
@@ -996,6 +1007,14 @@ impl LaserBurnApp {
             .clicked()
         {
             self.show_move_window = true;
+            *close_requested = true;
+        }
+
+        if ui.add_sized([ui.available_width(), 24.0], egui::Button::new("⚡ Työn ohjauspaneeli (Job Control)..."))
+            .on_hover_text("Avaa leikkauksen reaaliaikainen ohjaus- ja tilastoikkuna")
+            .clicked()
+        {
+            self.show_job_window = true;
             *close_requested = true;
         }
 
