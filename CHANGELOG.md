@@ -4,6 +4,16 @@ All notable changes, new features, and bug fixes for **PhotonCAM** across every 
 
 ---
 
+## [v1.2.6] – 2026-10-28
+
+### 🌟 New Features & Fixes
+* **🌐 Network connection to the Raspberry Pi Bridge from PhotonCAM desktop:** the Connection window now has a **USB / Serial** vs **Network (Raspberry Pi)** selector. Enter the Pi's hostname or IP (e.g. `photoncam.local` or `192.168.68.90`, default port `2323`) and connect — jogging, framing, job streaming and live status work over Wi-Fi/Ethernet exactly like USB. Network addresses can be saved and auto-connected on startup.
+* **🔌 Bridge raw link is now fully bidirectional:** previously the Pi's TCP port only forwarded newline-terminated commands *to* the laser and never sent the controller's replies back. It now relays raw bytes both ways (including realtime commands `?`, `!`, `~`, soft-reset `0x18`) and streams all controller output to every connected client.
+* Connection loss over the network is detected and reported (the app disconnects cleanly instead of appearing connected).
+* New tests for network link parsing, round-trip I/O and connection failure.
+
+---
+
 ## [v1.2.5] – 2026-10-27
 
 ### 🌟 New Features & Major Additions

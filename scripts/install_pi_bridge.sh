@@ -53,7 +53,7 @@ else
   esac
 
   if [ -n "$BIN_NAME" ]; then
-    DOWNLOAD_URL="https://github.com/pietini69/photoncam/releases/download/v1.2.5/${BIN_NAME}"
+    DOWNLOAD_URL="https://github.com/pietini69/photoncam/releases/download/v1.2.6/${BIN_NAME}"
     echo "==> Downloading precompiled $BIN_NAME from GitHub Releases ($DOWNLOAD_URL)..."
     if curl -sSL -f -o "$INSTALL_DIR/photoncam-bridge" "$DOWNLOAD_URL"; then
       echo "==> Successfully downloaded $BIN_NAME!"

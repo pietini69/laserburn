@@ -7,6 +7,75 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+/// Physical link to the controller: a local USB/serial port or a network (TCP) link
+/// to a PhotonCAM Bridge running on a Raspberry Pi (`tcp://host:2323`).
+enum LinkPort {
+    Serial(Box<dyn serialport::SerialPort>),
+    Tcp(std::net::TcpStream),
+}
+
+/// Default TCP port of the PhotonCAM Bridge raw serial link.
+pub const DEFAULT_BRIDGE_TCP_PORT: u16 = 2323;
+
+/// Returns `Some("host:port")` when the port name is a network address (`tcp://host[:port]`).
+pub fn parse_network_port(name: &str) -> Option<String> {
+    let rest = name.trim().strip_prefix("tcp://")?;
+    let rest = rest.trim_end_matches('/');
+    if rest.is_empty() {
+        return None;
+    }
+    if rest.contains(':') { Some(rest.to_string()) } else { Some(format!("{}:{}", rest, DEFAULT_BRIDGE_TCP_PORT)) }
+}
+
+impl std::io::Write for LinkPort {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            LinkPort::Serial(p) => p.write(buf),
+            LinkPort::Tcp(t) => t.write(buf),
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            LinkPort::Serial(p) => p.flush(),
+            LinkPort::Tcp(t) => t.flush(),
+        }
+    }
+}
+
+impl LinkPort {
+    /// Non-blocking read of whatever bytes are currently available.
+    /// `Err(())` means the link was closed by the other side.
+    fn read_available(&mut self) -> Result<Vec<u8>, ()> {
+        use std::io::Read;
+        match self {
+            LinkPort::Serial(p) => {
+                if let Ok(available) = p.bytes_to_read() {
+                    if available > 0 {
+                        let mut buf = vec![0u8; available as usize];
+                        if let Ok(n) = p.read(&mut buf) {
+                            buf.truncate(n);
+                            return Ok(buf);
+                        }
+                    }
+                }
+                Ok(Vec::new())
+            }
+            LinkPort::Tcp(t) => {
+                let _ = t.set_nonblocking(true);
+                let mut buf = [0u8; 4096];
+                let res = match t.read(&mut buf) {
+                    Ok(0) => Err(()),
+                    Ok(n) => Ok(buf[..n].to_vec()),
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut || e.kind() == std::io::ErrorKind::Interrupted => Ok(Vec::new()),
+                    Err(_) => Err(()),
+                };
+                let _ = t.set_nonblocking(false);
+                res
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControllerType {
     Grbl,
@@ -580,7 +649,10 @@ pub struct DeviceManager {
     pub console_history: VecDeque<String>,
     pub max_history: usize,
 
-    active_port: Option<Box<dyn serialport::SerialPort>>,
+    active_port: Option<LinkPort>,
+
+    /// Raw RX byte subscribers (used by the Bridge to relay controller output to TCP clients).
+    pub raw_subscribers: Vec<std::sync::mpsc::Sender<Vec<u8>>>,
 }
 
 impl DeviceManager {
@@ -640,13 +712,14 @@ impl DeviceManager {
             max_history: 2000,
 
             active_port: None,
+            raw_subscribers: Vec::new(),
         };
 
         dm.log("[PhotonCAM] Controller subsystem initialized.");
 
         // Auto-connect to previous device if enabled and port exists
         if dm.settings.auto_connect && !default_port.trim().is_empty() {
-            if std::path::Path::new(&default_port).exists() {
+            if parse_network_port(&default_port).is_some() || std::path::Path::new(&default_port).exists() {
                 dm.log(&format!("[AUTO-CONNECT] Connecting to previous device: {} ({} baud)...", default_port, default_baud));
                 let _ = dm.connect(&default_port, default_baud);
             } else {
@@ -1034,11 +1107,18 @@ impl DeviceManager {
         }
 
         if !port_name.is_empty() {
-            self.log(&format!("[CONNECTION] Connecting to port {} ({} baud)...", port_name, baud));
-            match serialport::new(port_name, baud)
-                .timeout(Duration::from_millis(100))
-                .open()
-            {
+            let link: Result<LinkPort, String> = if let Some(addr) = parse_network_port(port_name) {
+                self.log(&format!("[CONNECTION] Connecting over network to {} ...", addr));
+                Self::open_tcp(&addr).map(LinkPort::Tcp)
+            } else {
+                self.log(&format!("[CONNECTION] Connecting to port {} ({} baud)...", port_name, baud));
+                serialport::new(port_name, baud)
+                    .timeout(Duration::from_millis(100))
+                    .open()
+                    .map(LinkPort::Serial)
+                    .map_err(|e| e.to_string())
+            };
+            match link {
                 Ok(port) => {
                     self.active_port = Some(port);
                     self.status = ConnectionStatus::Connected;
@@ -1069,7 +1149,11 @@ impl DeviceManager {
                 Err(e) => {
                     self.active_port = None;
                     self.status = ConnectionStatus::Disconnected;
-                    let err_msg = format!("Cannot connect to port {}: {}. Ensure laser is powered on and USB cable is connected!", port_name, e);
+                    let err_msg = if parse_network_port(port_name).is_some() {
+                        format!("Cannot connect to {}: {}. Check that the Raspberry Pi is powered on, on the same network, and photoncam-bridge is running.", port_name, e)
+                    } else {
+                        format!("Cannot connect to port {}: {}. Ensure laser is powered on and USB cable is connected!", port_name, e)
+                    };
                     self.log(&format!("[ERROR] ❌ {}", err_msg));
                     return Err(err_msg);
                 }
@@ -1080,6 +1164,33 @@ impl DeviceManager {
         let err_msg = "Select a port before connecting".to_string();
         self.log(&format!("[WARNING] {}", err_msg));
         Err(err_msg)
+    }
+
+    /// Open a TCP link to a PhotonCAM Bridge (`host:port`) with a short connect timeout.
+    fn open_tcp(addr: &str) -> Result<std::net::TcpStream, String> {
+        use std::net::ToSocketAddrs;
+        let addrs = addr.to_socket_addrs().map_err(|e| format!("cannot resolve '{}': {}", addr, e))?;
+        let mut last_err = String::from("no address found");
+        for a in addrs {
+            match std::net::TcpStream::connect_timeout(&a, Duration::from_secs(3)) {
+                Ok(stream) => {
+                    let _ = stream.set_nodelay(true);
+                    let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+                    return Ok(stream);
+                }
+                Err(e) => last_err = e.to_string(),
+            }
+        }
+        Err(last_err)
+    }
+
+    /// Write raw bytes straight to the controller link (no newline added, no logging).
+    pub fn write_raw_bytes(&mut self, bytes: &[u8]) {
+        if let Some(ref mut port) = self.active_port {
+            use std::io::Write;
+            let _ = port.write_all(bytes);
+            let _ = port.flush();
+        }
     }
 
     /// Disconnect from port
@@ -1748,19 +1859,23 @@ impl DeviceManager {
                 self.send_realtime(b'?');
             }
 
+            let mut link_closed = false;
             if let Some(ref mut port) = self.active_port {
-                if let Ok(available) = port.bytes_to_read() {
-                    if available > 0 {
-                        use std::io::Read;
-                        let mut buf = vec![0u8; available as usize];
-                        if let Ok(n) = port.read(&mut buf) {
-                            if n > 0 {
-                                let s = String::from_utf8_lossy(&buf[..n]);
-                                self.rx_buffer.push_str(&s);
-                            }
+                match port.read_available() {
+                    Ok(bytes) => {
+                        if !bytes.is_empty() {
+                            let s = String::from_utf8_lossy(&bytes);
+                            self.rx_buffer.push_str(&s);
+                            self.raw_subscribers.retain(|tx| tx.send(bytes.clone()).is_ok());
                         }
                     }
+                    Err(()) => link_closed = true,
                 }
+            }
+            if link_closed {
+                self.log("[CONNECTION] ⚠️ Connection lost (network link closed).");
+                self.disconnect();
+                return;
             }
 
             // Process complete lines from rx_buffer
@@ -2562,5 +2677,58 @@ mod tests {
 
         // Non-existent profile fails gracefully
         assert!(!settings.apply_profile("NonExistentMachine"));
+    }
+
+    #[test]
+    fn test_network_port_parsing() {
+        assert_eq!(parse_network_port("tcp://photoncam.local"), Some("photoncam.local:2323".to_string()));
+        assert_eq!(parse_network_port("tcp://192.168.68.90:2323"), Some("192.168.68.90:2323".to_string()));
+        assert_eq!(parse_network_port("tcp://"), None);
+        assert_eq!(parse_network_port("/dev/ttyACM0"), None);
+    }
+
+    #[test]
+    fn test_network_link_roundtrip() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 256];
+            while let Ok(n) = conn.read(&mut buf) {
+                if n == 0 { break; }
+                let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                if text.contains('?') {
+                    let _ = conn.write_all(b"<Idle|MPos:1.000,2.000,0.000|FS:0,0>\r\n");
+                }
+                if text.contains("G0") {
+                    let _ = conn.write_all(b"ok\r\n");
+                }
+            }
+        });
+        let mut dm = DeviceManager::new();
+        dm.settings.auto_connect = false;
+        let res = dm.connect(&format!("tcp://127.0.0.1:{}", port), 115200);
+        assert!(res.is_ok(), "{:?}", res);
+        assert!(dm.is_physically_connected());
+        dm.send_raw("G0 X1 Y2");
+        for _ in 0..50 {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            dm.poll_serial();
+            if dm.console_history.iter().any(|l| l.trim() == "< ok") { break; }
+        }
+        assert!(dm.console_history.iter().any(|l| l.trim() == "< ok"), "no ok received over network link");
+        assert!((dm.machine_x - 1.0).abs() < 1e-6);
+        dm.disconnect();
+        assert!(!dm.is_physically_connected());
+    }
+
+    #[test]
+    fn test_network_connect_failure_reports_error() {
+        let mut dm = DeviceManager::new();
+        dm.settings.auto_connect = false;
+        let res = dm.connect("tcp://127.0.0.1:1", 115200);
+        assert!(res.is_err());
+        assert!(!dm.is_physically_connected());
     }
 }

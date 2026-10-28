@@ -137,19 +137,49 @@ impl BridgeServer {
                         if let Ok((stream, _)) = listener.accept() {
                             let dev_clone = Arc::clone(&device_tcp);
                             thread::spawn(move || {
+                                use std::io::{Read, Write};
+                                let _ = stream.set_nodelay(true);
+                                let _ = stream.set_nonblocking(false);
                                 let _ = stream.set_read_timeout(Some(Duration::from_millis(100)));
-                                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                                let mut line = String::new();
-                                while let Ok(n) = reader.read_line(&mut line) {
-                                    if n == 0 { break; }
-                                    let trimmed = line.trim();
-                                    if !trimmed.is_empty() {
-                                        if let Ok(mut dm) = dev_clone.lock() {
-                                            dm.send_raw(trimmed);
-                                        }
-                                    }
-                                    line.clear();
+
+                                // Relay everything the controller sends back to this TCP client
+                                let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+                                if let Ok(mut dm) = dev_clone.lock() {
+                                    dm.raw_subscribers.push(tx);
                                 }
+                                let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+                                if let Ok(mut writer) = stream.try_clone() {
+                                    let alive_w = Arc::clone(&alive);
+                                    thread::spawn(move || {
+                                        while alive_w.load(std::sync::atomic::Ordering::Relaxed) {
+                                            match rx.recv_timeout(Duration::from_millis(200)) {
+                                                Ok(bytes) => {
+                                                    if writer.write_all(&bytes).is_err() { break; }
+                                                    let _ = writer.flush();
+                                                }
+                                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                                                Err(_) => break,
+                                            }
+                                        }
+                                    });
+                                }
+
+                                // Forward raw client bytes (G-code lines AND realtime bytes like ?, !, ~, 0x18) to the controller
+                                let mut reader = stream;
+                                let mut buf = [0u8; 2048];
+                                loop {
+                                    match reader.read(&mut buf) {
+                                        Ok(0) => break,
+                                        Ok(n) => {
+                                            if let Ok(mut dm) = dev_clone.lock() {
+                                                dm.write_raw_bytes(&buf[..n]);
+                                            }
+                                        }
+                                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {}
+                                        Err(_) => break,
+                                    }
+                                }
+                                alive.store(false, std::sync::atomic::Ordering::Relaxed);
                             });
                         }
                         thread::sleep(Duration::from_millis(50));

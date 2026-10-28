@@ -8938,6 +8938,28 @@ impl eframe::App for LaserBurnApp {
                             });
                     });
 
+                    // Connection type: local USB/serial or network link to a Raspberry Pi running PhotonCAM Bridge
+                    let is_net = crate::device::parse_network_port(&self.device.selected_port).is_some();
+                    ui.horizontal(|ui| {
+                        ui.label(tr("Connection:"));
+                        if ui.selectable_label(!is_net, tr("USB / Serial")).clicked() && is_net {
+                            self.device.selected_port = self.available_ports.first().cloned().unwrap_or_default();
+                        }
+                        if ui.selectable_label(is_net, tr("Network (Raspberry Pi)")).clicked() && !is_net {
+                            self.device.selected_port = format!("tcp://photoncam.local:{}", crate::device::DEFAULT_BRIDGE_TCP_PORT);
+                        }
+                    });
+
+                    if is_net {
+                        ui.horizontal(|ui| {
+                            ui.label(tr("Bridge address:"));
+                            let mut addr = self.device.selected_port.trim_start_matches("tcp://").to_string();
+                            if ui.add(egui::TextEdit::singleline(&mut addr).desired_width(220.0).hint_text("photoncam.local:2323")).changed() {
+                                self.device.selected_port = format!("tcp://{}", addr.trim());
+                            }
+                        });
+                        ui.label(egui::RichText::new(tr("Enter the Raspberry Pi hostname or IP (e.g. photoncam.local or 192.168.68.90). Default port 2323.")).small().weak());
+                    } else {
                     ui.horizontal(|ui| {
                         ui.label(tr("Port:"));
                         if self.available_ports.is_empty() {
@@ -8975,6 +8997,7 @@ impl eframe::App for LaserBurnApp {
                                 ui.selectable_value(&mut self.device.selected_baud, 57600, "57600");
                             });
                     });
+                    }
 
                     ui.add_space(4.0);
                     ui.checkbox(&mut self.device.settings.auto_connect, tr("Auto-connect to this port on startup"));
@@ -8984,7 +9007,8 @@ impl eframe::App for LaserBurnApp {
                         let is_conn = self.device.status == crate::device::ConnectionStatus::Connected;
                         if is_conn {
                             if self.device.is_physically_connected() {
-                                ui.label(egui::RichText::new(tr("CONNECTED (USB)")).strong().color(c_green));
+                                let lbl = if is_net { "CONNECTED (NETWORK)" } else { "CONNECTED (USB)" };
+                                ui.label(egui::RichText::new(tr(lbl)).strong().color(c_green));
                             } else {
                                 ui.label(egui::RichText::new(tr("SIMULATOR (DEMO)")).strong().color(c_orange));
                             }
