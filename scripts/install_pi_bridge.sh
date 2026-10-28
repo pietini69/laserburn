@@ -12,8 +12,16 @@ SERVICE_FILE="/etc/systemd/system/photoncam-bridge.service"
 
 # Check if root
 if [ "$EUID" -ne 0 ]; then
-  echo "==> Re-running installer with sudo..."
-  exec sudo bash "$0" "$@"
+  if [ -f "$0" ] && [ "$0" != "bash" ] && [ "$0" != "sh" ]; then
+    echo "==> Re-running installer with sudo..."
+    exec sudo bash "$0" "$@"
+  else
+    echo "==> Please run this installer with sudo:"
+    echo "    curl -sSL https://raw.githubusercontent.com/pietini69/photoncam/master/scripts/install_pi_bridge.sh | sudo bash"
+    echo "  or if downloaded to disk:"
+    echo "    sudo bash install_pi_bridge.sh"
+    exit 1
+  fi
 fi
 
 # Detect Architecture
