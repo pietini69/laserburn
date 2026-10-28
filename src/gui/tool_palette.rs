@@ -25,7 +25,7 @@ impl LaserBurnApp {
                 egui::ViewportId::from_hash_of("photoncam_v2_tools_viewport"),
                 egui::ViewportBuilder::default()
                     .with_title("Työkalut")
-                    .with_inner_size([48.0, 295.0])
+                    .with_inner_size([46.0, 290.0])
                     .with_resizable(false),
                 |ctx, _class| {
                     egui::CentralPanel::default()
@@ -40,13 +40,14 @@ impl LaserBurnApp {
                 },
             );
         } else {
+            // Strictly constrain the window to 44 px width (never full window width!)
             let window = egui::Window::new("tools_palette_window")
                 .id(egui::Id::new("floating_v2_tools_window"))
-                .default_pos([14.0, 75.0])
+                .default_pos([14.0, 160.0])
                 .resizable(false)
                 .collapsible(false)
                 .title_bar(false)
-                .auto_sized()
+                .fixed_size([44.0, 290.0])
                 .frame(
                     egui::Frame::window(ctx.style().as_ref())
                         .corner_radius(8.0)
@@ -70,14 +71,14 @@ impl LaserBurnApp {
         self.render_palette_flyout_card(ctx);
     }
 
-    /// Renders the vertical button strip (compact, icon-only, borderless)
+    /// Renders the vertical button strip (strictly 36 px wide content)
     fn render_palette_vertical_buttons(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, is_detached: bool) {
+        ui.set_width(36.0);
         let is_dark = self.device.settings.dark_mode;
 
-        // Slim drag handle & detach button at the top
+        // Slim drag handle & detach button at the top (exact width 36 px)
         ui.horizontal(|ui| {
-            let grip_w = (ui.available_width() - 18.0).max(16.0);
-            let (grip_rect, _resp) = ui.allocate_exact_size(egui::vec2(grip_w, 14.0), egui::Sense::hover());
+            let (grip_rect, _resp) = ui.allocate_exact_size(egui::vec2(20.0, 14.0), egui::Sense::hover());
             let (btn_rect, mut btn_resp) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
 
             let painter = ui.painter();
@@ -131,7 +132,7 @@ impl LaserBurnApp {
         let is_select_active = self.active_tool == ActiveTool::Select || self.active_tool == ActiveTool::NodeEdit;
         let is_select_open = self.open_flyout == Some(ToolCategory::Select);
         let select_icon = if self.active_tool == ActiveTool::NodeEdit { "🔲" } else { "↖" };
-        if self.draw_palette_tool_btn(ui, select_icon, is_select_active, is_select_open, "Valintatyökalut & Solmumuokkaus (Klikkaa avataksesi alityökalut)") {
+        if self.draw_palette_tool_btn(ui, select_icon, is_select_active, is_select_open, false, "Valintatyökalut & Solmumuokkaus (Klikkaa avataksesi alityökalut)") {
             self.toggle_flyout(ToolCategory::Select);
         }
 
@@ -147,7 +148,7 @@ impl LaserBurnApp {
             ActiveTool::DrawText => "🔤",
             _ => "✏",
         };
-        if self.draw_palette_tool_btn(ui, shape_icon, is_shape_active, is_shape_open, "Muodot & Piirtotyökalut (Neliö, Ympyrä, Viiva, Teksti)") {
+        if self.draw_palette_tool_btn(ui, shape_icon, is_shape_active, is_shape_open, false, "Muodot & Piirtotyökalut (Neliö, Ympyrä, Viiva, Teksti)") {
             self.toggle_flyout(ToolCategory::Shapes);
         }
 
@@ -161,11 +162,12 @@ impl LaserBurnApp {
         let cam_btn_tip = if is_cam_capturing {
             "Otetaan kuvaa alustasta... (Klikkaa avataksesi toiminnot)"
         } else if is_cam_showing {
-            "Kamera: Taustakuva aktiivinen (Klikkaa avataksesi toiminnot)"
+            "Kamera: Taustakuva aktiivinen kankaalla (Klikkaa avataksesi toiminnot)"
         } else {
             "Kameran toiminnot & Alustan kohdistus (Klikkaa avataksesi toiminnot)"
         };
-        if self.draw_palette_tool_btn(ui, cam_icon, is_cam_showing || is_cam_capturing, is_cam_open, cam_btn_tip) {
+        // Note: is_active is false so it doesn't stay solid blue when not in use. has_dot shows if background is on!
+        if self.draw_palette_tool_btn(ui, cam_icon, false, is_cam_open, is_cam_showing, cam_btn_tip) {
             self.toggle_flyout(ToolCategory::Camera);
         }
 
@@ -173,7 +175,7 @@ impl LaserBurnApp {
 
         // Category 4: Laser CAM & Täyttö (CAM: Hatch, Offset, Array, Materiaali)
         let is_cam_tool_open = self.open_flyout == Some(ToolCategory::Cam);
-        if self.draw_palette_tool_btn(ui, "▦", false, is_cam_tool_open, "Laser CAM & Täyttöoperaatiot (Hatch, Offset, Matriisit)") {
+        if self.draw_palette_tool_btn(ui, "▦", false, is_cam_tool_open, false, "Laser CAM & Täyttöoperaatiot (Hatch, Offset, Matriisit)") {
             self.toggle_flyout(ToolCategory::Cam);
         }
 
@@ -183,7 +185,7 @@ impl LaserBurnApp {
         let is_machine_open = self.open_flyout == Some(ToolCategory::Machine);
         let is_beam_on = self.device.is_weak_light_on;
         let machine_icon = if is_beam_on { "💡" } else { "🎯" };
-        if self.draw_palette_tool_btn(ui, machine_icon, is_beam_on, is_machine_open, "Laserin ohjaus & Kohdistus (Kehystys, Kohdistusvalo, Koti)") {
+        if self.draw_palette_tool_btn(ui, machine_icon, is_beam_on, is_machine_open, false, "Laserin ohjaus & Kohdistus (Kehystys, Kohdistusvalo, Koti)") {
             self.toggle_flyout(ToolCategory::Machine);
         }
 
@@ -215,13 +217,14 @@ impl LaserBurnApp {
         }
     }
 
-    /// Draws a borderless, flat icon-only tool button (Photoshop style) with centered glyph and corner mark
+    /// Draws a borderless, flat icon-only tool button (Photoshop style) with centered glyph, corner mark, and optional status dot
     fn draw_palette_tool_btn(
         &mut self,
         ui: &mut egui::Ui,
         icon: &str,
         is_active: bool,
         is_open: bool,
+        has_dot: bool,
         tooltip: &str,
     ) -> bool {
         let btn_size = egui::vec2(36.0, 36.0);
@@ -266,6 +269,15 @@ impl LaserBurnApp {
             egui::FontId::proportional(19.0),
             icon_color,
         );
+
+        // Status LED dot (e.g. green dot when camera bed overlay is active)
+        if has_dot {
+            painter.circle_filled(
+                egui::pos2(rect.max.x - 5.0, rect.min.y + 5.0),
+                2.5,
+                egui::Color32::from_rgb(0, 220, 100),
+            );
+        }
 
         // Subtle micro-triangle in bottom-right corner for flyout indicator
         let triangle_color = if is_active || is_open {
@@ -313,7 +325,7 @@ impl LaserBurnApp {
 
         let is_dark = self.device.settings.dark_mode;
         let anchor = self.last_flyout_anchor.unwrap_or(egui::Rect::from_min_size(
-            egui::pos2(55.0, 100.0),
+            egui::pos2(55.0, 160.0),
             egui::vec2(36.0, 36.0),
         ));
 
