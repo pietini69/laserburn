@@ -3,7 +3,7 @@
 > **Product:** PhotonCAM – Modern Laser CAM & CNC Software + Wireless Web Remote  
 > **Version:** v1.2.5 (Official Release)  
 > **Store:** Gumroad (`shop.pietiniart.com / nikopietinen.gumroad.com`)  
-> **Target URL:** `https://nikopietinen.gumroad.com/l/laserburn`  
+> **Target URL:** `https://nikopietinen.gumroad.com/l/photoncam`  
 > **Pricing Model:** Freeware / Pay What You Want (`0 €+`, Suggested coffee tip: **5 €**)
 
 ---
@@ -54,7 +54,7 @@ Cover graphics and screenshots are located in:
   `PhotonCAM – Modern Laser CAM, CNC Software & Wireless Web Remote (macOS, Windows, Linux, Raspberry Pi)`
 * **Short Summary (Card Description):**  
   `High-performance, modern laser cutting & engraving CAM software built in Rust. LightBurn .lbrn2 compatible, wireless Raspberry Pi web remote, true grayscale modulation, ceramic tile paint layer simulator & path optimizer for macOS, Windows, Linux, and Raspberry Pi.`
-* **Custom URL Slug:** `photoncam` ➔ `https://nikopietinen.gumroad.com/l/laserburn`
+* **Custom URL Slug:** `photoncam` ➔ `https://nikopietinen.gumroad.com/l/photoncam`
 * **Price:** `0` (Allow customers to pay what they want: **ON**, Minimum: `0`, Suggested amount: **`5`**)
 * **Tags (Avainsanat):** `laser cutting`, `laser engraving`, `cam software`, `lightburn`, `grbl`, `ruida`, `raspberry pi`, `cnc`, `macos`, `windows`, `linux`, `maker`
 
