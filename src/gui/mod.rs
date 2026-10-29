@@ -8004,8 +8004,10 @@ impl eframe::App for LaserBurnApp {
 
                     ui.add_space(8.0);
                     ui.separator();
-                    ui.label(egui::RichText::new("🍓 Raspberry Pi -käyttö ilman tietokonetta:").strong());
-                    ui.label("Voit ajaa 'laserburn-bridge' -palvelinta suoraan pienellä Raspberry Pi:llä, jolloin verstaalle ei tarvita tietokonetta lainkaan!");
+                    ui.label(egui::RichText::new("Raspberry Pi -asennus (Automaattikäynnistys bootissa):").strong());
+                    ui.label("Aja Raspberry Pi:n päätteessä yhdellä komennolla:");
+                    ui.code("curl -sSL https://raw.githubusercontent.com/pietini69/photoncam/master/scripts/install_pi_bridge.sh | sudo bash");
+                    ui.label("Skripti luo systemd-palvelun, joka käynnistää PhotonCAM-sillan automaattisesti aina kun Pi saa virtaa.");
                 });
 
             self.show_web_remote_window = is_open;
