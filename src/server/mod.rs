@@ -39,6 +39,7 @@ pub struct ServerStatusReport {
     pub pin_state: String,
     pub bed_width: f64,
     pub bed_height: f64,
+    pub origin_corner: String,
     pub recent_logs: Vec<String>,
 }
 
@@ -312,11 +313,47 @@ fn handle_http_client(
             if let Ok(req) = serde_json::from_slice::<JogReq>(&body) {
                 let feed = req.feed.unwrap_or(3000.0);
                 if let Ok(mut dm) = device.lock() {
-                    dm.jog(req.dx, req.dy, feed);
+                    let (dir_x, dir_y) = match dm.settings.origin_corner {
+                        crate::device::OriginCorner::TopRight => (-1.0, -1.0),
+                        crate::device::OriginCorner::TopLeft => (1.0, -1.0),
+                        crate::device::OriginCorner::BottomRight => (-1.0, 1.0),
+                        crate::device::OriginCorner::BottomLeft => (1.0, 1.0),
+                    };
+                    dm.jog(req.dx * dir_x, req.dy * dir_y, feed);
                 }
                 send_json_ok(&mut stream);
             } else {
                 send_response(&mut stream, 400, "application/json", b"{\"error\":\"Invalid body\"}");
+            }
+        }
+        ("POST", "/api/settings") => {
+            #[derive(Deserialize)]
+            struct SettingsReq {
+                origin_corner: Option<String>,
+                bed_width: Option<f64>,
+                bed_height: Option<f64>,
+            }
+            if let Ok(req) = serde_json::from_slice::<SettingsReq>(&body) {
+                if let Ok(mut dm) = device.lock() {
+                    if let Some(corner_str) = req.origin_corner {
+                        let norm = corner_str.to_lowercase().replace("-", "").replace("_", "").replace(" ", "");
+                        match norm.as_str() {
+                            "topleft" | "rearleft" | "takavasen" => dm.settings.origin_corner = crate::device::OriginCorner::TopLeft,
+                            "topright" | "rearright" | "takaoikea" => dm.settings.origin_corner = crate::device::OriginCorner::TopRight,
+                            "bottomright" | "frontright" | "etuoikea" => dm.settings.origin_corner = crate::device::OriginCorner::BottomRight,
+                            _ => dm.settings.origin_corner = crate::device::OriginCorner::BottomLeft,
+                        }
+                    }
+                    if let Some(bw) = req.bed_width {
+                        if bw > 10.0 && bw < 5000.0 { dm.settings.bed_width = bw; }
+                    }
+                    if let Some(bh) = req.bed_height {
+                        if bh > 10.0 && bh < 5000.0 { dm.settings.bed_height = bh; }
+                    }
+                }
+                send_json_ok(&mut stream);
+            } else {
+                send_response(&mut stream, 400, "application/json", b"{\"error\":\"Invalid settings payload\"}");
             }
         }
         ("POST", "/api/home") => {
@@ -465,7 +502,7 @@ fn handle_http_client(
             send_json_ok(&mut stream);
         }
         ("POST", "/api/upload") => {
-            handle_upload(&mut stream, &body, &content_type, loaded_gcode, loaded_polylines, loaded_filename);
+            handle_upload(&mut stream, &body, &content_type, &device, loaded_gcode, loaded_polylines, loaded_filename);
         }
         _ => {
             send_response(&mut stream, 404, "text/plain", b"404 Not Found");
@@ -477,6 +514,7 @@ fn handle_upload(
     stream: &mut TcpStream,
     body: &[u8],
     content_type: &str,
+    device: &Arc<Mutex<DeviceManager>>,
     loaded_gcode: Arc<Mutex<String>>,
     loaded_polylines: Arc<Mutex<Vec<Vec<(f64, f64)>>>>,
     loaded_filename: Arc<Mutex<String>>,
@@ -522,11 +560,29 @@ fn handle_upload(
     let mut generated_gcode = String::new();
     let mut extracted_polylines: Vec<Vec<(f64, f64)>> = Vec::new();
 
+    let (max_s, rapid, bed_w, bed_h, mirror_x, mirror_y) = if let Ok(dm) = device.lock() {
+        let mx = dm.settings.origin_corner == crate::device::OriginCorner::TopRight
+            || dm.settings.origin_corner == crate::device::OriginCorner::BottomRight;
+        let my = dm.settings.origin_corner == crate::device::OriginCorner::BottomLeft
+            || dm.settings.origin_corner == crate::device::OriginCorner::BottomRight;
+        (dm.settings.max_s_value, dm.settings.rapid_speed, dm.settings.bed_width, dm.settings.bed_height, mx, my)
+    } else {
+        (1000.0, 6000.0, 400.0, 400.0, false, false)
+    };
+
+    let mut cfg = GCodeConfig::default();
+    cfg.max_s_value = max_s;
+    cfg.rapid_speed = rapid;
+    cfg.bed_width = bed_w;
+    cfg.bed_height = bed_h;
+    cfg.mirror_x = mirror_x;
+    cfg.mirror_y = mirror_y;
+
     if is_lbrn2 {
         if let Ok(doc) = crate::formats::Lbrn2File::load_from_str(&raw_text, &file_name) {
             let opt = crate::optimizer::CutOptimizer::new();
             let job = opt.optimize(&doc);
-            let gen = GCodeGenerator::new(GCodeConfig::default());
+            let gen = GCodeGenerator::new(cfg.clone());
             generated_gcode = gen.generate(&doc, &job);
             for shape in &doc.shapes {
                 for poly in shape.to_polylines() {
@@ -541,7 +597,7 @@ fn handle_upload(
         if let Ok(svg_doc) = crate::formats::SvgFormat::load_from_str(&raw_text, &file_name) {
             let opt = crate::optimizer::CutOptimizer::new();
             let job = opt.optimize(&svg_doc);
-            let gen = GCodeGenerator::new(GCodeConfig::default());
+            let gen = GCodeGenerator::new(cfg);
             generated_gcode = gen.generate(&svg_doc, &job);
             for shape in &svg_doc.shapes {
                 for poly in shape.to_polylines() {
@@ -672,6 +728,7 @@ fn get_status_report(device: &Arc<Mutex<DeviceManager>>) -> ServerStatusReport {
         pin_state: dm.pin_state.clone(),
         bed_width: dm.settings.bed_width,
         bed_height: dm.settings.bed_height,
+        origin_corner: format!("{:?}", dm.settings.origin_corner),
         recent_logs: recent,
     }
 }
@@ -717,6 +774,21 @@ mod tests {
         let updated = get_status_report(&server.device);
         assert_eq!(updated.work_x, 15.0);
         assert_eq!(updated.work_y, 25.0);
+    }
+
+    #[test]
+    fn test_server_origin_corner_and_status() {
+        let server = BridgeServer::new(0, None);
+        let status = get_status_report(&server.device);
+        assert_eq!(status.origin_corner, "BottomLeft");
+
+        {
+            let mut dm = server.device.lock().unwrap();
+            dm.settings.origin_corner = crate::device::OriginCorner::TopLeft;
+        }
+
+        let updated = get_status_report(&server.device);
+        assert_eq!(updated.origin_corner, "TopLeft");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use crate::document::Document;
 use crate::optimizer::OptimizedJob;
 
+#[derive(Debug, Clone)]
 pub struct GCodeConfig {
     pub metric: bool,           // G21
     pub absolute: bool,         // G90

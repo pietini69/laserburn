@@ -383,6 +383,37 @@
     }
     .pill.active { background: #28324a; color: var(--cyan); border-color: var(--cyan); }
 
+    /* Origin Corner (0,0) Selector Grid */
+    .origin-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+    }
+    .origin-btn {
+      background: #141722;
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 6px 4px;
+      border-radius: 6px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+    }
+    .origin-btn:hover {
+      border-color: var(--cyan);
+      color: var(--text);
+    }
+    .origin-btn.active {
+      background: rgba(0, 229, 255, 0.15);
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+
     /* Canvas bottom zoom badge */
     .canvas-hud {
       position: fixed;
@@ -486,6 +517,13 @@
         <span style="font-size: 0.82rem; font-weight: 600;">[L00] Leikkaus & Kaiverrus</span>
       </div>
 
+      <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-top: 6px;">
+        Laserpeti & Nollapiste (0,0):
+      </div>
+      <div id="propOriginCorner" style="font-size: 0.82rem; font-weight: 600; color: var(--cyan);">
+        400×400 (↙ Etu-Vasen)
+      </div>
+
       <button class="btn-primary" style="margin-top: 6px;" onclick="sendJobToLaser()">
         ⚡ Lähetä laserille (Cut Job)
       </button>
@@ -528,6 +566,20 @@
         <button class="win-btn" style="border: 1px solid var(--card-border); width: 100%; height: 28px;" onclick="sendFrame()">📐 Kehystys</button>
         <button class="win-btn" style="border: 1px solid var(--card-border); width: 100%; height: 28px;" onclick="toggleBeam()">💡 Tähtäysvalo</button>
         <button class="win-btn" style="border: 1px solid var(--card-border); width: 100%; height: 28px;" onclick="sendUnlock()">🔓 Avaa ($X)</button>
+      </div>
+
+      <!-- Origin Corner (0,0) Selector -->
+      <div style="margin-top: 6px; border-top: 1px solid var(--card-border); padding-top: 6px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.74rem; font-weight: 700; color: var(--text-muted); margin-bottom: 5px;">
+          <span>Nollapiste (0,0) -kulma:</span>
+          <span id="originBadge" style="color: var(--cyan); font-weight: 700;">↙ Etu-Vasen (GRBL)</span>
+        </div>
+        <div class="origin-grid">
+          <button class="origin-btn" id="orig_TopLeft" onclick="setOriginCorner('TopLeft')">↖ Taka-Vasen</button>
+          <button class="origin-btn" id="orig_TopRight" onclick="setOriginCorner('TopRight')">↗ Taka-Oikea</button>
+          <button class="origin-btn active" id="orig_BottomLeft" onclick="setOriginCorner('BottomLeft')">↙ Etu-Vasen</button>
+          <button class="origin-btn" id="orig_BottomRight" onclick="setOriginCorner('BottomRight')">↘ Etu-Oikea</button>
+        </div>
       </div>
 
       <!-- Start Cut -->
@@ -606,6 +658,7 @@
   <script>
     // --- Application State ---
     let bedW = 400.0, bedH = 400.0;
+    let originCorner = localStorage.getItem('photoncam_origin_corner') || 'BottomLeft';
     let zoomLevel = 1.0;
     let panX = 0, panY = 0;
     let activeTool = 'select'; // select, rect, circle, line
@@ -628,6 +681,33 @@
     }
     window.addEventListener('resize', resize);
 
+    function setOriginCorner(corner, skipServer) {
+      originCorner = corner;
+      localStorage.setItem('photoncam_origin_corner', corner);
+      updateOriginUI();
+      if (!skipServer) {
+        apiPost('settings', { origin_corner: corner });
+      }
+      render();
+    }
+
+    function updateOriginUI() {
+      ['TopLeft', 'TopRight', 'BottomLeft', 'BottomRight'].forEach(c => {
+        const btn = document.getElementById('orig_' + c);
+        if (btn) btn.classList.toggle('active', c === originCorner);
+      });
+      const names = {
+        TopLeft: '↖ Taka-Vasen',
+        TopRight: '↗ Taka-Oikea',
+        BottomLeft: '↙ Etu-Vasen (GRBL)',
+        BottomRight: '↘ Etu-Oikea'
+      };
+      const badge = document.getElementById('originBadge');
+      if (badge) badge.textContent = names[originCorner] || originCorner;
+      const propOrig = document.getElementById('propOriginCorner');
+      if (propOrig) propOrig.textContent = `${bedW}×${bedH} (${names[originCorner] || originCorner})`;
+    }
+
     function resetView() {
       const pad = 80;
       const sx = (canvas.width - pad * 2) / bedW;
@@ -641,16 +721,29 @@
 
     // World to Screen & Screen to World transforms
     function worldToScreen(wx, wy) {
-      return [
-        panX + wx * zoomLevel,
-        panY + (bedH - wy) * zoomLevel // Y goes upwards in laser CAD
-      ];
+      if (originCorner === 'TopLeft') {
+        return [panX + wx * zoomLevel, panY + wy * zoomLevel];
+      } else if (originCorner === 'TopRight') {
+        return [panX + (bedW - wx) * zoomLevel, panY + wy * zoomLevel];
+      } else if (originCorner === 'BottomRight') {
+        return [panX + (bedW - wx) * zoomLevel, panY + (bedH - wy) * zoomLevel];
+      } else {
+        // BottomLeft (GRBL default)
+        return [panX + wx * zoomLevel, panY + (bedH - wy) * zoomLevel];
+      }
     }
+
     function screenToWorld(sx, sy) {
-      return [
-        (sx - panX) / zoomLevel,
-        bedH - ((sy - panY) / zoomLevel)
-      ];
+      if (originCorner === 'TopLeft') {
+        return [(sx - panX) / zoomLevel, (sy - panY) / zoomLevel];
+      } else if (originCorner === 'TopRight') {
+        return [bedW - (sx - panX) / zoomLevel, (sy - panY) / zoomLevel];
+      } else if (originCorner === 'BottomRight') {
+        return [bedW - (sx - panX) / zoomLevel, bedH - (sy - panY) / zoomLevel];
+      } else {
+        // BottomLeft (GRBL default)
+        return [(sx - panX) / zoomLevel, bedH - ((sy - panY) / zoomLevel)];
+      }
     }
 
     // Helper: calculate bounding box of any shape
@@ -731,17 +824,15 @@
     function render() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const [bX0, bY1] = worldToScreen(0, 0);
-      const [bX1, bY0] = worldToScreen(bedW, bedH);
-      const bw = bX1 - bX0;
-      const bh = bY1 - bY0;
+      const bw = bedW * zoomLevel;
+      const bh = bedH * zoomLevel;
 
-      // Bed surface
+      // Bed surface (working envelope)
       ctx.fillStyle = '#11131c';
-      ctx.fillRect(bX0, bY0, bw, bh);
+      ctx.fillRect(panX, panY, bw, bh);
       ctx.strokeStyle = '#2a324b';
       ctx.lineWidth = 1.5;
-      ctx.strokeRect(bX0, bY0, bw, bh);
+      ctx.strokeRect(panX, panY, bw, bh);
 
       // Grid
       ctx.strokeStyle = '#181d2c';
@@ -757,6 +848,42 @@
         ctx.beginPath(); ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y); ctx.stroke();
       }
 
+      // --- Visible Origin (0,0) Marker with Orientation Arrows ---
+      const [origX, origY] = worldToScreen(0, 0);
+      const [axX, axY] = worldToScreen(35, 0);
+      const [ayX, ayY] = worldToScreen(0, 35);
+
+      // Target reticle
+      ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';
+      ctx.beginPath(); ctx.arc(origX, origY, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#00e5ff';
+      ctx.lineWidth = 2.0;
+      ctx.beginPath(); ctx.arc(origX, origY, 5, 0, Math.PI * 2); ctx.stroke();
+
+      // +X arrow
+      ctx.strokeStyle = '#00e5ff';
+      ctx.lineWidth = 2.0;
+      ctx.beginPath(); ctx.moveTo(origX, origY); ctx.lineTo(axX, axY); ctx.stroke();
+      ctx.fillStyle = '#00e5ff';
+      ctx.font = 'bold 10px sans-serif';
+      const offX = axX > origX ? 4 : -18;
+      const offY = axY > origY ? 12 : -4;
+      ctx.fillText('+X', axX + offX, axY + offY);
+
+      // +Y arrow
+      ctx.strokeStyle = '#ff9800';
+      ctx.lineWidth = 2.0;
+      ctx.beginPath(); ctx.moveTo(origX, origY); ctx.lineTo(ayX, ayY); ctx.stroke();
+      ctx.fillStyle = '#ff9800';
+      ctx.fillText('+Y', ayX + (ayX > origX ? 4 : -18), ayY + (ayY > origY ? 12 : -4));
+
+      // (0,0) badge
+      ctx.fillStyle = '#00e5ff';
+      ctx.font = 'bold 12px sans-serif';
+      const badgeOffX = origX > panX + bw / 2 ? -40 : 10;
+      const badgeOffY = origY > panY + bh / 2 ? -10 : 20;
+      ctx.fillText('(0,0)', origX + badgeOffX, origY + badgeOffY);
+
       // Draw Shapes
       for (const s of shapes) {
         const isSel = s === selectedShape;
@@ -764,8 +891,13 @@
         ctx.lineWidth = isSel ? 2.5 : 1.5;
 
         if (s.type === 'rect') {
-          const [sx, sy] = worldToScreen(s.x, s.y + s.h);
-          ctx.strokeRect(sx, sy, s.w * zoomLevel, s.h * zoomLevel);
+          const [p0x, p0y] = worldToScreen(s.x, s.y);
+          const [p1x, p1y] = worldToScreen(s.x + s.w, s.y + s.h);
+          const rx = Math.min(p0x, p1x);
+          const ry = Math.min(p0y, p1y);
+          const rw = Math.abs(p1x - p0x);
+          const rh = Math.abs(p1y - p0y);
+          ctx.strokeRect(rx, ry, rw, rh);
         } else if (s.type === 'circle') {
           const [cx, cy] = worldToScreen(s.cx, s.cy);
           ctx.beginPath();
@@ -793,19 +925,21 @@
       // If shape selected, draw bounding box + Delete [X] badge
       if (selectedShape) {
         const b = getShapeBounds(selectedShape);
-        const [sx0, sy0] = worldToScreen(b.minX, b.maxY);
-        const [sx1, sy1] = worldToScreen(b.maxX, b.minY);
-        const bw = sx1 - sx0;
-        const bh = sy1 - sy0;
+        const [p0x, p0y] = worldToScreen(b.minX, b.minY);
+        const [p1x, p1y] = worldToScreen(b.maxX, b.maxY);
+        const sx0 = Math.min(p0x, p1x);
+        const sy0 = Math.min(p0y, p1y);
+        const sbw = Math.abs(p1x - p0x);
+        const sbh = Math.abs(p1y - p0y);
 
         ctx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
         ctx.lineWidth = 1.0;
         ctx.setLineDash([4, 4]);
-        ctx.strokeRect(sx0 - 5, sy0 - 5, bw + 10, bh + 10);
+        ctx.strokeRect(sx0 - 5, sy0 - 5, sbw + 10, sbh + 10);
         ctx.setLineDash([]);
 
         // Delete button badge at top right
-        const badgeX = sx1 + 5;
+        const badgeX = sx0 + sbw + 5;
         const badgeY = sy0 - 5;
         ctx.fillStyle = '#ff1744';
         ctx.beginPath();
@@ -849,8 +983,11 @@
       // Check if clicked the Delete badge of selected shape
       if (selectedShape) {
         const b = getShapeBounds(selectedShape);
-        const [sx1, sy0] = worldToScreen(b.maxX, b.maxY);
-        if (Math.hypot(e.clientX - (sx1 + 5), e.clientY - (sy0 - 5)) <= 14) {
+        const [p0x, p0y] = worldToScreen(b.minX, b.minY);
+        const [p1x, p1y] = worldToScreen(b.maxX, b.maxY);
+        const badgeX = Math.max(p0x, p1x) + 5;
+        const badgeY = Math.min(p0y, p1y) - 5;
+        if (Math.hypot(e.clientX - badgeX, e.clientY - badgeY) <= 14) {
           deleteSelected();
           isPointerDown = false;
           return;
@@ -888,8 +1025,16 @@
 
       if (activeTool === 'select') {
         if (selectedShape) {
-          const wdx = dx / zoomLevel;
-          const wdy = -dy / zoomLevel; // inverting Y
+          let wdx = dx / zoomLevel;
+          let wdy = dy / zoomLevel;
+          if (originCorner === 'BottomLeft') {
+            wdy = -wdy;
+          } else if (originCorner === 'TopRight') {
+            wdx = -wdx;
+          } else if (originCorner === 'BottomRight') {
+            wdx = -wdx;
+            wdy = -wdy;
+          }
           if (selectedShape.type === 'rect') {
             selectedShape.x += wdx; selectedShape.y += wdy;
           } else if (selectedShape.type === 'circle') {
@@ -1229,19 +1374,39 @@
       render();
     }
 
+    // Helper: convert world coordinate to physical document SVG coordinate
+    function toDoc(x, y) {
+      if (originCorner === 'TopLeft') return [x, y];
+      if (originCorner === 'TopRight') return [bedW - x, y];
+      if (originCorner === 'BottomRight') return [bedW - x, bedH - y];
+      return [x, bedH - y]; // BottomLeft (default)
+    }
+
     // Export Shapes as clean SVG and upload to Laser server
     function sendJobToLaser() {
       if (shapes.length === 0) { alert('Piirrä tai luo kuvioita kankaalle ensin!'); return; }
       let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${bedW}mm" height="${bedH}mm" viewBox="0 0 ${bedW} ${bedH}">`;
       for (const s of shapes) {
         if (s.type === 'rect') {
-          svg += `<rect x="${s.x}" y="${bedH - s.y - s.h}" width="${s.w}" height="${s.h}" stroke="blue" fill="none"/>`;
+          const [d0x, d0y] = toDoc(s.x, s.y);
+          const [d1x, d1y] = toDoc(s.x + s.w, s.y + s.h);
+          const rx = Math.min(d0x, d1x);
+          const ry = Math.min(d0y, d1y);
+          const rw = Math.abs(d1x - d0x);
+          const rh = Math.abs(d1y - d0y);
+          svg += `<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" stroke="blue" fill="none"/>`;
         } else if (s.type === 'circle') {
-          svg += `<circle cx="${s.cx}" cy="${bedH - s.cy}" r="${s.r}" stroke="blue" fill="none"/>`;
+          const [cx, cy] = toDoc(s.cx, s.cy);
+          svg += `<circle cx="${cx}" cy="${cy}" r="${s.r}" stroke="blue" fill="none"/>`;
         } else if (s.type === 'line') {
-          svg += `<line x1="${s.x1}" y1="${bedH - s.y1}" x2="${s.x2}" y2="${bedH - s.y2}" stroke="blue"/>`;
+          const [p1x, p1y] = toDoc(s.x1, s.y1);
+          const [p2x, p2y] = toDoc(s.x2, s.y2);
+          svg += `<line x1="${p1x}" y1="${p1y}" x2="${p2x}" y2="${p2y}" stroke="blue"/>`;
         } else if (s.type === 'poly') {
-          const ptsStr = s.pts.map(p => `${p.x},${bedH - p.y}`).join(' ');
+          const ptsStr = s.pts.map(p => {
+            const [px, py] = toDoc(p.x, p.y);
+            return `${px.toFixed(2)},${py.toFixed(2)}`;
+          }).join(' ');
           svg += `<polygon points="${ptsStr}" stroke="blue" fill="none"/>`;
         }
       }
@@ -1266,6 +1431,13 @@
         const data = await res.json();
         currentX = data.work_x || 0;
         currentY = data.work_y || 0;
+        if (data.bed_width && Math.abs(data.bed_width - bedW) > 0.1) bedW = data.bed_width;
+        if (data.bed_height && Math.abs(data.bed_height - bedH) > 0.1) bedH = data.bed_height;
+        if (data.origin_corner && data.origin_corner !== originCorner) {
+          originCorner = data.origin_corner;
+          localStorage.setItem('photoncam_origin_corner', originCorner);
+          updateOriginUI();
+        }
         document.getElementById('hdrX').textContent = currentX.toFixed(2);
         document.getElementById('hdrY').textContent = currentY.toFixed(2);
         document.getElementById('statusText').textContent = data.grbl_state || (data.connected ? 'Yhdistetty' : 'Offline');
@@ -1293,6 +1465,7 @@
 
     // Initial setup
     resize();
+    updateOriginUI();
     updatePropWindow();
   </script>
 </body>
