@@ -11,8 +11,8 @@
   <style>
     :root {
       --bg: #0f111a;
-      --card-bg: rgba(22, 26, 38, 0.92);
-      --card-border: rgba(55, 65, 90, 0.6);
+      --card-bg: rgba(22, 26, 38, 0.94);
+      --card-border: rgba(55, 65, 90, 0.65);
       --text: #e6edf3;
       --text-muted: #8b949e;
       --accent: #ff5722;
@@ -54,7 +54,7 @@
       left: 0;
       right: 0;
       height: 48px;
-      background: rgba(18, 21, 32, 0.88);
+      background: rgba(18, 21, 32, 0.90);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       border-bottom: 1px solid var(--card-border);
@@ -174,7 +174,7 @@
       transition: height 0.2s ease;
     }
     .floating-header {
-      background: rgba(30, 35, 52, 0.7);
+      background: rgba(30, 35, 52, 0.75);
       border-bottom: 1px solid var(--card-border);
       padding: 8px 12px;
       display: flex;
@@ -220,7 +220,7 @@
     #propWindow {
       top: 60px;
       right: 14px;
-      width: 310px;
+      width: 320px;
     }
 
     /* Job & Jog HUD Panel */
@@ -234,7 +234,7 @@
     .modal-backdrop {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0, 0, 0, 0.72);
+      background: rgba(0, 0, 0, 0.75);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
       z-index: 150;
@@ -303,6 +303,47 @@
     }
     .btn-primary:active { transform: scale(0.96); }
 
+    .btn-danger {
+      background: rgba(255, 23, 68, 0.15);
+      border: 1px solid rgba(255, 23, 68, 0.4);
+      color: var(--red);
+      padding: 8px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+    }
+    .btn-danger:hover { background: rgba(255, 23, 68, 0.25); }
+
+    /* Object item list in properties */
+    .obj-item-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 6px;
+      background: #141722;
+      border: 1px solid var(--card-border);
+      border-radius: 4px;
+      font-size: 0.78rem;
+    }
+    .obj-item-row.selected {
+      border-color: var(--cyan);
+      background: rgba(0, 229, 255, 0.12);
+    }
+    .obj-del-btn {
+      background: none;
+      border: none;
+      color: var(--red);
+      cursor: pointer;
+      font-weight: bold;
+      padding: 2px 6px;
+    }
+
     /* Jog Controls */
     .dpad {
       display: grid;
@@ -367,7 +408,7 @@
   <!-- Top Navigation Bar -->
   <header>
     <div class="brand">
-      🔥 <span>PhotonCAM</span> Web
+      🔥 <span>PhotonCAM</span> Web Remote
     </div>
 
     <div class="nav-stats">
@@ -379,7 +420,7 @@
     </div>
 
     <div style="display: flex; align-items: center; gap: 8px;">
-      <button class="win-btn" title="Työkalut" onclick="toggleWin('propWindow')">📐</button>
+      <button class="win-btn" title="Ominaisuudet" onclick="toggleWin('propWindow')">📐</button>
       <button class="win-btn" title="Laserohjaus" onclick="toggleWin('jobWindow')">🎮</button>
       <button class="win-btn" title="Keskitys" onclick="resetView()">⟲</button>
       <button class="btn-estop" onclick="sendStop()">HÄTÄSEIS</button>
@@ -388,11 +429,10 @@
 
   <!-- Floating Tool Palette (Left) -->
   <div class="tool-palette">
-    <button id="tool_select" class="tool-btn active" title="Valintatyökalu" onclick="setTool('select')">↖</button>
+    <button id="tool_select" class="tool-btn active" title="Valintatyökalu & Siirto" onclick="setTool('select')">↖</button>
     <button id="tool_rect" class="tool-btn" title="Suorakulmio" onclick="setTool('rect')">▭</button>
     <button id="tool_circle" class="tool-btn" title="Ympyrä" onclick="setTool('circle')">○</button>
     <button id="tool_line" class="tool-btn" title="Suora viiva" onclick="setTool('line')">╱</button>
-    <button id="tool_text" class="tool-btn" title="Teksti" onclick="promptAddText()">T</button>
     <div class="tool-separator"></div>
     <button class="tool-btn" title="Sormiliitos-laatikot (Box Maker)" onclick="openModal('boxModal')">📦</button>
     <button class="tool-btn" title="Living Hinge (Joustosarana)" onclick="openModal('hingeModal')">🌀</button>
@@ -404,15 +444,17 @@
   <!-- Floating Properties & Layers Panel (Right Top) -->
   <div id="propWindow" class="floating-window">
     <div class="floating-header" onmousedown="initDrag(event, 'propWindow')">
-      <span>📐 Ominaisuudet & Tasot</span>
+      <span>📐 Ominaisuudet & Objektit</span>
       <div class="floating-actions">
         <button class="win-btn" onclick="toggleCollapse('propWindow')">–</button>
       </div>
     </div>
     <div class="floating-body">
-      <div id="selInfo" style="font-size: 0.8rem; color: var(--text-muted);">
+      <!-- Selected shape inspector -->
+      <div id="selInfo" style="font-size: 0.82rem; font-weight: 700; color: var(--cyan);">
         Ei valittua objektia.
       </div>
+
       <div class="form-grid" id="selControls" style="display: none;">
         <div class="form-row">
           <label>Leveys (W mm)</label>
@@ -424,22 +466,29 @@
         </div>
       </div>
 
-      <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-top: 6px;">
-        Leikkaustaso (Active Layer):
+      <button id="btnDeleteSelected" class="btn-danger" style="display: none;" onclick="deleteSelected()">
+        🗑️ Poista valittu objekti
+      </button>
+
+      <!-- Object item list for individual deletion -->
+      <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-top: 6px;">
+        Kankaan objektit (<span id="objCount">0</span> kpl):
+      </div>
+      <div id="objList" style="display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto;">
+        <!-- Filled dynamically -->
+      </div>
+
+      <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-top: 6px;">
+        Aktiivinen leikkaustaso:
       </div>
       <div style="display: flex; gap: 6px; align-items: center;">
         <div style="width: 14px; height: 14px; border-radius: 3px; background: #00e5ff;"></div>
-        <span style="font-size: 0.85rem; font-weight: 600;">[L00] Leikkaus & Kaiverrus</span>
+        <span style="font-size: 0.82rem; font-weight: 600;">[L00] Leikkaus & Kaiverrus</span>
       </div>
 
-      <div style="display: flex; gap: 6px; margin-top: 6px;">
-        <button class="btn-primary" style="flex: 1;" onclick="sendJobToLaser()">
-          ⚡ Lähetä laserille
-        </button>
-        <button class="win-btn" style="border: 1px solid var(--card-border);" title="Poista valinta" onclick="deleteSelected()">
-          🗑️
-        </button>
-      </div>
+      <button class="btn-primary" style="margin-top: 6px;" onclick="sendJobToLaser()">
+        ⚡ Lähetä laserille (Cut Job)
+      </button>
     </div>
   </div>
 
@@ -496,14 +545,22 @@
         <button class="modal-close" onclick="closeModal('boxModal')">✕</button>
       </div>
       <div class="form-grid">
-        <div class="form-row"><label>Leveys (W mm)</label><input type="number" id="boxW" class="input-num" value="80"></div>
-        <div class="form-row"><label>Syvyys (D mm)</label><input type="number" id="boxD" class="input-num" value="60"></div>
-        <div class="form-row"><label>Korkeus (H mm)</label><input type="number" id="boxH" class="input-num" value="40"></div>
-        <div class="form-row"><label>Paksuus (T mm)</label><input type="number" id="boxT" class="input-num" value="3.0"></div>
-        <div class="form-row"><label>Tapin leveys (mm)</label><input type="number" id="boxTab" class="input-num" value="10.0"></div>
-        <div class="form-row"><label>Kerf-välys (mm)</label><input type="number" id="boxKerf" class="input-num" value="0.08" step="0.01"></div>
+        <div class="form-row"><label>Leveys X (mm)</label><input type="number" id="boxW" class="input-num" value="80"></div>
+        <div class="form-row"><label>Syvyys Y (mm)</label><input type="number" id="boxD" class="input-num" value="60"></div>
+        <div class="form-row"><label>Korkeus Z (mm)</label><input type="number" id="boxH" class="input-num" value="40"></div>
+        <div class="form-row"><label>Materiaalin paksuus (mm)</label><input type="number" id="boxT" class="input-num" value="3.0"></div>
+        <div class="form-row"><label>Tapin tavoiteleveys (mm)</label><input type="number" id="boxTab" class="input-num" value="10.0"></div>
+        <div class="form-row"><label>Kerf-tiukkuus (mm)</label><input type="number" id="boxKerf" class="input-num" value="0.08" step="0.01"></div>
       </div>
-      <button class="btn-primary" onclick="generateBoxOnCanvas()">Luo laatikko kankaalle</button>
+      <div class="form-row" style="margin-top: 4px;">
+        <label>Kansi</label>
+        <select id="boxLid">
+          <option value="none">Avoin laatikko (ei kantta)</option>
+          <option value="finger">Sormiliitoskansi (suljettu kuutio)</option>
+          <option value="flat">Tasainen päällyskansi</option>
+        </select>
+      </div>
+      <button class="btn-primary" onclick="generateBoxOnCanvas()">Luo sormiliitoslaatikko kankaalle</button>
     </div>
   </div>
 
@@ -537,13 +594,6 @@
       </div>
       <div class="form-grid">
         <div class="form-row"><label>Koko (mm)</label><input type="number" id="qrSize" class="input-num" value="40"></div>
-        <div class="form-row">
-          <label>Tyyli</label>
-          <select id="qrStyle">
-            <option value="square">Neliöt</option>
-            <option value="dots">Pisteet</option>
-          </select>
-        </div>
       </div>
       <button class="btn-primary" onclick="generateQrOnCanvas()">Lisää QR kankaalle</button>
     </div>
@@ -601,6 +651,80 @@
         (sx - panX) / zoomLevel,
         bedH - ((sy - panY) / zoomLevel)
       ];
+    }
+
+    // Helper: calculate bounding box of any shape
+    function getShapeBounds(s) {
+      if (s.type === 'rect') {
+        return { minX: s.x, minY: s.y, maxX: s.x + s.w, maxY: s.y + s.h, w: s.w, h: s.h };
+      } else if (s.type === 'circle') {
+        return { minX: s.cx - s.r, minY: s.cy - s.r, maxX: s.cx + s.r, maxY: s.cy + s.r, w: s.r * 2, h: s.r * 2 };
+      } else if (s.type === 'line') {
+        const minX = Math.min(s.x1, s.x2), maxX = Math.max(s.x1, s.x2);
+        const minY = Math.min(s.y1, s.y2), maxY = Math.max(s.y1, s.y2);
+        return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+      } else if (s.type === 'poly') {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of s.pts) {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+        return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+      }
+      return { minX: 0, minY: 0, maxX: 0, maxY: 0, w: 0, h: 0 };
+    }
+
+    // Helper: distance from point (px, py) to line segment (x1, y1) -> (x2, y2)
+    function distToSegment(px, py, x1, y1, x2, y2) {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq === 0) return Math.hypot(px - x1, py - y1);
+      let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+    }
+
+    // Robust Hit Test: returns true if (wx, wy) hits shape
+    function hitTestShape(s, wx, wy) {
+      const tol = 6.0 / zoomLevel; // generous click tolerance
+
+      if (s.type === 'rect') {
+        return wx >= (s.x - tol) && wx <= (s.x + s.w + tol) &&
+               wy >= (s.y - tol) && wy <= (s.y + s.h + tol);
+      } else if (s.type === 'circle') {
+        return Math.hypot(wx - s.cx, wy - s.cy) <= (s.r + tol);
+      } else if (s.type === 'line') {
+        return distToSegment(wx, wy, s.x1, s.y1, s.x2, s.y2) <= tol;
+      } else if (s.type === 'poly') {
+        const b = getShapeBounds(s);
+        if (wx < b.minX - tol || wx > b.maxX + tol || wy < b.minY - tol || wy > b.maxY + tol) {
+          return false;
+        }
+        // 1. Ray-casting point in polygon test
+        let inside = false;
+        const pts = s.pts;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+          const xi = pts[i].x, yi = pts[i].y;
+          const xj = pts[j].x, yj = pts[j].y;
+          const intersect = ((yi > wy) !== (yj > wy)) &&
+                            (wx < (xj - xi) * (wy - yi) / (yj - yi) + xi);
+          if (intersect) inside = !inside;
+        }
+        if (inside) return true;
+
+        // 2. Near edge test
+        for (let i = 0; i < pts.length; i++) {
+          const p1 = pts[i];
+          const p2 = pts[(i + 1) % pts.length];
+          if (distToSegment(wx, wy, p1.x, p1.y, p2.x, p2.y) <= tol) {
+            return true;
+          }
+        }
+      }
+      return false;
     }
 
     // Render Canvas
@@ -666,6 +790,34 @@
         }
       }
 
+      // If shape selected, draw bounding box + Delete [X] badge
+      if (selectedShape) {
+        const b = getShapeBounds(selectedShape);
+        const [sx0, sy0] = worldToScreen(b.minX, b.maxY);
+        const [sx1, sy1] = worldToScreen(b.maxX, b.minY);
+        const bw = sx1 - sx0;
+        const bh = sy1 - sy0;
+
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
+        ctx.lineWidth = 1.0;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(sx0 - 5, sy0 - 5, bw + 10, bh + 10);
+        ctx.setLineDash([]);
+
+        // Delete button badge at top right
+        const badgeX = sx1 + 5;
+        const badgeY = sy0 - 5;
+        ctx.fillStyle = '#ff1744';
+        ctx.beginPath();
+        ctx.arc(badgeX, badgeY, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('✕', badgeX, badgeY);
+      }
+
       // Laser Head Marker
       const [hx, hy] = worldToScreen(currentX, currentY);
       ctx.fillStyle = weakLightOn ? 'rgba(255, 87, 34, 0.4)' : 'rgba(255, 23, 68, 0.3)';
@@ -674,7 +826,7 @@
       ctx.beginPath(); ctx.arc(hx, hy, 4, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(hx - 14, hy); ctx.lineTo(hx + 14, hy);
-      ctx.moveTo(hx, hy - 14); ctx.lineTo(hx, hy + 14);
+      ctx.moveTo(hx, hy - 14); ctx.lineTo(hx + 14, hy);
       ctx.stroke();
     }
 
@@ -694,23 +846,36 @@
 
       const [wx, wy] = screenToWorld(e.clientX, e.clientY);
 
+      // Check if clicked the Delete badge of selected shape
+      if (selectedShape) {
+        const b = getShapeBounds(selectedShape);
+        const [sx1, sy0] = worldToScreen(b.maxX, b.maxY);
+        if (Math.hypot(e.clientX - (sx1 + 5), e.clientY - (sy0 - 5)) <= 14) {
+          deleteSelected();
+          isPointerDown = false;
+          return;
+        }
+      }
+
       if (activeTool === 'select') {
-        // Hit test
-        selectedShape = null;
+        // Hit test top-most shape
+        let hit = null;
         for (let i = shapes.length - 1; i >= 0; i--) {
-          const s = shapes[i];
-          if (s.type === 'rect' && wx >= s.x && wx <= s.x + s.w && wy >= s.y && wy <= s.y + s.h) {
-            selectedShape = s; break;
-          } else if (s.type === 'circle' && Math.hypot(wx - s.cx, wy - s.cy) <= s.r) {
-            selectedShape = s; break;
+          if (hitTestShape(shapes[i], wx, wy)) {
+            hit = shapes[i];
+            break;
           }
         }
+        selectedShape = hit;
         updatePropWindow();
       } else if (activeTool === 'rect') {
-        shapes.push({ type: 'rect', x: wx, y: wy, w: 2, h: 2 });
+        shapes.push({ type: 'rect', name: 'Suorakulmio', x: wx, y: wy, w: 2, h: 2 });
         selectedShape = shapes[shapes.length - 1];
       } else if (activeTool === 'circle') {
-        shapes.push({ type: 'circle', cx: wx, cy: wy, r: 2 });
+        shapes.push({ type: 'circle', name: 'Ympyrä', cx: wx, cy: wy, r: 2 });
+        selectedShape = shapes[shapes.length - 1];
+      } else if (activeTool === 'line') {
+        shapes.push({ type: 'line', name: 'Viiva', x1: wx, y1: wy, x2: wx + 2, y2: wy + 2 });
         selectedShape = shapes[shapes.length - 1];
       }
       render();
@@ -724,9 +889,19 @@
       if (activeTool === 'select') {
         if (selectedShape) {
           const wdx = dx / zoomLevel;
-          const wdy = -dy / zoomLevel;
-          if (selectedShape.type === 'rect') { selectedShape.x += wdx; selectedShape.y += wdy; }
-          else if (selectedShape.type === 'circle') { selectedShape.cx += wdx; selectedShape.cy += wdy; }
+          const wdy = -dy / zoomLevel; // inverting Y
+          if (selectedShape.type === 'rect') {
+            selectedShape.x += wdx; selectedShape.y += wdy;
+          } else if (selectedShape.type === 'circle') {
+            selectedShape.cx += wdx; selectedShape.cy += wdy;
+          } else if (selectedShape.type === 'line') {
+            selectedShape.x1 += wdx; selectedShape.y1 += wdy;
+            selectedShape.x2 += wdx; selectedShape.y2 += wdy;
+          } else if (selectedShape.type === 'poly') {
+            for (const p of selectedShape.pts) {
+              p.x += wdx; p.y += wdy;
+            }
+          }
           pointerStartX = e.clientX;
           pointerStartY = e.clientY;
         } else {
@@ -740,6 +915,10 @@
       } else if (activeTool === 'circle' && selectedShape) {
         const [wx, wy] = screenToWorld(e.clientX, e.clientY);
         selectedShape.r = Math.max(2, Math.hypot(wx - selectedShape.cx, wy - selectedShape.cy));
+      } else if (activeTool === 'line' && selectedShape) {
+        const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+        selectedShape.x2 = wx;
+        selectedShape.y2 = wy;
       }
       render();
     });
@@ -748,6 +927,14 @@
       isPointerDown = false;
       if (activeTool !== 'select') setTool('select');
       updatePropWindow();
+    });
+
+    // Keyboard Delete
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT')) return;
+        deleteSelected();
+      }
     });
 
     // Touch Pinch-to-zoom
@@ -778,20 +965,51 @@
     function updatePropWindow() {
       const info = document.getElementById('selInfo');
       const ctrls = document.getElementById('selControls');
+      const btnDel = document.getElementById('btnDeleteSelected');
+      const listEl = document.getElementById('objList');
+      const countEl = document.getElementById('objCount');
+
+      countEl.textContent = shapes.length;
+
       if (selectedShape) {
-        info.textContent = `Valittu: ${selectedShape.type}`;
+        const b = getShapeBounds(selectedShape);
+        info.textContent = `Valittu: ${selectedShape.name || selectedShape.type} (${Math.round(b.w)} × ${Math.round(b.h)} mm)`;
         ctrls.style.display = 'grid';
-        if (selectedShape.type === 'rect') {
-          document.getElementById('propW').value = Math.round(selectedShape.w);
-          document.getElementById('propH').value = Math.round(selectedShape.h);
-        } else if (selectedShape.type === 'circle') {
-          document.getElementById('propW').value = Math.round(selectedShape.r * 2);
-          document.getElementById('propH').value = Math.round(selectedShape.r * 2);
-        }
+        btnDel.style.display = 'flex';
+        document.getElementById('propW').value = Math.round(b.w);
+        document.getElementById('propH').value = Math.round(b.h);
       } else {
         info.textContent = 'Ei valittua objektia.';
         ctrls.style.display = 'none';
+        btnDel.style.display = 'none';
       }
+
+      // Rebuild object list
+      listEl.innerHTML = '';
+      shapes.forEach((s, idx) => {
+        const row = document.createElement('div');
+        row.className = 'obj-item-row' + (s === selectedShape ? ' selected' : '');
+        row.onclick = () => { selectedShape = s; updatePropWindow(); render(); };
+
+        const label = document.createElement('span');
+        label.textContent = `${idx + 1}. ${s.name || s.type}`;
+        row.appendChild(label);
+
+        const del = document.createElement('button');
+        del.className = 'obj-del-btn';
+        del.textContent = '✕';
+        del.title = 'Poista tämä objekti';
+        del.onclick = (ev) => {
+          ev.stopPropagation();
+          shapes = shapes.filter(item => item !== s);
+          if (selectedShape === s) selectedShape = null;
+          updatePropWindow();
+          render();
+        };
+        row.appendChild(del);
+
+        listEl.appendChild(row);
+      });
     }
 
     function updateSelBounds() {
@@ -823,63 +1041,162 @@
       document.getElementById(id).classList.toggle('collapsed');
     }
 
-    // --- Box Maker Generator ---
+    // =============================================================
+    // REAL FINGER-JOINT BOX GENERATOR (WITH PROPER TABS & KERF)
+    // =============================================================
+    function generateEdgePoints(start, end, edgeType, thickness, targetTabSize, kerf, normal) {
+      if (edgeType === 'flat') {
+        return [start, end];
+      }
+
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 1.0) return [start, end];
+
+      const dirX = dx / len;
+      const dirY = dy / len;
+
+      let numSegs = Math.max(3, Math.round(len / Math.max(2.0, targetTabSize)));
+      if (numSegs % 2 === 0) numSegs += 1; // Always odd for symmetrical ends
+
+      const segLen = len / numSegs;
+      const pts = [start];
+
+      for (let i = 0; i < numSegs; i++) {
+        const isTab = (i % 2 === 0);
+        const isProtruding = (edgeType === 'tabs') ? isTab : !isTab;
+        const offset = isProtruding ? thickness : 0.0;
+
+        const t0 = i * segLen;
+        const t1 = (i + 1) * segLen;
+
+        const adj0 = isProtruding ? -kerf * 0.5 : kerf * 0.5;
+        const adj1 = isProtruding ? kerf * 0.5 : -kerf * 0.5;
+
+        const ptA = {
+          x: start.x + dirX * (t0 + adj0) + normal.x * offset,
+          y: start.y + dirY * (t0 + adj0) + normal.y * offset
+        };
+        const ptB = {
+          x: start.x + dirX * (t1 + adj1) + normal.x * offset,
+          y: start.y + dirY * (t1 + adj1) + normal.y * offset
+        };
+
+        pts.push(ptA);
+        pts.push(ptB);
+      }
+
+      pts.push(end);
+      return pts;
+    }
+
+    function createBoxPanel(name, w, h, bottomType, rightType, topType, leftType, t, tabSize, kerf, ox, oy) {
+      const pBL = { x: ox, y: oy };
+      const pBR = { x: ox + w, y: oy };
+      const pTR = { x: ox + w, y: oy + h };
+      const pTL = { x: ox, y: oy + h };
+
+      const pts = [];
+      pts.push(...generateEdgePoints(pBL, pBR, bottomType, t, tabSize, kerf, { x: 0, y: -1 }));
+      pts.push(...generateEdgePoints(pBR, pTR, rightType, t, tabSize, kerf, { x: 1, y: 0 }));
+      pts.push(...generateEdgePoints(pTR, pTL, topType, t, tabSize, kerf, { x: 0, y: 1 }));
+      pts.push(...generateEdgePoints(pTL, pBL, leftType, t, tabSize, kerf, { x: -1, y: 0 }));
+
+      return {
+        type: 'poly',
+        name: name,
+        pts: pts,
+        closed: true
+      };
+    }
+
     function generateBoxOnCanvas() {
-      const w = parseFloat(document.getElementById('boxW').value);
-      const d = parseFloat(document.getElementById('boxD').value);
-      const h = parseFloat(document.getElementById('boxH').value);
-      const t = parseFloat(document.getElementById('boxT').value);
+      const w = parseFloat(document.getElementById('boxW').value) || 80;
+      const d = parseFloat(document.getElementById('boxD').value) || 60;
+      const h = parseFloat(document.getElementById('boxH').value) || 40;
+      const t = parseFloat(document.getElementById('boxT').value) || 3.0;
+      const tab = parseFloat(document.getElementById('boxTab').value) || 10.0;
+      const kerf = parseFloat(document.getElementById('boxKerf').value) || 0.08;
+      const lid = document.getElementById('boxLid').value;
       closeModal('boxModal');
 
-      // Unpack 2D box pieces on canvas
-      const startX = 30, startY = 30;
-      shapes.push({ type: 'rect', x: startX, y: startY, w: w, h: d }); // Bottom
-      shapes.push({ type: 'rect', x: startX + w + 10, y: startY, w: w, h: h }); // Front
-      shapes.push({ type: 'rect', x: startX + w + 10, y: startY + h + 10, w: w, h: h }); // Back
-      shapes.push({ type: 'rect', x: startX, y: startY + d + 10, w: d, h: h }); // Left
-      shapes.push({ type: 'rect', x: startX + d + 10, y: startY + d + 10, w: d, h: h }); // Right
+      const sideTop = (lid === 'finger') ? 'slots' : 'flat';
+
+      // 1. Bottom panel (W x D) - all 4 edges Tabs
+      shapes.push(createBoxPanel('Pohja (Bottom)', w, d, 'tabs', 'tabs', 'tabs', 'tabs', t, tab, kerf, 25, 25));
+
+      // 2. Front & Back panels (W x H)
+      shapes.push(createBoxPanel('Etuseinä (Front)', w, h, 'slots', 'tabs', sideTop, 'tabs', t, tab, kerf, 25 + w + 15, 25));
+      shapes.push(createBoxPanel('Takaseinä (Back)', w, h, 'slots', 'tabs', sideTop, 'tabs', t, tab, kerf, 25 + w + 15, 25 + h + 15));
+
+      // 3. Left & Right panels (D x H)
+      shapes.push(createBoxPanel('Vasen seinä (Left)', d, h, 'slots', 'slots', sideTop, 'slots', t, tab, kerf, 25, 25 + d + 15));
+      shapes.push(createBoxPanel('Oikea seinä (Right)', d, h, 'slots', 'slots', sideTop, 'slots', t, tab, kerf, 25 + d + 15, 25 + d + 15));
+
+      // 4. Optional Lid
+      if (lid === 'finger') {
+        shapes.push(createBoxPanel('Kansi (Lid)', w, d, 'tabs', 'tabs', 'tabs', 'tabs', t, tab, kerf, 25 + w * 2 + 30, 25));
+      } else if (lid === 'flat') {
+        shapes.push(createBoxPanel('Kansi (Flat)', w, d, 'flat', 'flat', 'flat', 'flat', t, tab, kerf, 25 + w * 2 + 30, 25));
+      }
+
+      selectedShape = shapes[shapes.length - 1];
+      updatePropWindow();
       render();
     }
 
     // --- Living Hinge Generator ---
     function generateHingeOnCanvas() {
-      const w = parseFloat(document.getElementById('hingeW').value);
-      const h = parseFloat(document.getElementById('hingeH').value);
-      const pitch = parseFloat(document.getElementById('hingePitch').value);
-      const cutLen = parseFloat(document.getElementById('hingeCut').value);
+      const w = parseFloat(document.getElementById('hingeW').value) || 50;
+      const h = parseFloat(document.getElementById('hingeH').value) || 80;
+      const pitch = parseFloat(document.getElementById('hingePitch').value) || 3.0;
+      const cutLen = parseFloat(document.getElementById('hingeCut').value) || 18.0;
       closeModal('hingeModal');
 
-      const startX = 50, startY = 50;
+      const startX = 60, startY = 60;
       const numCols = Math.floor(w / pitch);
       for (let c = 0; c < numCols; c++) {
         const x = startX + c * pitch;
         const isOdd = c % 2 === 1;
         let y = startY + (isOdd ? cutLen * 0.5 : 0);
         while (y < startY + h) {
-          shapes.push({ type: 'line', x1: x, y1: y, x2: x, y2: Math.min(y + cutLen, startY + h) });
+          shapes.push({
+            type: 'line',
+            name: `Sarana viilto C${c+1}`,
+            x1: x, y1: y,
+            x2: x, y2: Math.min(y + cutLen, startY + h)
+          });
           y += cutLen + 2.5;
         }
       }
+      updatePropWindow();
       render();
     }
 
     // --- QR Code Generator ---
     function generateQrOnCanvas() {
-      const txt = document.getElementById('qrText').value;
-      const sz = parseFloat(document.getElementById('qrSize').value);
+      const txt = document.getElementById('qrText').value || 'https://photoncam.app';
+      const sz = parseFloat(document.getElementById('qrSize').value) || 40;
       closeModal('qrModal');
 
-      // Mock QR pattern matrix
-      const startX = 40, startY = 40;
+      const startX = 50, startY = 50;
       const cells = 21;
       const cellSz = sz / cells;
       for (let r = 0; r < cells; r++) {
         for (let c = 0; c < cells; c++) {
           if ((r < 7 && c < 7) || (r < 7 && c >= 14) || (r >= 14 && c < 7) || (r * c + r + c) % 3 === 0) {
-            shapes.push({ type: 'rect', x: startX + c * cellSz, y: startY + (cells - 1 - r) * cellSz, w: cellSz, h: cellSz });
+            shapes.push({
+              type: 'rect',
+              name: 'QR-moduuli',
+              x: startX + c * cellSz,
+              y: startY + (cells - 1 - r) * cellSz,
+              w: cellSz, h: cellSz
+            });
           }
         }
       }
+      updatePropWindow();
       render();
     }
 
@@ -912,14 +1229,21 @@
       render();
     }
 
-    // Export Shapes as SVG and upload to Laser
+    // Export Shapes as clean SVG and upload to Laser server
     function sendJobToLaser() {
       if (shapes.length === 0) { alert('Piirrä tai luo kuvioita kankaalle ensin!'); return; }
       let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${bedW}mm" height="${bedH}mm" viewBox="0 0 ${bedW} ${bedH}">`;
       for (const s of shapes) {
-        if (s.type === 'rect') svg += `<rect x="${s.x}" y="${bedH - s.y - s.h}" width="${s.w}" height="${s.h}" stroke="blue" fill="none"/>`;
-        else if (s.type === 'circle') svg += `<circle cx="${s.cx}" cy="${bedH - s.cy}" r="${s.r}" stroke="blue" fill="none"/>`;
-        else if (s.type === 'line') svg += `<line x1="${s.x1}" y1="${bedH - s.y1}" x2="${s.x2}" y2="${bedH - s.y2}" stroke="blue"/>`;
+        if (s.type === 'rect') {
+          svg += `<rect x="${s.x}" y="${bedH - s.y - s.h}" width="${s.w}" height="${s.h}" stroke="blue" fill="none"/>`;
+        } else if (s.type === 'circle') {
+          svg += `<circle cx="${s.cx}" cy="${bedH - s.cy}" r="${s.r}" stroke="blue" fill="none"/>`;
+        } else if (s.type === 'line') {
+          svg += `<line x1="${s.x1}" y1="${bedH - s.y1}" x2="${s.x2}" y2="${bedH - s.y2}" stroke="blue"/>`;
+        } else if (s.type === 'poly') {
+          const ptsStr = s.pts.map(p => `${p.x},${bedH - p.y}`).join(' ');
+          svg += `<polygon points="${ptsStr}" stroke="blue" fill="none"/>`;
+        }
       }
       svg += `</svg>`;
 
@@ -928,7 +1252,8 @@
         headers: { 'Content-Type': 'image/svg+xml' },
         body: svg
       }).then(() => {
-        alert('Vektorit generoitu ja lähetetty laserille! Voit nyt aloittaa leikkauksen Job-ohjaimesta.');
+        alert('Vektorit ja sormiliitokset lähetetty laserille! Voit nyt aloittaa leikkauksen ohjauspaneelista.');
+        document.getElementById('jobWindow').style.display = 'flex';
       });
     }
 
@@ -968,6 +1293,7 @@
 
     // Initial setup
     resize();
+    updatePropWindow();
   </script>
 </body>
 </html>
