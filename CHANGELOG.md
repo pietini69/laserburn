@@ -4,6 +4,23 @@ All notable changes, new features, and bug fixes for **PhotonCAM** across every 
 
 ---
 
+## [v1.2.7] – 2026-10-29
+
+### 🌟 New Features & Major Web-CAD Upgrades
+* **📱 Full iPad & Web-CAD Remote Upgrade:**
+  * **0,0 Origin Corner Selector:** Select machine origin directly in the Web Remote UI (Top-Left, Top-Right, Bottom-Left, Bottom-Right) with live orientation synchronization to the controller via `/api/settings`.
+  * **Visible Origin Marker & Direction Arrows:** Live glowing reticle at (0,0) with `+X` and `+Y` vector orientation arrows drawn on the canvas.
+  * **Finger-Joint Box Maker (Sormiliitokset):** Parametric laser box generator calculating exact male/female tabs and slots with material kerf compensation.
+  * **Living Hinge & QR Code Generators:** Instant geometric spring-cut hinges and crisp vector QR code creation right from the tablet browser.
+  * **Robust Polygon & Curve Hit-Testing:** Ray-casting point-in-polygon and distance-to-segment algorithm for seamless touch selection of any shape, box part, or line.
+  * **Individual Object Deletion:** Direct canvas `[✕]` badge on selected shapes, properties panel deletion, and an interactive object list.
+* **🍓 Raspberry Pi Systemd Boot Auto-start:**
+  * Updated 1-line installer creates `/etc/systemd/system/photoncam-bridge.service` and enables automatic service start on boot (`systemctl enable --now`).
+  * Ready-to-flash ARM64 Raspberry Pi OS image updated with latest bridge and full Web-CAD capabilities.
+* **⚡ G-Code Coordinate Peeling & Mirroring:** `/api/upload` endpoint automatically maps and mirrors uploaded vector paths to match the machine's configured origin corner.
+
+---
+
 ## [v1.2.6] – 2026-10-28
 
 ### 🌟 New Features & Fixes

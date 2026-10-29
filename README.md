@@ -5,7 +5,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-dea584.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)]()
-[![Free Download on Gumroad](https://img.shields.io/badge/Gumroad-Free%20Download-orange.svg)](https://shop.pietiniart.com/l/laserburn)
+[![Free Download on Gumroad](https://img.shields.io/badge/Gumroad-Free%20Download-orange.svg)](https://shop.pietiniart.com/l/photoncam)
 [![Buy Me A Coffee](https://img.shields.io/badge/☕%20Buy%20Me%20A%20Coffee-Donate-yellow.svg)](https://buymeacoffee.com/pnp69)
 
 **PhotonCAM** is an open-source, ultra-lightweight, and fully-featured laser CAM & controller application written from scratch in pure **Rust** (`eframe` / `egui`). 
@@ -72,14 +72,16 @@ PhotonCAM was engineered to deliver a responsive, industrial-grade CAM suite tha
 
 ## 📥 Downloads
 
-Pre-built binaries are available for every major platform from [GitHub Releases](https://github.com/pietini69/laserburn/releases/latest) or [Gumroad](https://shop.pietiniart.com/l/laserburn):
+Pre-built binaries and disk images are available for every major platform from [GitHub Releases](https://github.com/pietini69/photoncam/releases/latest) or [Gumroad](https://shop.pietiniart.com/l/photoncam):
 
 | Operating System | Package | Architecture | Direct Download |
 |---|---|---|---|
-| **macOS** (11.0+) | **DMG Installer** | Universal (Apple Silicon M1/M2/M3/M4 + Intel) | [PhotonCAM-1.1.0-universal.dmg](https://github.com/pietini69/laserburn/releases/download/v1.1.0/PhotonCAM-1.1.0-universal.dmg) |
-| **macOS** (11.0+) | **ZIP Archive** | Universal 2 | [PhotonCAM-1.1.0-macos-universal.zip](https://github.com/pietini69/laserburn/releases/download/v1.1.0/PhotonCAM-1.1.0-macos-universal.zip) |
-| **Windows** (10/11) | **ZIP Executable** | x86_64 (64-bit) | [PhotonCAM-1.1.0-windows-x64.zip](https://github.com/pietini69/laserburn/releases/download/v1.1.0/PhotonCAM-1.1.0-windows-x64.zip) |
-| **Linux** | **tar.gz Archive** | x86_64 | [PhotonCAM-1.1.0-linux-x86_64.tar.gz](https://github.com/pietini69/laserburn/releases/download/v1.1.0/PhotonCAM-1.1.0-linux-x86_64.tar.gz) |
+| **macOS** (11.0+) | **DMG Installer** | Universal (Apple Silicon M1/M2/M3/M4 + Intel) | [PhotonCAM-1.2.7-universal.dmg](https://github.com/pietini69/photoncam/releases/download/v1.2.7/PhotonCAM-1.2.7-universal.dmg) |
+| **macOS** (11.0+) | **ZIP Archive** | Universal 2 | [PhotonCAM-1.2.7-macos-universal.zip](https://github.com/pietini69/photoncam/releases/download/v1.2.7/PhotonCAM-1.2.7-macos-universal.zip) |
+| **Windows** (10/11) | **ZIP Executable** | x86_64 (64-bit) | [PhotonCAM-1.2.7-windows-x64.zip](https://github.com/pietini69/photoncam/releases/download/v1.2.7/PhotonCAM-1.2.7-windows-x64.zip) |
+| **Linux** | **tar.gz Archive** | x86_64 | [PhotonCAM-1.2.7-linux-x86_64.tar.gz](https://github.com/pietini69/photoncam/releases/download/v1.2.7/PhotonCAM-1.2.7-linux-x86_64.tar.gz) |
+| **Raspberry Pi OS** (3/4/5) | **Pre-configured OS Image** | ARM64 | [PhotonCAM-Pi-OS-arm64.img.xz](https://github.com/pietini69/photoncam/releases/download/v1.2.7/PhotonCAM-Pi-OS-arm64.img.xz) |
+| **Raspberry Pi Bridge** | **1-Line Installer** | ARM64 / ARMv7 / x86_64 | `curl -sSL https://raw.githubusercontent.com/pietini69/photoncam/master/scripts/install_pi_bridge.sh \| sudo bash` |
 
 > **macOS Note:** On first launch, if macOS Gatekeeper flags the app as unsigned, simply right-click `PhotonCAM.app` in `/Applications` and select **Open**, or run:
 > ```bash
@@ -94,7 +96,7 @@ PhotonCAM is free and open-source software under the GPLv3 license. If PhotonCAM
 
 ☕ **[Buy Me a Coffee (buymeacoffee.com/pnp69)](https://buymeacoffee.com/pnp69)** (Quick tip via Apple Pay, Google Pay, Card or PayPal)
 
-🛒 **[Gumroad Store (shop.pietiniart.com/l/laserburn)](https://shop.pietiniart.com/l/laserburn)**
+🛒 **[Gumroad Store (shop.pietiniart.com/l/photoncam)](https://shop.pietiniart.com/l/photoncam)**
 
 ---
 
@@ -109,8 +111,8 @@ PhotonCAM is free and open-source software under the GPLv3 license. If PhotonCAM
 ### Build & Run
 ```bash
 # Clone the repository
-git clone https://github.com/pietini69/laserburn.git
-cd laserburn
+git clone https://github.com/pietini69/photoncam.git
+cd photoncam
 
 # Run unit tests
 cargo test --features gui
@@ -130,8 +132,8 @@ cargo run --release --features gui
 ## 🤝 Contributing
 
 Contributions, bug reports, and feature suggestions are warmly welcomed!
-- Found a bug or compatibility issue with your laser controller? Open an [Issue](https://github.com/pietini69/laserburn/issues).
-- Want to add a feature or improve documentation? Submit a [Pull Request](https://github.com/pietini69/laserburn/pulls).
+- Found a bug or compatibility issue with your laser controller? Open an [Issue](https://github.com/pietini69/photoncam/issues).
+- Want to add a feature or improve documentation? Submit a [Pull Request](https://github.com/pietini69/photoncam/pulls).
 
 ---
 
