@@ -16,7 +16,7 @@ impl LaserBurnApp {
         let mut is_open = true;
         let screen_rect = ctx.screen_rect();
 
-        egui::Window::new(format!("📐 {}", tr("Properties & Layers")))
+        egui::Window::new(tr("Properties & Layers"))
             .id(egui::Id::new("floating_properties_window"))
             .open(&mut is_open)
             .default_pos([screen_rect.width() - 390.0, 50.0])
@@ -32,7 +32,7 @@ impl LaserBurnApp {
                         // =============================================================
                         // 1. TRANSFORM & SIZE INSPECTOR
                         // =============================================================
-                        egui::CollapsingHeader::new(egui::RichText::new(format!("📐 {}", tr("Transform & Size"))).strong().size(13.0))
+                        egui::CollapsingHeader::new(egui::RichText::new(tr("Transform & Size")).strong().size(13.0))
                             .default_open(true)
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
@@ -40,7 +40,7 @@ impl LaserBurnApp {
                                         LengthUnit::Millimeters => ("mm", LengthUnit::Inches),
                                         LengthUnit::Inches => ("in", LengthUnit::Millimeters),
                                     };
-                                    if ui.small_button(format!("📏 Yksikkö: {}", lbl))
+                                    if ui.small_button(format!("Yksikkö: {}", lbl))
                                         .on_hover_text(format!("Click to toggle unit between mm and inches (currently {})", self.length_unit.label()))
                                         .clicked()
                                     {
@@ -152,31 +152,31 @@ impl LaserBurnApp {
                                         if ui.button(tr("Bed (P)")).on_hover_text(tr("Center to Bed (P)")).clicked() {
                                             self.align_selection(AlignMode::CenterToBed);
                                         }
-                                        if ui.button("⬅").on_hover_text(tr("Align Left")).clicked() {
+                                        if ui.button("←").on_hover_text(tr("Align Left")).clicked() {
                                             self.align_selection(AlignMode::Left);
                                         }
-                                        if ui.button("⬌").on_hover_text(tr("Align Center Horizontal")).clicked() {
+                                        if ui.button("↔").on_hover_text(tr("Align Center Horizontal")).clicked() {
                                             self.align_selection(AlignMode::CenterH);
                                         }
-                                        if ui.button("➡").on_hover_text(tr("Align Right")).clicked() {
+                                        if ui.button("→").on_hover_text(tr("Align Right")).clicked() {
                                             self.align_selection(AlignMode::Right);
                                         }
-                                        if ui.button("⬆").on_hover_text(tr("Align Top")).clicked() {
+                                        if ui.button("↑").on_hover_text(tr("Align Top")).clicked() {
                                             self.align_selection(AlignMode::Top);
                                         }
-                                        if ui.button("⬍").on_hover_text(tr("Align Center Vertical")).clicked() {
+                                        if ui.button("↕").on_hover_text(tr("Align Center Vertical")).clicked() {
                                             self.align_selection(AlignMode::CenterV);
                                         }
-                                        if ui.button("⬇").on_hover_text(tr("Align Bottom")).clicked() {
+                                        if ui.button("↓").on_hover_text(tr("Align Bottom")).clicked() {
                                             self.align_selection(AlignMode::Bottom);
                                         }
-                                        if ui.button("⇥⇤").on_hover_text(tr("Distribute Horizontally")).clicked() {
+                                        if ui.button("|←→|").on_hover_text(tr("Distribute Horizontally")).clicked() {
                                             self.distribute_selection(DistributeMode::Horizontal);
                                         }
-                                        if ui.button("⤒⤓").on_hover_text(tr("Distribute Vertically")).clicked() {
+                                        if ui.button("|↑↓|").on_hover_text(tr("Distribute Vertically")).clicked() {
                                             self.distribute_selection(DistributeMode::Vertical);
                                         }
-                                        if ui.button(tr("⚡ Nest")).on_hover_text(tr("Auto-Nest (Material Packing)")).clicked() {
+                                        if ui.button(tr("Nest")).on_hover_text(tr("Auto-Nest (Material Packing)")).clicked() {
                                             self.show_nesting_window = true;
                                         }
                                     });
@@ -423,7 +423,7 @@ impl LaserBurnApp {
                                     ui.label(egui::RichText::new(tr("No shape selected.")).italics().color(egui::Color32::GRAY));
                                     ui.label(tr("Click directly INSIDE any shape or click on the Objects List below."));
                                     ui.add_space(4.0);
-                                    if ui.button(format!("📑 {}", tr("Open Objects List..."))).on_hover_text("Avaa objektilista valitaksesi piirroksen kappaleita luettelosta").clicked() {
+                                    if ui.button(tr("Open Objects List...")).on_hover_text("Avaa objektilista valitaksesi piirroksen kappaleita luettelosta").clicked() {
                                         self.show_objects_window = true;
                                     }
                                 }
@@ -439,7 +439,7 @@ impl LaserBurnApp {
                         let mut layer_to_remove: Option<usize> = None;
                         let can_remove_layer = self.doc.layers.len() > 1;
 
-                        egui::CollapsingHeader::new(egui::RichText::new(format!("⚙️ {}", tr("Cut & Layer Settings"))).strong().size(13.0))
+                        egui::CollapsingHeader::new(egui::RichText::new(tr("Cut & Layer Settings")).strong().size(13.0))
                             .default_open(true)
                             .show(ui, |ui| {
                                 ui.add_space(2.0);
@@ -499,12 +499,13 @@ impl LaserBurnApp {
                                             }
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                                 if can_remove_layer {
-                                                    if ui.small_button("✖").on_hover_text("Remove this layer").clicked() {
+                                                    if ui.small_button("✕").on_hover_text("Remove this layer").clicked() {
                                                         layer_to_remove = Some(*idx);
                                                     }
                                                 }
-                                                let lock_icon = if layer.locked { "🔒" } else { "🔓" };
-                                                if ui.small_button(lock_icon)
+                                                let lock_lbl = if layer.locked { tr("Locked") } else { tr("Lock") };
+                                                let lock_color = if layer.locked { egui::Color32::from_rgb(255, 170, 0) } else { egui::Color32::GRAY };
+                                                if ui.small_button(egui::RichText::new(lock_lbl).color(lock_color))
                                                     .on_hover_text(if layer.locked { "Layer is locked (shapes cannot be moved or edited). Click to unlock" } else { "Click to lock layer against accidental mouse moves" })
                                                     .clicked()
                                                 {
@@ -849,7 +850,7 @@ impl LaserBurnApp {
                                                             ).on_hover_text("Up to this laser power %, this paint layer remains visible").changed() {
                                                                 invalidate_img_preview = true;
                                                             }
-                                                            if ui.small_button("✖").on_hover_text("Remove paint coat").clicked() {
+                                                            if ui.small_button("✕").on_hover_text("Remove paint coat").clicked() {
                                                                 remove_idx = Some(b_idx);
                                                             }
                                                         });
@@ -915,7 +916,7 @@ impl LaserBurnApp {
         let obj_count = self.doc.shapes.len();
         let sel_count = self.selected_shape_indices.len();
 
-        egui::Window::new(format!("📑 {} ({})", tr("Objects List"), obj_count))
+        egui::Window::new(format!("{} ({})", tr("Objects List"), obj_count))
             .id(egui::Id::new("floating_objects_window"))
             .open(&mut is_open)
             .default_pos([screen_rect.width() - 390.0, 480.0])
@@ -935,11 +936,11 @@ impl LaserBurnApp {
                     }
                     if sel_count > 0 {
                         let is_locked = self.selected_shape_indices.iter().any(|&i| i < self.doc.shapes.len() && self.doc.shapes[i].is_locked());
-                        let lock_lbl = if is_locked { "🔓 Avaa" } else { "🔒 Lukitse" };
+                        let lock_lbl = if is_locked { "Avaa" } else { "Lukitse" };
                         if ui.small_button(lock_lbl).clicked() {
                             self.toggle_lock_selected();
                         }
-                        if ui.small_button("🗑 Poista").clicked() {
+                        if ui.small_button("Poista").clicked() {
                             self.delete_selected();
                         }
                     }
@@ -1009,9 +1010,9 @@ impl LaserBurnApp {
         let screen_rect = ctx.screen_rect();
 
         let job_header_text = if self.device.is_job_running {
-            format!("⚡ {} [KÄYNNISSÄ]", tr("Job Control"))
+            format!("{} [KÄYNNISSÄ]", tr("Job Control"))
         } else {
-            format!("▶ {}", tr("Job Control"))
+            tr("Job Control").to_string()
         };
 
         egui::Window::new(job_header_text)
@@ -1106,7 +1107,7 @@ impl LaserBurnApp {
                         ui.add_space(4.0);
 
                         // Simulation Stats
-                        egui::CollapsingHeader::new(egui::RichText::new(format!("📊 {}", tr("Simulation Stats"))).strong().size(12.5))
+                        egui::CollapsingHeader::new(egui::RichText::new(tr("Simulation Stats")).strong().size(12.5))
                             .default_open(true)
                             .show(ui, |ui| {
                                 let stats = self.get_job_estimate();
@@ -1232,7 +1233,7 @@ impl LaserBurnApp {
             .collapsible(true)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("📊 Live G-code Stream").weak().size(11.0));
+                    ui.label(egui::RichText::new("Live G-code Stream").weak().size(11.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button(tr("Clear")).on_hover_text("Clear traffic history").clicked() {
                             self.device.console_history.clear();

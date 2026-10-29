@@ -3244,16 +3244,16 @@ impl LaserBurnApp {
                                                         && selected_op.as_deref() == Some(&op.name);
 
                                                     let icon = match op.cut_setting.mode {
-                                                        crate::document::CutMode::Line => "✂",
-                                                        crate::document::CutMode::Fill => "⬛",
-                                                        crate::document::CutMode::OffsetFill => "🔲",
-                                                        crate::document::CutMode::Image => "🖼",
+                                                        crate::document::CutMode::Line => "[Line]",
+                                                        crate::document::CutMode::Fill => "[Fill]",
+                                                        crate::document::CutMode::OffsetFill => "[Offset]",
+                                                        crate::document::CutMode::Image => "[Image]",
                                                     };
 
                                                     if ui.selectable_label(is_sel, format!("{} {}", icon, op.name)).clicked() {
                                                         new_selection = Some((mat.category.clone(), mat.name.clone(), thick.thickness_mm, op.name.clone()));
                                                     }
-                                                    ui.label(egui::RichText::new(format!("  📁 {} • 📦 {} • {}", mat.category, mat.name, thick.label)).small().weak());
+                                                    ui.label(egui::RichText::new(format!("  {} • {} • {}", mat.category, mat.name, thick.label)).small().weak());
                                                 }
                                             }
                                         }
@@ -3291,10 +3291,10 @@ impl LaserBurnApp {
                                                             ui.horizontal(|ui| {
                                                                 ui.add_space(12.0);
                                                                 let icon = match op.cut_setting.mode {
-                                                                    crate::document::CutMode::Line => "✂",
-                                                                    crate::document::CutMode::Fill => "⬛",
-                                                                    crate::document::CutMode::OffsetFill => "🔲",
-                                                                    crate::document::CutMode::Image => "🖼",
+                                                                    crate::document::CutMode::Line => "[Line]",
+                                                                    crate::document::CutMode::Fill => "[Fill]",
+                                                                    crate::document::CutMode::OffsetFill => "[Offset]",
+                                                                    crate::document::CutMode::Image => "[Image]",
                                                                 };
                                                                 if ui.selectable_label(is_sel, format!("{} {}", icon, op.name)).clicked() {
                                                                     new_selection = Some((category.clone(), mat.name.clone(), thick.thickness_mm, op.name.clone()));
@@ -3413,7 +3413,7 @@ impl LaserBurnApp {
                             if !op.notes.is_empty() {
                                 ui.add_space(8.0);
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new("💡 Tips & Operator Notes:").strong());
+                                    ui.label(egui::RichText::new("Tips & Operator Notes:").strong());
                                     ui.label(egui::RichText::new(&op.notes).small());
                                 });
                             }
@@ -3435,7 +3435,7 @@ impl LaserBurnApp {
 
                             ui.add_space(6.0);
 
-                            if ui.button("🧪 Generate Material Test Grid Around Settings")
+                            if ui.button("Generate Material Test Grid Around Settings")
                                 .on_hover_text("Open Material Test Generator prepopulated with speed and power centered around this preset")
                                 .clicked()
                             {
@@ -4058,7 +4058,7 @@ impl LaserBurnApp {
 
                 ui.horizontal(|ui| {
                     let run_btn = egui::Button::new(
-                        egui::RichText::new(tr("⚡ Run Auto-Nesting")).strong().color(egui::Color32::WHITE),
+                        egui::RichText::new(tr("Run Auto-Nesting")).strong().color(egui::Color32::WHITE),
                     ).fill(egui::Color32::from_rgb(0, 120, 200));
 
                     if ui.add_enabled(can_run, run_btn).clicked() {
@@ -4871,37 +4871,37 @@ impl eframe::App for LaserBurnApp {
                 });
 
                 ui.menu_button(self.tr("View"), |ui| {
-                    ui.checkbox(&mut self.show_tools_palette, "🛠 Työkalupaletti (V2)");
+                    ui.checkbox(&mut self.show_tools_palette, "Työkalupaletti (V2)");
                     ui.separator();
-                    let prop_lbl = format!("📐 {}", self.tr("Properties & Layers"));
+                    let prop_lbl = self.tr("Properties & Layers");
                     ui.checkbox(&mut self.show_properties_window, prop_lbl);
-                    let obj_lbl = format!("📑 {}", self.tr("Objects List"));
+                    let obj_lbl = self.tr("Objects List");
                     ui.checkbox(&mut self.show_objects_window, obj_lbl);
-                    let job_lbl = format!("⚡ {}", self.tr("Job Control"));
+                    let job_lbl = self.tr("Job Control");
                     ui.checkbox(&mut self.show_job_window, job_lbl);
-                    let move_lbl = format!("🎛️ {}", self.tr("Laser Control & Jogging"));
+                    let move_lbl = self.tr("Laser Control & Jogging");
                     ui.checkbox(&mut self.show_move_window, move_lbl);
-                    let traffic_lbl = format!("📊 {}", self.tr("Data Traffic (TX / RX)"));
+                    let traffic_lbl = self.tr("Data Traffic (TX / RX)");
                     ui.checkbox(&mut self.show_traffic_panel, traffic_lbl);
                     ui.separator();
-                    if ui.button("🔍 Sovita näkymään (Fit)").clicked() {
+                    if ui.button("Sovita näkymään (Fit)").clicked() {
                         self.zoom = 1.8;
                         self.pan = egui::Vec2::new(100.0, 80.0);
                         ui.close_menu();
                     }
-                    if ui.button("➕ Lähennä (Zoom in)").clicked() {
+                    if ui.button("Lähennä (Zoom in)").clicked() {
                         self.zoom = (self.zoom * 1.25).clamp(0.2, 20.0);
                         ui.close_menu();
                     }
-                    if ui.button("➖ Loitonna (Zoom out)").clicked() {
+                    if ui.button("Loitonna (Zoom out)").clicked() {
                         self.zoom = (self.zoom * 0.8).clamp(0.2, 20.0);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.checkbox(&mut self.camera_calibration.show_on_canvas, "📷 Kameran taustakuva kankaalla").changed() {
+                    if ui.checkbox(&mut self.camera_calibration.show_on_canvas, "Kameran taustakuva kankaalla").changed() {
                         let _ = self.camera_calibration.save();
                     }
-                    if ui.checkbox(&mut self.camera_calibration.show_guide_grid, "▦ Kameran kohdistusruudukko").changed() {
+                    if ui.checkbox(&mut self.camera_calibration.show_guide_grid, "Kameran kohdistusruudukko").changed() {
                         let _ = self.camera_calibration.save();
                     }
                 });
@@ -4955,7 +4955,7 @@ impl eframe::App for LaserBurnApp {
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("🌐 Web Remote & iPad Bridge...").clicked() {
+                    if ui.button("Web Remote & iPad Bridge...").clicked() {
                         self.show_web_remote_window = true;
                         ui.close_menu();
                     }
@@ -5027,8 +5027,8 @@ impl eframe::App for LaserBurnApp {
                 });
                 ui.separator();
                 let unit_label = match self.length_unit {
-                    LengthUnit::Millimeters => "📏 mm",
-                    LengthUnit::Inches => "📏 in",
+                    LengthUnit::Millimeters => "mm",
+                    LengthUnit::Inches => "in",
                 };
                 ui.menu_button(egui::RichText::new(unit_label).strong(), |ui| {
                     for &u in LengthUnit::ALL {
@@ -5040,7 +5040,7 @@ impl eframe::App for LaserBurnApp {
                 });
                 ui.separator();
                 let web_status_color = if self.web_remote_active { egui::Color32::from_rgb(0, 230, 118) } else { egui::Color32::from_rgb(0, 229, 255) };
-                if ui.button(egui::RichText::new("🌐 Web Remote").strong().color(web_status_color)).on_hover_text("Open Web Remote & iPad Bridge control").clicked() {
+                if ui.button(egui::RichText::new("Web Remote").strong().color(web_status_color)).on_hover_text("Open Web Remote & iPad Bridge control").clicked() {
                     self.show_web_remote_window = true;
                 }
                 ui.separator();

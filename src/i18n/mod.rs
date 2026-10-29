@@ -42,12 +42,12 @@ impl Language {
 
     pub fn short_label(&self) -> &'static str {
         match self {
-            Language::Finnish => "🌐 Suomi",
-            Language::English => "🌐 English",
-            Language::German => "🌐 Deutsch",
-            Language::French => "🌐 Français",
-            Language::Italian => "🌐 Italiano",
-            Language::Spanish => "🌐 Español",
+            Language::Finnish => "Suomi (FI)",
+            Language::English => "English (EN)",
+            Language::German => "Deutsch (DE)",
+            Language::French => "Français (FR)",
+            Language::Italian => "Italiano (IT)",
+            Language::Spanish => "Español (ES)",
         }
     }
 
