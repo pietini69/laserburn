@@ -13,6 +13,7 @@ pub mod text;
 pub mod trace;
 pub mod nesting;
 pub mod server;
+pub mod generator;
 
 #[cfg(feature = "gui")]
 pub mod gui;
@@ -31,3 +32,4 @@ pub use gui::LaserBurnApp as PhotonCamApp;
 pub use hatch::generate_hatch;
 pub use optimizer::{CutOptimizer, OptimizedJob, OptimizedPath};
 pub use simulator::{SimulationStats, Simulator};
+pub use generator::{BoxMakerParams, LivingHingeParams, QrCodeParams, VariableTextParams};

@@ -21,6 +21,7 @@ ttf-parser = "0.25"
 miniz_oxide = "0.8"
 serialport = { version = "4.10.1", default-features = false }
 nokhwa = { version = "0.10.11", default-features = false, features = ["input-native"] }
+qrcode = { version = "0.14", default-features = false }
 
 [features]
 default = ["gui"]

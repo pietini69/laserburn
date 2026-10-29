@@ -640,12 +640,19 @@ impl LaserBurnApp {
             }
         });
 
-        if ui.add_sized([ui.available_width(), 24.0], egui::Button::new("+ Hammasratas (Gear)")).clicked() {
-            self.load_sample_gear(180.0, 180.0, 12, 40.0, 50.0);
-            self.selected_shape_indices = vec![self.doc.shapes.len() - 1];
-            self.status_msg = "Lisätty hammasratas".to_string();
-            *close_requested = true;
-        }
+        ui.horizontal(|ui| {
+            let half_w = (ui.available_width() - 4.0) * 0.5;
+            if ui.add_sized([half_w, 24.0], egui::Button::new("+ Hammasratas")).clicked() {
+                self.load_sample_gear(180.0, 180.0, 12, 40.0, 50.0);
+                self.selected_shape_indices = vec![self.doc.shapes.len() - 1];
+                self.status_msg = "Lisätty hammasratas".to_string();
+                *close_requested = true;
+            }
+            if ui.add_sized([half_w, 24.0], egui::Button::new("+ QR-koodi...")).clicked() {
+                self.show_qr_code_window = true;
+                *close_requested = true;
+            }
+        });
 
         ui.add_space(4.0);
         ui.separator();
@@ -839,6 +846,36 @@ impl LaserBurnApp {
             .clicked()
         {
             self.show_nesting_window = true;
+            *close_requested = true;
+        }
+
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        // Generaattorit & Työkalut
+        ui.label(egui::RichText::new("Generaattorit:").small().weak());
+        if ui.add_sized([ui.available_width(), 24.0], egui::Button::new("Sormiliitos-laatikot (Box Maker)..."))
+            .on_hover_text("Generoi vaneri- ja akryylilaatikot sormiliitoksilla")
+            .clicked()
+        {
+            self.show_box_maker_window = true;
+            *close_requested = true;
+        }
+
+        if ui.add_sized([ui.available_width(), 24.0], egui::Button::new("Living Hinge (Joustosarana)..."))
+            .on_hover_text("Luo taipuisa viivoituskuvio vanerin taivuttamiseen")
+            .clicked()
+        {
+            self.show_living_hinge_window = true;
+            *close_requested = true;
+        }
+
+        if ui.add_sized([ui.available_width(), 24.0], egui::Button::new("Sarjanumerot & Nimikyltit (Batch)..."))
+            .on_hover_text("Massatuota sarjanumeroituja tuotelaattoja tai nimilistoja")
+            .clicked()
+        {
+            self.show_variable_text_window = true;
             *close_requested = true;
         }
 

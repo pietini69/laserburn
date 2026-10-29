@@ -7,6 +7,7 @@ use eframe::egui;
 
 pub mod tool_palette;
 pub mod floating_panels;
+pub mod generators_dialogs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTool {
@@ -469,6 +470,16 @@ pub struct LaserBurnApp {
     pub nesting_options: crate::nesting::NestingOptions,
     pub nesting_result: Option<crate::nesting::NestingResult>,
 
+    // Advanced Generators (Box Maker, Living Hinge, QR Code, Variable Text)
+    pub show_box_maker_window: bool,
+    pub box_maker_params: crate::generator::BoxMakerParams,
+    pub show_living_hinge_window: bool,
+    pub living_hinge_params: crate::generator::LivingHingeParams,
+    pub show_qr_code_window: bool,
+    pub qr_code_params: crate::generator::QrCodeParams,
+    pub show_variable_text_window: bool,
+    pub variable_text_params: crate::generator::VariableTextParams,
+
     // Photoshop-Style V2 Tool Palette State
     pub show_tools_palette: bool,
     pub detach_tools_window: bool,
@@ -634,6 +645,14 @@ impl Default for LaserBurnApp {
             show_nesting_window: false,
             nesting_options: crate::nesting::NestingOptions::default(),
             nesting_result: None,
+            show_box_maker_window: false,
+            box_maker_params: crate::generator::BoxMakerParams::default(),
+            show_living_hinge_window: false,
+            living_hinge_params: crate::generator::LivingHingeParams::default(),
+            show_qr_code_window: false,
+            qr_code_params: crate::generator::QrCodeParams::default(),
+            show_variable_text_window: false,
+            variable_text_params: crate::generator::VariableTextParams::default(),
             show_tools_palette: true,
             detach_tools_window: false,
             open_flyout: None,
@@ -4967,6 +4986,35 @@ impl eframe::App for LaserBurnApp {
                     }
                 });
 
+                ui.menu_button("Generaattorit", |ui| {
+                    if ui.button("Sormiliitos-laatikot (Box Designer)...").clicked() {
+                        self.show_box_maker_window = true;
+                        ui.close_menu();
+                    }
+                    if ui.button("Living Hinge (Joustosarana)...").clicked() {
+                        self.show_living_hinge_window = true;
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("Vektori-QR-koodi...").clicked() {
+                        self.show_qr_code_window = true;
+                        ui.close_menu();
+                    }
+                    if ui.button("Sarjanumerointi & Nimikyltit (Batch Text)...").clicked() {
+                        self.show_variable_text_window = true;
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("Automaattinen pesitys (Nesting)...").clicked() {
+                        self.show_nesting_window = true;
+                        ui.close_menu();
+                    }
+                    if ui.button("Materiaalitestigeneraattori...").clicked() {
+                        self.show_material_test_window = true;
+                        ui.close_menu();
+                    }
+                });
+
                 if self.device.settings.enable_camera_support {
                     ui.menu_button(self.tr("Camera"), |ui| {
                         if ui.button(format!("{} ({}+K)", self.tr("Camera Feed..."), cmd)).clicked() {
@@ -7041,6 +7089,7 @@ impl eframe::App for LaserBurnApp {
         self.show_save_material_dialog_window(ctx);
         self.show_preview_simulator_window(ctx);
         self.show_nesting_dialog_window(ctx);
+        self.show_generators_dialog_windows(ctx);
 
         // -------------------------------------------------------------
         // 1. DEVICE CONNECTION & CONSOLE WINDOW
@@ -9855,5 +9904,32 @@ mod tests {
         app.device.status = crate::device::ConnectionStatus::Connected;
         app.start_job();
         assert!(app.show_job_window, "Starting a job must automatically open the Job Control window");
+    }
+
+    #[test]
+    fn test_generators_integration() {
+        let app = LaserBurnApp::default();
+        assert!(!app.show_box_maker_window);
+        assert!(!app.show_living_hinge_window);
+        assert!(!app.show_qr_code_window);
+        assert!(!app.show_variable_text_window);
+
+        // Test QR code generation
+        let qr_shapes = crate::generator::generate_qr_shapes(&app.qr_code_params, 0).expect("QR gen");
+        assert!(!qr_shapes.is_empty());
+
+        // Test Living hinge generation
+        let hinge_cuts = crate::generator::generate_living_hinge(&app.living_hinge_params);
+        assert!(!hinge_cuts.is_empty());
+
+        // Test Box maker generation
+        let box_parts = crate::generator::generate_box_parts(&app.box_maker_params);
+        assert_eq!(box_parts.len(), 6);
+        let box_shapes = crate::generator::layout_box_shapes(&box_parts, 10.0, 10.0, 5.0, 0);
+        assert_eq!(box_shapes.len(), 6);
+
+        // Test Variable text generation
+        let var_shapes = crate::generator::generate_variable_text_shapes(&app.variable_text_params, 0, 1);
+        assert_eq!(var_shapes.len(), 10);
     }
 }
