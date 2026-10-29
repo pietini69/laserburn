@@ -495,6 +495,34 @@
           <label>Korkeus (H mm)</label>
           <input type="number" id="propH" class="input-num" onchange="updateSelBounds()">
         </div>
+        <div class="form-row" style="grid-column: span 2;">
+          <label>Tila / Polttotapa</label>
+          <select id="propMode" class="input-num" onchange="updateSelMode()">
+            <option value="line">Viiva (Leikkaus / Merkintä)</option>
+            <option value="fill">Täyttö (Kaiverrus / Rasteri)</option>
+            <option value="fill+line">Täyttö + Viiva (Siisti reuna)</option>
+          </select>
+        </div>
+        <div id="fillSettingsRow" style="grid-column: span 2; display: none; background: rgba(0,0,0,0.25); padding: 8px; border-radius: 6px; border: 1px solid var(--card-border); margin-top: 2px;">
+          <div style="font-size: 0.74rem; font-weight: 700; color: var(--cyan); margin-bottom: 4px;">
+            Kaiverrus- ja Täyttöasetukset:
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+            <div class="form-row">
+              <label>Täyttösuunta</label>
+              <select id="propFillAngle" class="input-num" onchange="updateSelFill()">
+                <option value="0">Vaaka (0°)</option>
+                <option value="90">Pysty (90°)</option>
+                <option value="45">45 astetta (45°)</option>
+                <option value="cross">Ristiin (Cross-Hatch)</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Täyttöväli (mm)</label>
+              <input type="number" id="propFillInterval" class="input-num" step="0.02" min="0.02" max="1.0" value="0.10" onchange="updateSelFill()">
+            </div>
+          </div>
+        </div>
       </div>
 
       <button id="btnDeleteSelected" class="btn-danger" style="display: none;" onclick="deleteSelected()">
@@ -820,6 +848,44 @@
       return false;
     }
 
+    function drawHatchPattern(ctx, rx, ry, rw, rh, angleDeg, isCross, isSel) {
+      if (rw < 3 || rh < 3) return;
+      ctx.save();
+      ctx.strokeStyle = isSel ? 'rgba(0, 229, 255, 0.45)' : 'rgba(255, 152, 0, 0.40)';
+      ctx.lineWidth = 1;
+      const step = 6;
+
+      function drawLines(ang) {
+        const norm = ((ang % 180) + 180) % 180;
+        if (norm < 10 || norm > 170) {
+          // Horizontal (0 deg)
+          for (let y = ry + step * 0.5; y < ry + rh; y += step) {
+            ctx.beginPath(); ctx.moveTo(rx, y); ctx.lineTo(rx + rw, y); ctx.stroke();
+          }
+        } else if (Math.abs(norm - 90) < 10) {
+          // Vertical (90 deg)
+          for (let x = rx + step * 0.5; x < rx + rw; x += step) {
+            ctx.beginPath(); ctx.moveTo(x, ry); ctx.lineTo(x, ry + rh); ctx.stroke();
+          }
+        } else {
+          // Angled (45 deg)
+          const diag = rw + rh;
+          for (let d = -diag; d <= diag; d += step * 1.4) {
+            ctx.beginPath();
+            ctx.moveTo(rx + d, ry);
+            ctx.lineTo(rx + d + rh, ry + rh);
+            ctx.stroke();
+          }
+        }
+      }
+
+      drawLines(angleDeg);
+      if (isCross) {
+        drawLines(angleDeg + 90);
+      }
+      ctx.restore();
+    }
+
     // Render Canvas
     function render() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -887,6 +953,10 @@
       // Draw Shapes
       for (const s of shapes) {
         const isSel = s === selectedShape;
+        const mode = s.mode || 'line';
+        const hasFill = (mode === 'fill' || mode === 'fill+line');
+        const hasLine = (mode === 'line' || mode === 'fill+line');
+
         ctx.strokeStyle = isSel ? '#00e5ff' : '#ff9800';
         ctx.lineWidth = isSel ? 2.5 : 1.5;
 
@@ -897,12 +967,41 @@
           const ry = Math.min(p0y, p1y);
           const rw = Math.abs(p1x - p0x);
           const rh = Math.abs(p1y - p0y);
-          ctx.strokeRect(rx, ry, rw, rh);
+
+          if (hasFill) {
+            ctx.fillStyle = isSel ? 'rgba(0, 229, 255, 0.28)' : 'rgba(255, 152, 0, 0.22)';
+            ctx.fillRect(rx, ry, rw, rh);
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(rx, ry, rw, rh);
+            ctx.clip();
+            drawHatchPattern(ctx, rx, ry, rw, rh, s.fillAngle || 0, s.crossHatch, isSel);
+            ctx.restore();
+          }
+          if (hasLine || !hasFill) {
+            ctx.strokeRect(rx, ry, rw, rh);
+          }
         } else if (s.type === 'circle') {
           const [cx, cy] = worldToScreen(s.cx, s.cy);
-          ctx.beginPath();
-          ctx.arc(cx, cy, s.r * zoomLevel, 0, Math.PI * 2);
-          ctx.stroke();
+          const cr = s.r * zoomLevel;
+
+          if (hasFill) {
+            ctx.fillStyle = isSel ? 'rgba(0, 229, 255, 0.28)' : 'rgba(255, 152, 0, 0.22)';
+            ctx.beginPath();
+            ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+            ctx.clip();
+            drawHatchPattern(ctx, cx - cr, cy - cr, cr * 2, cr * 2, s.fillAngle || 0, s.crossHatch, isSel);
+            ctx.restore();
+          }
+          if (hasLine || !hasFill) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+            ctx.stroke();
+          }
         } else if (s.type === 'line') {
           const [p1x, p1y] = worldToScreen(s.x1, s.y1);
           const [p2x, p2y] = worldToScreen(s.x2, s.y2);
@@ -917,7 +1016,21 @@
               ctx.lineTo(px, py);
             }
             if (s.closed) ctx.closePath();
-            ctx.stroke();
+
+            if (hasFill && s.closed) {
+              ctx.fillStyle = isSel ? 'rgba(0, 229, 255, 0.28)' : 'rgba(255, 152, 0, 0.22)';
+              ctx.fill();
+              ctx.save();
+              ctx.clip();
+              const b = getShapeBounds(s);
+              const [b0x, b0y] = worldToScreen(b.minX, b.minY);
+              const [b1x, b1y] = worldToScreen(b.maxX, b.maxY);
+              drawHatchPattern(ctx, Math.min(b0x, b1x), Math.min(b0y, b1y), Math.abs(b1x - b0x), Math.abs(b1y - b0y), s.fillAngle || 0, s.crossHatch, isSel);
+              ctx.restore();
+            }
+            if (hasLine || !hasFill) {
+              ctx.stroke();
+            }
           }
         }
       }
@@ -1006,13 +1119,13 @@
         selectedShape = hit;
         updatePropWindow();
       } else if (activeTool === 'rect') {
-        shapes.push({ type: 'rect', name: 'Suorakulmio', x: wx, y: wy, w: 2, h: 2 });
+        shapes.push({ type: 'rect', name: 'Suorakulmio', x: wx, y: wy, w: 2, h: 2, mode: 'line', fillAngle: 0, fillInterval: 0.10, crossHatch: false });
         selectedShape = shapes[shapes.length - 1];
       } else if (activeTool === 'circle') {
-        shapes.push({ type: 'circle', name: 'Ympyrä', cx: wx, cy: wy, r: 2 });
+        shapes.push({ type: 'circle', name: 'Ympyrä', cx: wx, cy: wy, r: 2, mode: 'line', fillAngle: 0, fillInterval: 0.10, crossHatch: false });
         selectedShape = shapes[shapes.length - 1];
       } else if (activeTool === 'line') {
-        shapes.push({ type: 'line', name: 'Viiva', x1: wx, y1: wy, x2: wx + 2, y2: wy + 2 });
+        shapes.push({ type: 'line', name: 'Viiva', x1: wx, y1: wy, x2: wx + 2, y2: wy + 2, mode: 'line' });
         selectedShape = shapes[shapes.length - 1];
       }
       render();
@@ -1123,6 +1236,22 @@
         btnDel.style.display = 'flex';
         document.getElementById('propW').value = Math.round(b.w);
         document.getElementById('propH').value = Math.round(b.h);
+
+        const mode = selectedShape.mode || 'line';
+        document.getElementById('propMode').value = mode;
+
+        const fillRow = document.getElementById('fillSettingsRow');
+        if (mode === 'fill' || mode === 'fill+line') {
+          fillRow.style.display = 'block';
+          if (selectedShape.crossHatch) {
+            document.getElementById('propFillAngle').value = 'cross';
+          } else {
+            document.getElementById('propFillAngle').value = String(selectedShape.fillAngle || 0);
+          }
+          document.getElementById('propFillInterval').value = selectedShape.fillInterval || 0.10;
+        } else {
+          fillRow.style.display = 'none';
+        }
       } else {
         info.textContent = 'Ei valittua objektia.';
         ctrls.style.display = 'none';
@@ -1136,8 +1265,9 @@
         row.className = 'obj-item-row' + (s === selectedShape ? ' selected' : '');
         row.onclick = () => { selectedShape = s; updatePropWindow(); render(); };
 
+        const modeTag = (s.mode === 'fill') ? ' [Täyttö]' : (s.mode === 'fill+line') ? ' [Täyttö+Viiva]' : ' [Viiva]';
         const label = document.createElement('span');
-        label.textContent = `${idx + 1}. ${s.name || s.type}`;
+        label.textContent = `${idx + 1}. ${s.name || s.type}${modeTag}`;
         row.appendChild(label);
 
         const del = document.createElement('button');
@@ -1155,6 +1285,29 @@
 
         listEl.appendChild(row);
       });
+    }
+
+    function updateSelMode() {
+      if (!selectedShape) return;
+      selectedShape.mode = document.getElementById('propMode').value;
+      if (!selectedShape.fillAngle && selectedShape.fillAngle !== 0) selectedShape.fillAngle = 0;
+      if (!selectedShape.fillInterval) selectedShape.fillInterval = 0.10;
+      updatePropWindow();
+      render();
+    }
+
+    function updateSelFill() {
+      if (!selectedShape) return;
+      const angleVal = document.getElementById('propFillAngle').value;
+      if (angleVal === 'cross') {
+        selectedShape.fillAngle = 0;
+        selectedShape.crossHatch = true;
+      } else {
+        selectedShape.fillAngle = parseFloat(angleVal) || 0;
+        selectedShape.crossHatch = false;
+      }
+      selectedShape.fillInterval = parseFloat(document.getElementById('propFillInterval').value) || 0.10;
+      render();
     }
 
     function updateSelBounds() {
@@ -1336,7 +1489,11 @@
               name: 'QR-moduuli',
               x: startX + c * cellSz,
               y: startY + (cells - 1 - r) * cellSz,
-              w: cellSz, h: cellSz
+              w: cellSz, h: cellSz,
+              mode: 'fill',
+              fillAngle: 0,
+              fillInterval: 0.10,
+              crossHatch: false
             });
           }
         }
@@ -1387,6 +1544,17 @@
       if (shapes.length === 0) { alert('Piirrä tai luo kuvioita kankaalle ensin!'); return; }
       let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${bedW}mm" height="${bedH}mm" viewBox="0 0 ${bedW} ${bedH}">`;
       for (const s of shapes) {
+        const mode = s.mode || 'line';
+        const hasFill = (mode === 'fill' || mode === 'fill+line');
+        const hasLine = (mode === 'line' || mode === 'fill+line');
+        const angle = s.fillAngle || 0;
+        const interval = s.fillInterval || 0.10;
+        const cross = s.crossHatch ? '1' : '0';
+
+        const strokeAttr = hasLine ? 'stroke="blue"' : 'stroke="none"';
+        const fillAttr = hasFill ? 'fill="#000000"' : 'fill="none"';
+        const modeAttrs = hasFill ? `data-mode="fill" data-angle="${angle}" data-interval="${interval}" data-cross="${cross}"` : '';
+
         if (s.type === 'rect') {
           const [d0x, d0y] = toDoc(s.x, s.y);
           const [d1x, d1y] = toDoc(s.x + s.w, s.y + s.h);
@@ -1394,10 +1562,10 @@
           const ry = Math.min(d0y, d1y);
           const rw = Math.abs(d1x - d0x);
           const rh = Math.abs(d1y - d0y);
-          svg += `<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" stroke="blue" fill="none"/>`;
+          svg += `<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" ${strokeAttr} ${fillAttr} ${modeAttrs}/>`;
         } else if (s.type === 'circle') {
           const [cx, cy] = toDoc(s.cx, s.cy);
-          svg += `<circle cx="${cx}" cy="${cy}" r="${s.r}" stroke="blue" fill="none"/>`;
+          svg += `<circle cx="${cx}" cy="${cy}" r="${s.r}" ${strokeAttr} ${fillAttr} ${modeAttrs}/>`;
         } else if (s.type === 'line') {
           const [p1x, p1y] = toDoc(s.x1, s.y1);
           const [p2x, p2y] = toDoc(s.x2, s.y2);
@@ -1407,7 +1575,7 @@
             const [px, py] = toDoc(p.x, p.y);
             return `${px.toFixed(2)},${py.toFixed(2)}`;
           }).join(' ');
-          svg += `<polygon points="${ptsStr}" stroke="blue" fill="none"/>`;
+          svg += `<polygon points="${ptsStr}" ${strokeAttr} ${fillAttr} ${modeAttrs}/>`;
         }
       }
       svg += `</svg>`;

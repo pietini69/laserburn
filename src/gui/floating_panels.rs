@@ -780,6 +780,44 @@ impl LaserBurnApp {
                                                         ui.label(egui::RichText::new(format!("~{} DPI", dpi)).small().weak());
                                                         ui.end_row();
                                                     }
+
+                                                    // 7. Hatch Scan Angle & Cross-hatch (Visible for Fill modes)
+                                                    if layer.cut_setting.mode == CutMode::Fill || layer.cut_setting.mode == CutMode::OffsetFill {
+                                                        ui.label(tr("Scan Angle:"));
+                                                        ui.horizontal(|ui| {
+                                                            ui.add(
+                                                                egui::DragValue::new(&mut layer.cut_setting.scan_angle)
+                                                                    .speed(1.0)
+                                                                    .range(-180.0..=180.0)
+                                                                    .suffix("°"),
+                                                            );
+                                                            if ui.selectable_label((layer.cut_setting.scan_angle - 0.0).abs() < 0.1, "0°").clicked() {
+                                                                layer.cut_setting.scan_angle = 0.0;
+                                                            }
+                                                            if ui.selectable_label((layer.cut_setting.scan_angle - 90.0).abs() < 0.1, "90°").clicked() {
+                                                                layer.cut_setting.scan_angle = 90.0;
+                                                            }
+                                                            if ui.selectable_label((layer.cut_setting.scan_angle - 45.0).abs() < 0.1, "45°").clicked() {
+                                                                layer.cut_setting.scan_angle = 45.0;
+                                                            }
+                                                        });
+                                                        let angle_desc = if (layer.cut_setting.scan_angle - 0.0).abs() < 0.1 {
+                                                            "Vaaka"
+                                                        } else if (layer.cut_setting.scan_angle - 90.0).abs() < 0.1 {
+                                                            "Pysty"
+                                                        } else if (layer.cut_setting.scan_angle - 45.0).abs() < 0.1 {
+                                                            "45°"
+                                                        } else {
+                                                            "Kulma"
+                                                        };
+                                                        ui.label(egui::RichText::new(angle_desc).small().weak());
+                                                        ui.end_row();
+
+                                                        ui.label("Ristiinpoltto:");
+                                                        ui.checkbox(&mut layer.cut_setting.cross_hatch, "Cross-Hatch (+90°)");
+                                                        ui.label(egui::RichText::new("2-suuntainen").small().weak());
+                                                        ui.end_row();
+                                                    }
                                                 });
 
                                             // Ceramic Multi-Layer Paint Color Simulator & Mapper

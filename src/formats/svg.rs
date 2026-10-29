@@ -618,11 +618,26 @@ pub fn parse_color(val: &str) -> Option<String> {
     }
 }
 
-/// Extracts stroke or fill color from XML node attributes or style string
-fn extract_node_color(node: &roxmltree::Node) -> Option<String> {
-    if let Some(stroke) = node.attribute("stroke") {
-        if let Some(c) = parse_color(stroke) {
-            return Some(c);
+/// Extracts stroke and fill colors and explicit none flags from XML node
+fn extract_stroke_and_fill(node: &roxmltree::Node) -> (Option<String>, Option<String>, bool, bool) {
+    let mut stroke_col = None;
+    let mut fill_col = None;
+    let mut stroke_none = false;
+    let mut fill_none = false;
+
+    if let Some(s) = node.attribute("stroke") {
+        if s.trim().eq_ignore_ascii_case("none") {
+            stroke_none = true;
+        } else if let Some(c) = parse_color(s) {
+            stroke_col = Some(c);
+        }
+    }
+
+    if let Some(f) = node.attribute("fill") {
+        if f.trim().eq_ignore_ascii_case("none") {
+            fill_none = true;
+        } else if let Some(c) = parse_color(f) {
+            fill_col = Some(c);
         }
     }
 
@@ -630,26 +645,28 @@ fn extract_node_color(node: &roxmltree::Node) -> Option<String> {
         for prop in style.split(';') {
             let parts: Vec<&str> = prop.split(':').map(|s| s.trim()).collect();
             if parts.len() == 2 {
-                if parts[0] == "stroke" {
-                    if let Some(c) = parse_color(parts[1]) {
-                        return Some(c);
+                if parts[0].eq_ignore_ascii_case("stroke") {
+                    if parts[1].eq_ignore_ascii_case("none") {
+                        stroke_none = true;
+                        stroke_col = None;
+                    } else if let Some(c) = parse_color(parts[1]) {
+                        stroke_col = Some(c);
+                        stroke_none = false;
                     }
-                } else if parts[0] == "fill" {
-                    if let Some(c) = parse_color(parts[1]) {
-                        return Some(c);
+                } else if parts[0].eq_ignore_ascii_case("fill") {
+                    if parts[1].eq_ignore_ascii_case("none") {
+                        fill_none = true;
+                        fill_col = None;
+                    } else if let Some(c) = parse_color(parts[1]) {
+                        fill_col = Some(c);
+                        fill_none = false;
                     }
                 }
             }
         }
     }
 
-    if let Some(fill) = node.attribute("fill") {
-        if let Some(c) = parse_color(fill) {
-            return Some(c);
-        }
-    }
-
-    None
+    (stroke_col, fill_col, stroke_none, fill_none)
 }
 
 /// Parses an SVG length attribute (e.g. "100mm", "10in", "50px", "50") to millimeters
@@ -718,14 +735,32 @@ impl SvgFormat {
         // Layer 0 is default black
         layer_map.insert("#000000".to_string(), 0);
 
-        let mut get_or_create_layer = |doc: &mut Document, hex: &str| -> usize {
-            if let Some(&idx) = layer_map.get(hex) {
+        let mut get_or_create_layer = |doc: &mut Document, hex: &str, is_fill: bool, scan_angle: f64, line_interval: f64, cross_hatch: bool| -> usize {
+            let key = if is_fill {
+                format!("{}_fill_{:.1}_{:.3}_{}", hex, scan_angle, line_interval, cross_hatch)
+            } else {
+                hex.to_string()
+            };
+            if let Some(&idx) = layer_map.get(&key) {
                 return idx;
             }
             let new_idx = doc.layers.len();
-            let layer = Layer::new(new_idx, &format!("Layer {}", new_idx), hex);
+            let name = if is_fill {
+                format!("Fill {}", hex)
+            } else {
+                format!("Layer {}", new_idx)
+            };
+            let mut layer = Layer::new(new_idx, &name, hex);
+            if is_fill {
+                layer.cut_setting.mode = crate::document::CutMode::Fill;
+                layer.cut_setting.scan_angle = scan_angle;
+                if line_interval > 0.005 {
+                    layer.cut_setting.line_interval = line_interval;
+                }
+                layer.cut_setting.cross_hatch = cross_hatch;
+            }
             doc.layers.insert(new_idx, layer);
-            layer_map.insert(hex.to_string(), new_idx);
+            layer_map.insert(key, new_idx);
             new_idx
         };
 
@@ -740,7 +775,7 @@ impl SvgFormat {
             doc: &mut Document,
             global_scale: f64,
             defined_shapes: &mut HashMap<String, Vec<Polyline>>,
-            get_or_create_layer: &mut dyn FnMut(&mut Document, &str) -> usize,
+            get_or_create_layer: &mut dyn FnMut(&mut Document, &str, bool, f64, f64, bool) -> usize,
         ) {
             let node_tf = node
                 .attribute("transform")
@@ -748,7 +783,8 @@ impl SvgFormat {
                 .unwrap_or_else(Transform2D::identity);
             let combined_tf = parent_tf.multiply(&node_tf);
 
-            let node_color = extract_node_color(&node).or(inherited_color.clone());
+            let (stroke_col, fill_col, stroke_none, fill_none) = extract_stroke_and_fill(&node);
+            let node_color = stroke_col.clone().or_else(|| fill_col.clone()).or_else(|| inherited_color.clone());
 
             let mut node_polylines: Vec<Polyline> = Vec::new();
 
@@ -874,18 +910,36 @@ impl SvgFormat {
                 }
             }
 
-            // Assign polylines to shapes with layer color
-            let layer_idx = if let Some(ref c) = node_color {
-                get_or_create_layer(doc, c)
-            } else {
-                0
-            };
+            // Assign polylines to shapes with layer color & cut mode (fill vs stroke)
+            let data_mode = node.attribute("data-mode");
+            let data_angle = node.attribute("data-angle").and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+            let data_interval = node.attribute("data-interval").and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.10);
+            let data_cross = node.attribute("data-cross").map(|s| s == "1" || s == "true").unwrap_or(false);
 
-            for poly in node_polylines {
-                doc.add_shape(Shape::Path {
-                    layer_index: layer_idx,
-                    polyline: poly,
-                });
+            let has_fill = (fill_col.is_some() && !fill_none) || data_mode == Some("fill");
+            let has_stroke = (stroke_col.is_some() && !stroke_none) || (!stroke_none && !has_fill);
+
+            if !node_polylines.is_empty() {
+                if has_fill {
+                    let fill_hex = fill_col.as_deref().unwrap_or("#000000");
+                    let fill_layer_idx = get_or_create_layer(doc, fill_hex, true, data_angle, data_interval, data_cross);
+                    for poly in &node_polylines {
+                        doc.add_shape(Shape::Path {
+                            layer_index: fill_layer_idx,
+                            polyline: poly.clone(),
+                        });
+                    }
+                }
+                if has_stroke {
+                    let stroke_hex = stroke_col.as_deref().or(inherited_color.as_deref()).unwrap_or("#0000FF");
+                    let stroke_layer_idx = get_or_create_layer(doc, stroke_hex, false, 0.0, 0.08, false);
+                    for poly in node_polylines {
+                        doc.add_shape(Shape::Path {
+                            layer_index: stroke_layer_idx,
+                            polyline: poly,
+                        });
+                    }
+                }
             }
 
             // Recurse into children
@@ -1028,5 +1082,23 @@ mod tests {
             assert!(!doc.shapes.is_empty(), "Expected shapes parsed from rust-logo.svg");
             println!("Successfully parsed {} shapes from Rust logo SVG!", doc.shapes.len());
         }
+    }
+
+    #[test]
+    fn test_svg_fill_mode_and_hatch_generation() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" viewBox="0 0 100 100">
+            <rect x="10" y="10" width="20" height="20" fill="#000000" stroke="none" data-mode="fill" data-angle="0" data-interval="0.5"/>
+            <circle cx="50" cy="50" r="10" stroke="blue" fill="none"/>
+        </svg>"##;
+        let doc = SvgFormat::load_from_str(svg, "TestFill").expect("Failed to parse svg");
+        assert_eq!(doc.shapes.len(), 2);
+        let fill_shape = &doc.shapes[0];
+        let fill_layer = doc.layers.get(&fill_shape.layer_index()).unwrap();
+        assert_eq!(fill_layer.cut_setting.mode, crate::document::CutMode::Fill);
+        assert!((fill_layer.cut_setting.line_interval - 0.5).abs() < 1e-4);
+
+        let opt = crate::optimizer::CutOptimizer::new();
+        let job = opt.optimize(&doc);
+        assert!(job.paths.len() > 10, "Expected multiple hatch scan lines in job paths, got {}", job.paths.len());
     }
 }

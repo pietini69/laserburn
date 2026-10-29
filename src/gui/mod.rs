@@ -6219,6 +6219,35 @@ impl eframe::App for LaserBurnApp {
                     );
                 } else {
                     let stroke = egui::Stroke::new(stroke_width, color);
+                    let is_fill_mode = self.doc.layers.get(&shape.layer_index()).map_or(false, |l| {
+                        l.cut_setting.mode == CutMode::Fill || l.cut_setting.mode == CutMode::OffsetFill
+                    });
+
+                    // Render Filled Shape Preview for Fill / Engrave mode
+                    if is_fill_mode {
+                        let fill_color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 65);
+                        match shape {
+                            Shape::Rect { x, y, width, height, corner_radius, .. } => {
+                                let p0 = self.doc_to_screen(Point2D::new(*x, *y), canvas_origin);
+                                let p1 = self.doc_to_screen(Point2D::new(*x + *width, *y + *height), canvas_origin);
+                                let r = egui::Rect::from_two_pos(p0, p1);
+                                painter.rect_filled(r, (*corner_radius as f32 * self.zoom) as f32, fill_color);
+                            }
+                            Shape::Circle { center, radius, .. } => {
+                                let sc = self.doc_to_screen(*center, canvas_origin);
+                                painter.circle_filled(sc, (*radius as f32 * self.zoom) as f32, fill_color);
+                            }
+                            _ => {
+                                for poly in shape.to_polylines() {
+                                    if poly.is_closed && poly.points.len() >= 3 {
+                                        let pts: Vec<egui::Pos2> = poly.points.iter().map(|p| self.doc_to_screen(*p, canvas_origin)).collect();
+                                        painter.add(egui::Shape::convex_polygon(pts, fill_color, egui::Stroke::NONE));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     for poly in shape.to_polylines() {
                         if poly.points.len() >= 2 {
                             let n = poly.points.len();

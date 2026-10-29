@@ -81,7 +81,7 @@ impl CutOptimizer {
                 } else if cs.mode == crate::document::CutMode::Fill {
                     let interval = if cs.line_interval > 0.005 { cs.line_interval } else { 0.08 };
                     let polys = shape.to_polylines();
-                    let hatch_polys = crate::hatch::generate_hatch(&polys, interval, cs.scan_angle, cs.cross_hatch);
+                    let hatch_polys = crate::hatch::generate_hatch(&polys, cs.scan_angle, interval, cs.cross_hatch);
                     hatch_polys.into_iter().map(|p| OptimizedPath {
                         layer_index: layer_idx,
                         polyline: p,
