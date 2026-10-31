@@ -57,6 +57,7 @@ impl GCodeGenerator {
         let laser_mode_cmd = if self.config.dynamic_power_mode { "M4" } else { "M3" };
 
         let mut air_assist_active = false;
+        let mut z_curr = 0.0;
 
         for path in &job.paths {
             let layer = doc.layers.get(&path.layer_index);
@@ -68,7 +69,9 @@ impl GCodeGenerator {
             let air_assist = cut_setting.map(|cs| cs.air_assist).unwrap_or(true);
             let passes = cut_setting.map(|cs| cs.num_passes).unwrap_or(1);
             let z_step = cut_setting.map(|cs| cs.z_step_per_pass).unwrap_or(0.0);
-            let mut z_curr = cut_setting.map(|cs| cs.z_offset).unwrap_or(0.0);
+            if path.z_level.is_none() && cut_setting.map(|cs| cs.z_offset.abs() > 1e-4).unwrap_or(false) {
+                z_curr = cut_setting.map(|cs| cs.z_offset).unwrap_or(0.0);
+            }
 
             let pts = &path.polyline.points;
             if pts.len() < 2 {
@@ -99,16 +102,31 @@ impl GCodeGenerator {
             };
 
             for pass in 0..passes {
-                if z_step.abs() > 1e-4 {
-                    z_curr -= z_step;
-                    out.push_str(&format!("G0 Z{:.3}\n", z_curr));
+                if let Some(target_z) = path.z_level {
+                    let clearance_z = cut_setting.map(|cs| cs.relief_clearance_z).unwrap_or(2.0);
+                    // Retract to safety clearance height before traversing to avoid colliding with higher workpiece areas
+                    if z_curr < clearance_z - 1e-4 {
+                        out.push_str(&format!("G0 Z{:.3}\n", clearance_z));
+                    }
+                    out.push_str(&format!("; Pass {}/{} on Layer {} (3D Relief Z{:.3})\n", pass + 1, passes, path.layer_index, target_z));
+                    // Rapid move in X/Y to start
+                    let (x0, y0) = map_pt(&pts[0]);
+                    out.push_str(&format!("G0 X{:.3} Y{:.3}\n", x0, y0));
+                    // Plunge down to slice target depth
+                    out.push_str(&format!("G0 Z{:.3}\n", target_z));
+                    z_curr = target_z;
+                } else {
+                    if z_step.abs() > 1e-4 {
+                        z_curr -= z_step;
+                        out.push_str(&format!("G0 Z{:.3}\n", z_curr));
+                    }
+
+                    out.push_str(&format!("; Pass {}/{} on Layer {}\n", pass + 1, passes, path.layer_index));
+
+                    // Rapid move to start
+                    let (x0, y0) = map_pt(&pts[0]);
+                    out.push_str(&format!("G0 X{:.3} Y{:.3}\n", x0, y0));
                 }
-
-                out.push_str(&format!("; Pass {}/{} on Layer {}\n", pass + 1, passes, path.layer_index));
-
-                // Rapid move to start
-                let (x0, y0) = map_pt(&pts[0]);
-                out.push_str(&format!("G0 X{:.3} Y{:.3}\n", x0, y0));
 
                 if let Some(ref powers) = path.powers {
                     // Variable laser power mode (Grayscale Power / Ceramic tile engraving)
@@ -164,6 +182,9 @@ impl GCodeGenerator {
             out.push_str(&format!("{}\n", self.config.air_assist_off_cmd));
         }
         out.push_str("M5 ; Final laser off\n");
+        if z_curr < 0.0 {
+            out.push_str("G0 Z2.000 ; Retract to clearance height\n");
+        }
         out.push_str("G0 X0 Y0 ; Return home\n");
         out.push_str("M2 ; End of program\n");
 

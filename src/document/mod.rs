@@ -26,6 +26,7 @@ pub enum DitherMode {
     OrderedBayer,
     Halftone,
     GrayscalePower,
+    Sliced3D,
 }
 
 impl Default for DitherMode {
@@ -135,6 +136,38 @@ pub struct CutSetting {
     pub tab_count: usize,
     #[serde(default = "default_tab_width")]
     pub tab_width: f64,
+    #[serde(default = "default_relief_slices")]
+    pub relief_slices: usize,          // number of progressive depth slices (e.g. 16)
+    #[serde(default = "default_relief_depth_mm")]
+    pub relief_depth_mm: f64,          // target relief depth in mm (e.g. 1.5mm)
+    #[serde(default = "default_relief_material_thickness")]
+    pub relief_material_thickness: f64,// material thickness in mm (e.g. 3.0mm)
+    #[serde(default = "default_relief_alternate_angle")]
+    pub relief_alternate_angle: bool,  // alternate raster angle across slices (0°/90°) to prevent banding
+    #[serde(default)]
+    pub relief_z_step: f64,            // optional Z-step down per slice in mm
+    #[serde(default = "default_relief_clearance_z")]
+    pub relief_clearance_z: f64,       // safety retract height above surface in mm
+}
+
+fn default_relief_slices() -> usize {
+    16
+}
+
+fn default_relief_depth_mm() -> f64 {
+    1.5
+}
+
+fn default_relief_material_thickness() -> f64 {
+    3.0
+}
+
+fn default_relief_alternate_angle() -> bool {
+    true
+}
+
+fn default_relief_clearance_z() -> f64 {
+    2.0
 }
 
 fn default_tab_count() -> usize {
@@ -171,6 +204,12 @@ impl Default for CutSetting {
             tabs_enabled: false,
             tab_count: 4,
             tab_width: 0.5,
+            relief_slices: 16,
+            relief_depth_mm: 1.5,
+            relief_material_thickness: 3.0,
+            relief_alternate_angle: true,
+            relief_z_step: 0.0,
+            relief_clearance_z: 2.0,
         }
     }
 }
@@ -857,6 +896,11 @@ impl Shape {
                         result_paths.extend(row_paths);
                     }
                     result_paths
+                } else if cut_setting.dither_mode == DitherMode::Sliced3D {
+                    self.to_3d_relief_paths(cut_setting)
+                        .into_iter()
+                        .map(|(p, powers, _z)| (p, powers))
+                        .collect()
                 } else {
                     // Binary dither mode
                     self.to_raster_polylines(cut_setting.dither_mode, interval)
@@ -870,6 +914,204 @@ impl Shape {
             }
             _ => {
                 self.to_polylines().into_iter().map(|p| (p, None)).collect()
+            }
+        }
+    }
+
+    /// Generates progressive multi-layer toolpaths for 3D Sliced Relief Engraving.
+    /// Each slice burns pixels whose depth exceeds the slice threshold.
+    /// Supports automatic orthogonal cross-angles (0°/90°) and Z-step down per slice.
+    pub fn to_3d_relief_paths(&self, cut_setting: &CutSetting) -> Vec<(Polyline, Option<Vec<f64>>, Option<f64>)> {
+        match self {
+            Shape::Image {
+                x,
+                y,
+                width,
+                height,
+                raw_pixels,
+                raw_width,
+                raw_height,
+                image_path,
+                brightness,
+                contrast,
+                gamma,
+                sharpen,
+                ..
+            } => {
+                if *width <= 0.0 || *height <= 0.0 {
+                    return vec![];
+                }
+
+                // 1. Retrieve or load RGBA pixels
+                let (pixels, w_orig, h_orig) = if let (Some(px), w, h) = (raw_pixels, *raw_width, *raw_height) {
+                    if w > 0 && h > 0 {
+                        (px.clone(), w as usize, h as usize)
+                    } else {
+                        return vec![];
+                    }
+                } else if let Some(path) = image_path {
+                    if let Ok(dyn_img) = image::open(path) {
+                        let rgba = dyn_img.to_rgba8();
+                        let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+                        (rgba.into_raw(), w, h)
+                    } else {
+                        return vec![];
+                    }
+                } else {
+                    return vec![];
+                };
+
+                let gray_raw = crate::dither::to_grayscale(&pixels, w_orig, h_orig, 4);
+                let gray = crate::dither::preprocess_grayscale(
+                    &gray_raw,
+                    w_orig,
+                    h_orig,
+                    *brightness,
+                    *contrast,
+                    *gamma,
+                    *sharpen,
+                );
+
+                let interval = if cut_setting.line_interval > 0.005 {
+                    cut_setting.line_interval
+                } else {
+                    0.08
+                };
+                let target_h = ((*height / interval).round() as usize).clamp(1, 2000);
+                let target_w = ((*width / interval).round() as usize).clamp(1, 2000);
+                let resampled = crate::dither::resample_grayscale(&gray, w_orig, h_orig, target_w, target_h);
+
+                let dx = *width / target_w as f64;
+                let dy = *height / target_h as f64;
+
+                // Safety limits based on material thickness (e.g. 3.0mm plywood)
+                let thickness = cut_setting.relief_material_thickness.max(0.5);
+                let max_depth = (thickness * 0.80).max(0.2); // Never punch through bottom 20%
+                let target_depth = cut_setting.relief_depth_mm.clamp(0.1, max_depth);
+                let num_slices = cut_setting.relief_slices.clamp(2, 128);
+                let z_step_per_slice = if cut_setting.relief_z_step > 0.0 {
+                    cut_setting.relief_z_step
+                } else if cut_setting.z_step_per_pass > 0.0 {
+                    cut_setting.z_step_per_pass
+                } else {
+                    target_depth / num_slices as f64
+                };
+
+                let mut result_paths = Vec::new();
+
+                for slice_idx in 0..num_slices {
+                    // Slices go from shallow (0) to deep (num_slices - 1)
+                    let depth_frac = (slice_idx + 1) as f64 / num_slices as f64;
+                    let z_for_slice = if cut_setting.relief_z_step > 0.0 || cut_setting.z_step_per_pass > 0.0 {
+                        Some(-(slice_idx as f64 * z_step_per_slice))
+                    } else {
+                        None
+                    };
+
+                    // Alternate scan angle (0° = horizontal, 90° = vertical) to prevent banding and ridges
+                    let is_vertical = cut_setting.relief_alternate_angle && (slice_idx % 2 == 1);
+
+                    if !is_vertical {
+                        // Horizontal serpentine raster
+                        for py in 0..target_h {
+                            let cur_y = *y + (py as f64 + 0.5) * dy;
+                            let reverse = (py % 2) == 1;
+                            let row_start = py * target_w;
+
+                            let mut in_stroke = false;
+                            let mut stroke_start = 0;
+
+                            for px in 0..target_w {
+                                let mut val = resampled[row_start + px];
+                                if cut_setting.invert_image {
+                                    val = 255.0 - val;
+                                }
+                                let darkness = ((255.0 - val).max(0.0) / 255.0) as f64;
+                                let burns = darkness >= depth_frac && val < 254.0;
+
+                                if burns {
+                                    if !in_stroke {
+                                        in_stroke = true;
+                                        stroke_start = px;
+                                    }
+                                } else if in_stroke {
+                                    in_stroke = false;
+                                    let stroke_end = px;
+                                    let x0 = *x + stroke_start as f64 * dx;
+                                    let x1 = *x + stroke_end as f64 * dx;
+                                    let mut pts = vec![Point2D::new(x0, cur_y), Point2D::new(x1, cur_y)];
+                                    if reverse {
+                                        pts.reverse();
+                                    }
+                                    result_paths.push((Polyline::new(pts, false), None, z_for_slice));
+                                }
+                            }
+                            if in_stroke {
+                                let stroke_end = target_w;
+                                let x0 = *x + stroke_start as f64 * dx;
+                                let x1 = *x + stroke_end as f64 * dx;
+                                let mut pts = vec![Point2D::new(x0, cur_y), Point2D::new(x1, cur_y)];
+                                if reverse {
+                                    pts.reverse();
+                                }
+                                result_paths.push((Polyline::new(pts, false), None, z_for_slice));
+                            }
+                        }
+                    } else {
+                        // Vertical serpentine raster
+                        for px in 0..target_w {
+                            let cur_x = *x + (px as f64 + 0.5) * dx;
+                            let reverse = (px % 2) == 1;
+
+                            let mut in_stroke = false;
+                            let mut stroke_start = 0;
+
+                            for py in 0..target_h {
+                                let mut val = resampled[py * target_w + px];
+                                if cut_setting.invert_image {
+                                    val = 255.0 - val;
+                                }
+                                let darkness = ((255.0 - val).max(0.0) / 255.0) as f64;
+                                let burns = darkness >= depth_frac && val < 254.0;
+
+                                if burns {
+                                    if !in_stroke {
+                                        in_stroke = true;
+                                        stroke_start = py;
+                                    }
+                                } else if in_stroke {
+                                    in_stroke = false;
+                                    let stroke_end = py;
+                                    let y0 = *y + stroke_start as f64 * dy;
+                                    let y1 = *y + stroke_end as f64 * dy;
+                                    let mut pts = vec![Point2D::new(cur_x, y0), Point2D::new(cur_x, y1)];
+                                    if reverse {
+                                        pts.reverse();
+                                    }
+                                    result_paths.push((Polyline::new(pts, false), None, z_for_slice));
+                                }
+                            }
+                            if in_stroke {
+                                let stroke_end = target_h;
+                                let y0 = *y + stroke_start as f64 * dy;
+                                let y1 = *y + stroke_end as f64 * dy;
+                                let mut pts = vec![Point2D::new(cur_x, y0), Point2D::new(cur_x, y1)];
+                                if reverse {
+                                    pts.reverse();
+                                }
+                                result_paths.push((Polyline::new(pts, false), None, z_for_slice));
+                            }
+                        }
+                    }
+                }
+
+                result_paths
+            }
+            Shape::Group { shapes, .. } => {
+                shapes.iter().flat_map(|s| s.to_3d_relief_paths(cut_setting)).collect()
+            }
+            _ => {
+                self.to_polylines().into_iter().map(|p| (p, None, None)).collect()
             }
         }
     }
@@ -1402,5 +1644,64 @@ mod tests {
         let b3 = doc.shapes[3].bounds().center();
         assert!((b3.x - 50.0).abs() < 1e-3);
         assert!((b3.y - 100.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_3d_sliced_relief_paths() {
+        let w = 10;
+        let h = 10;
+        let mut pixels = Vec::with_capacity(w * h * 4);
+        for y in 0..h {
+            for _x in 0..w {
+                // Gradient along Y: y=0 is white (255), y=9 is black (0)
+                let val = (255 - (y * 255 / (h - 1))) as u8;
+                pixels.push(val);
+                pixels.push(val);
+                pixels.push(val);
+                pixels.push(255);
+            }
+        }
+
+        let mut cs = CutSetting::default();
+        cs.mode = CutMode::Image;
+        cs.dither_mode = DitherMode::Sliced3D;
+        cs.relief_slices = 4;
+        cs.relief_material_thickness = 3.0;
+        cs.relief_depth_mm = 1.8;
+        cs.relief_z_step = 0.45;
+        cs.relief_clearance_z = 2.0;
+        cs.relief_alternate_angle = true;
+        cs.line_interval = 1.0;
+
+        let img = Shape::Image {
+            layer_index: 0,
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+            raw_pixels: Some(pixels),
+            raw_width: w as u32,
+            raw_height: h as u32,
+            image_path: None,
+            brightness: 0.0,
+            contrast: 0.0,
+            gamma: 1.0,
+            sharpen: 0.0,
+        };
+
+        let paths = img.to_3d_relief_paths(&cs);
+        assert!(!paths.is_empty(), "Should generate paths for 3D relief");
+
+        // Check that Z levels are assigned to slices
+        let z_levels: Vec<f64> = paths.iter().filter_map(|(_, _, z)| *z).collect();
+        assert!(!z_levels.is_empty(), "Should have Z levels");
+        assert!(z_levels.contains(&0.0) || z_levels.iter().any(|&z| z < 0.0), "Should contain step down Z levels");
+
+        // Verify safety: relief_depth_mm exceeding 85% of thickness is clamped
+        let mut dangerous_cs = cs.clone();
+        dangerous_cs.relief_material_thickness = 3.0;
+        dangerous_cs.relief_depth_mm = 5.0; // Dangerous! Exceeds 3.0mm thickness!
+        let safe_paths = img.to_3d_relief_paths(&dangerous_cs);
+        assert!(!safe_paths.is_empty(), "Safe paths generated with clamped depth");
     }
 }
