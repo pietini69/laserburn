@@ -52,9 +52,102 @@ impl Mesh3D {
         }
     }
 
-    /// Loads a glTF or binary GLB model
+    /// Loads a glTF or binary GLB model without failing on unknown texture/material extensions (e.g. WebP)
     pub fn load_glb<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let p = path.as_ref();
+        let bytes = std::fs::read(p).map_err(|e| format!("Failed to read file {}: {}", p.display(), e))?;
+
+        // 1. If it's a binary GLB container (magic "glTF"), parse geometry directly without validating texture extensions
+        if bytes.starts_with(b"glTF") {
+            if let Ok(glb) = gltf::binary::Glb::from_slice(&bytes) {
+                if let Ok(root) = gltf::json::Root::from_slice(&glb.json) {
+                    let doc = gltf::Document::from_json_without_validation(root);
+                    let bin = glb.bin.unwrap_or_default();
+                    let mut triangles = Vec::new();
+
+                    for mesh in doc.meshes() {
+                        for primitive in mesh.primitives() {
+                            let reader = primitive.reader(|b| if b.index() == 0 { Some(bin.as_ref()) } else { None });
+                            let positions: Vec<[f32; 3]> = match reader.read_positions() {
+                                Some(iter) => iter.collect(),
+                                None => continue,
+                            };
+
+                            if positions.is_empty() {
+                                continue;
+                            }
+
+                            if let Some(indices) = reader.read_indices() {
+                                let idx_vec: Vec<u32> = indices.into_u32().collect();
+                                match primitive.mode() {
+                                    gltf::mesh::Mode::Triangles => {
+                                        for chunk in idx_vec.chunks_exact(3) {
+                                            let i0 = chunk[0] as usize;
+                                            let i1 = chunk[1] as usize;
+                                            let i2 = chunk[2] as usize;
+                                            if i0 < positions.len() && i1 < positions.len() && i2 < positions.len() {
+                                                triangles.push(Triangle3D {
+                                                    v0: positions[i0],
+                                                    v1: positions[i1],
+                                                    v2: positions[i2],
+                                                });
+                                            }
+                                        }
+                                    }
+                                    gltf::mesh::Mode::TriangleStrip => {
+                                        for (strip_idx, window) in idx_vec.windows(3).enumerate() {
+                                            let (i0, i1, i2) = if strip_idx % 2 == 0 {
+                                                (window[0] as usize, window[1] as usize, window[2] as usize)
+                                            } else {
+                                                (window[1] as usize, window[0] as usize, window[2] as usize)
+                                            };
+                                            if i0 < positions.len() && i1 < positions.len() && i2 < positions.len() {
+                                                triangles.push(Triangle3D {
+                                                    v0: positions[i0],
+                                                    v1: positions[i1],
+                                                    v2: positions[i2],
+                                                });
+                                            }
+                                        }
+                                    }
+                                    gltf::mesh::Mode::TriangleFan => {
+                                        if !idx_vec.is_empty() {
+                                            let center_idx = idx_vec[0] as usize;
+                                            for window in idx_vec[1..].windows(2) {
+                                                let i1 = window[0] as usize;
+                                                let i2 = window[1] as usize;
+                                                if center_idx < positions.len() && i1 < positions.len() && i2 < positions.len() {
+                                                    triangles.push(Triangle3D {
+                                                        v0: positions[center_idx],
+                                                        v1: positions[i1],
+                                                        v2: positions[i2],
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            } else {
+                                for chunk in positions.chunks_exact(3) {
+                                    triangles.push(Triangle3D {
+                                        v0: chunk[0],
+                                        v1: chunk[1],
+                                        v2: chunk[2],
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    if !triangles.is_empty() {
+                        return Ok(Self { triangles });
+                    }
+                }
+            }
+        }
+
+        // 2. Fallback to standard gltf::import for ASCII .gltf with external files
         let (doc, buffers, _images) =
             gltf::import(p).map_err(|e| format!("Failed to parse GLB/glTF {}: {}", p.display(), e))?;
 
@@ -124,7 +217,6 @@ impl Mesh3D {
                         _ => {}
                     }
                 } else {
-                    // Sequential vertices forming triangles
                     for chunk in positions.chunks_exact(3) {
                         triangles.push(Triangle3D {
                             v0: chunk[0],
@@ -452,13 +544,20 @@ endsolid test
 
     #[test]
     fn test_load_real_glb_duck() {
-        let duck_path = "/Volumes/Dataa/pinokio/drive/drives/pip/gradio/5.4.0/lib/python3.10/site-packages/gradio/templates/frontend/static/img/Duck.glb";
-        if std::path::Path::new(duck_path).exists() {
-            let mesh = Mesh3D::load_glb(duck_path).unwrap();
+        let coin_path = "/Volumes/Jättitila/Laser/aberrantrealities-gold-5589.glb";
+        if std::path::Path::new(coin_path).exists() {
+            let mesh = Mesh3D::load_glb(coin_path).expect("Failed to load coin GLB");
             assert!(!mesh.triangles.is_empty());
-            let (rgba, w, h) = mesh.render_heightmap(256, ProjectionAxis::Auto).unwrap();
+            println!("Loaded {} triangles from coin!", mesh.triangles.len());
+            let (rgba, w, h) = mesh.render_heightmap(1024, ProjectionAxis::Auto).unwrap();
             assert!(w > 0 && h > 0);
             assert_eq!(rgba.len(), w * h * 4);
+        } else {
+            let duck_path = "/Volumes/Dataa/pinokio/drive/drives/pip/gradio/5.4.0/lib/python3.10/site-packages/gradio/templates/frontend/static/img/Duck.glb";
+            if std::path::Path::new(duck_path).exists() {
+                let mesh = Mesh3D::load_glb(duck_path).unwrap();
+                assert!(!mesh.triangles.is_empty());
+            }
         }
     }
 }
