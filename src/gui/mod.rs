@@ -1430,6 +1430,14 @@ impl LaserBurnApp {
                 self.pan = egui::Vec2::new(80.0, 60.0);
                 Ok(())
             }
+            "glb" | "gltf" | "stl" => {
+                let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or("3D_Relief");
+                self.doc = Document::new(name, self.device.settings.bed_width, self.device.settings.bed_height);
+                self.import_3d_mesh(p)?;
+                self.zoom = 1.2;
+                self.pan = egui::Vec2::new(80.0, 60.0);
+                Ok(())
+            }
             _ => Err(format!("Unsupported file format: .{}", ext)),
         }
     }
@@ -1557,6 +1565,95 @@ impl LaserBurnApp {
         Ok(())
     }
 
+    /// Loads a 3D model (.glb, .gltf, .stl), projects it to an orthographic heightmap,
+    /// and configures it automatically for 3D Sliced Relief Engraving!
+    pub fn import_3d_mesh<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<(), String> {
+        let p = path.as_ref();
+        let mesh = crate::formats::Mesh3D::load_file(p)?;
+        let num_triangles = mesh.triangles.len();
+
+        let (min_pt, max_pt) = mesh.bounds();
+        let dx = (max_pt[0] - min_pt[0]).abs();
+        let dy = (max_pt[1] - min_pt[1]).abs();
+        let dz = (max_pt[2] - min_pt[2]).abs();
+
+        let (raw_pixels, raw_w, raw_h) = mesh.render_heightmap(1024, crate::formats::ProjectionAxis::Auto)?;
+
+        self.push_undo();
+
+        let mut dims = [dx, dy, dz];
+        dims.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let natural_w = dims[2] as f64;
+
+        let aspect = raw_h as f64 / raw_w as f64;
+        let (width_mm, height_mm) = if natural_w >= 10.0 && natural_w <= self.device.settings.bed_width * 0.7 {
+            (natural_w, natural_w * aspect)
+        } else {
+            let w = 50.0_f64.min(self.device.settings.bed_width * 0.7);
+            (w, w * aspect)
+        };
+
+        let x = ((self.device.settings.bed_width - width_mm) * 0.5).max(10.0);
+        let y = ((self.device.settings.bed_height - height_mm) * 0.5).max(10.0);
+
+        let relief_layer_idx = 1;
+        if let Some(l) = self.doc.layers.get_mut(&relief_layer_idx) {
+            l.name = "3D Sliced Relief".to_string();
+            l.color_hex = "#FF9900".to_string();
+            l.cut_setting.mode = CutMode::Image;
+            l.cut_setting.dither_mode = DitherMode::Sliced3D;
+            l.cut_setting.relief_slices = 16;
+            l.cut_setting.relief_material_thickness = 3.0;
+            l.cut_setting.relief_depth_mm = 1.2;
+            l.cut_setting.relief_alternate_angle = true;
+            l.cut_setting.speed = 100.0;
+            l.cut_setting.power_max = 70.0;
+            l.cut_setting.line_interval = 0.08;
+        } else {
+            let mut l = Layer::new(relief_layer_idx, "3D Sliced Relief", "#FF9900");
+            l.cut_setting.mode = CutMode::Image;
+            l.cut_setting.dither_mode = DitherMode::Sliced3D;
+            l.cut_setting.relief_slices = 16;
+            l.cut_setting.relief_material_thickness = 3.0;
+            l.cut_setting.relief_depth_mm = 1.2;
+            l.cut_setting.relief_alternate_angle = true;
+            l.cut_setting.speed = 100.0;
+            l.cut_setting.power_max = 70.0;
+            l.cut_setting.line_interval = 0.08;
+            self.doc.layers.insert(relief_layer_idx, l);
+        }
+
+        let shape = Shape::Image {
+            layer_index: relief_layer_idx,
+            x,
+            y,
+            width: width_mm,
+            height: height_mm,
+            image_path: Some(p.to_string_lossy().to_string()),
+            raw_pixels: Some(raw_pixels),
+            raw_width: raw_w as u32,
+            raw_height: raw_h as u32,
+            brightness: 0.0,
+            contrast: 0.0,
+            gamma: 1.0,
+            sharpen: 0.0,
+        };
+
+        self.doc.add_shape(shape);
+        let new_idx = self.doc.shapes.len() - 1;
+        self.selected_shape_indices = vec![new_idx];
+        self.selected_layer = relief_layer_idx;
+        self.image_textures.remove(&new_idx);
+        self.status_msg = format!(
+            "Loaded 3D Model: {} ({} triangles -> {:.1}x{:.1} mm 3D Relief)",
+            p.file_name().unwrap_or_default().to_string_lossy(),
+            num_triangles,
+            width_mm,
+            height_mm
+        );
+        Ok(())
+    }
+
     /// Imports vector shapes from a DXF, PDF, SVG, or LBRN2 file and appends them to the current project
     pub fn import_vector_file<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<(), String> {
         let p = path.as_ref();
@@ -1604,12 +1701,14 @@ impl LaserBurnApp {
             pollster::block_on(async move {
                 if let Some(handle) = rfd::AsyncFileDialog::new()
                     .add_filter(
-                        "All Supported Files (*.lbrn2, *.svg, *.dxf, *.pdf, *.png, *.jpg, *.bmp)",
+                        "All Supported Files (*.lbrn2, *.svg, *.dxf, *.pdf, *.png, *.jpg, *.bmp, *.glb, *.stl)",
                         &[
                             "lbrn2", "LBRN2", "lbrn", "LBRN", "svg", "SVG", "dxf", "DXF", "pdf", "PDF",
                             "png", "PNG", "jpg", "JPG", "jpeg", "JPEG", "bmp", "BMP",
+                            "glb", "GLB", "gltf", "GLTF", "stl", "STL",
                         ],
                     )
+                    .add_filter("3D Models for Relief (*.glb, *.gltf, *.stl)", &["glb", "GLB", "gltf", "GLTF", "stl", "STL"])
                     .add_filter("CAD Vector Drawing (*.dxf)", &["dxf", "DXF"])
                     .add_filter("Adobe / Vector PDF (*.pdf)", &["pdf", "PDF"])
                     .add_filter("LightBurn Projects (*.lbrn2, *.lbrn)", &["lbrn2", "LBRN2", "lbrn", "LBRN"])
@@ -1636,12 +1735,13 @@ impl LaserBurnApp {
             pollster::block_on(async move {
                 if let Some(handle) = rfd::AsyncFileDialog::new()
                     .add_filter(
-                        "All Graphic & Vector Files (*.dxf, *.pdf, *.svg, *.png, *.jpg, *.bmp)",
+                        "All Graphic, Vector & 3D Files (*.dxf, *.pdf, *.svg, *.png, *.jpg, *.glb, *.stl)",
                         &[
                             "dxf", "DXF", "pdf", "PDF", "svg", "SVG", "png", "PNG", "jpg", "JPG", "jpeg",
-                            "JPEG", "bmp", "BMP",
+                            "JPEG", "bmp", "BMP", "glb", "GLB", "gltf", "GLTF", "stl", "STL",
                         ],
                     )
+                    .add_filter("3D Models for Relief (*.glb, *.gltf, *.stl)", &["glb", "GLB", "gltf", "GLTF", "stl", "STL"])
                     .add_filter("CAD Vector Drawing (*.dxf)", &["dxf", "DXF"])
                     .add_filter("Adobe / Vector PDF (*.pdf)", &["pdf", "PDF"])
                     .add_filter("Vector SVG (*.svg)", &["svg", "SVG"])
@@ -4283,6 +4383,10 @@ impl eframe::App for LaserBurnApp {
                     if matches!(ext.as_str(), "dxf" | "pdf" | "svg" | "lbrn2" | "lbrn") {
                         if let Err(e) = self.import_vector_file(&path) {
                             self.status_msg = format!("Import Error: {}", e);
+                        }
+                    } else if matches!(ext.as_str(), "glb" | "gltf" | "stl") {
+                        if let Err(e) = self.import_3d_mesh(&path) {
+                            self.status_msg = format!("3D Import Error: {}", e);
                         }
                     } else if let Err(e) = self.import_image(&path) {
                         self.status_msg = format!("Import Error: {}", e);
@@ -9962,5 +10066,42 @@ mod tests {
         // Test Variable text generation
         let var_shapes = crate::generator::generate_variable_text_shapes(&app.variable_text_params, 0, 1);
         assert_eq!(var_shapes.len(), 10);
+    }
+
+    #[test]
+    fn test_open_3d_mesh_relief() {
+        let ascii_stl = r#"solid coin
+  facet normal 0 0 1
+    outer loop
+      vertex 0.0 0.0 2.0
+      vertex 30.0 0.0 2.0
+      vertex 15.0 30.0 3.0
+    endloop
+  endfacet
+endsolid coin
+"#;
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join("test_coin.stl");
+        std::fs::write(&file_path, ascii_stl).unwrap();
+
+        let mut app = LaserBurnApp::default();
+        let res = app.open_file(&file_path);
+        assert!(res.is_ok(), "Failed to open 3D STL file: {:?}", res);
+        assert_eq!(app.doc.shapes.len(), 1);
+
+        // Verify it was imported as an Image shape with Sliced3D relief layer
+        if let Shape::Image { layer_index, raw_pixels, width, height, .. } = &app.doc.shapes[0] {
+            assert_eq!(*layer_index, 1);
+            assert!(raw_pixels.is_some());
+            assert!(*width > 0.0);
+            assert!(*height > 0.0);
+            let layer = app.doc.layers.get(layer_index).expect("Layer 1 must exist");
+            assert_eq!(layer.cut_setting.dither_mode, DitherMode::Sliced3D);
+            assert_eq!(layer.cut_setting.relief_slices, 16);
+        } else {
+            panic!("Expected Shape::Image for 3D mesh import");
+        }
+
+        let _ = std::fs::remove_file(file_path);
     }
 }
