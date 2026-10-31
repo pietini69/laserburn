@@ -4749,25 +4749,25 @@ impl LaserBurnApp {
             .show(ctx, |ui| {
                 ui.heading(tr("Engraving Depth Test (Caliper Calibration)"));
                 ui.label(
-                    egui::RichText::new("Generoi työtasolle mitattavat syvyystaskut, joiden pohjan syvyyden voit mitata digitaalisella työntömitalla (mm) eri kierrosmäärillä tai tehoilla.")
+                    egui::RichText::new(tr("Generates test pockets with step-wise passes or power levels to measure depth with a digital caliper."))
                         .small()
                         .weak(),
                 );
                 ui.add_space(6.0);
 
                 ui.group(|ui| {
-                    ui.label(egui::RichText::new("Testityyppi:").strong());
-                    ui.radio_value(&mut self.depth_test_type, DepthTestType::MultiPass, "1. Monipassi-syvyystesti (1 - 8 passia)");
-                    ui.label(egui::RichText::new("   Mittaa montako ajokertaa tarvitaan haluttuun syvyyteen (esim. 1.0 mm tai 1.5 mm)").small().weak());
+                    ui.label(egui::RichText::new(tr("Test Type:")).strong());
+                    ui.radio_value(&mut self.depth_test_type, DepthTestType::MultiPass, tr("1. Multi-Pass Depth Test (1 - 8 passes)"));
+                    ui.label(egui::RichText::new(tr("   Measures how many passes are needed for target depth (e.g. 1.0 mm or 1.5 mm)")).small().weak());
 
-                    ui.radio_value(&mut self.depth_test_type, DepthTestType::PowerSteps, "2. Tehoportaikko (Power Steps 15% - 85%)");
-                    ui.label(egui::RichText::new("   Mittaa eri lasertehojen leikkaussyvyys samalla nopeudella").small().weak());
+                    ui.radio_value(&mut self.depth_test_type, DepthTestType::PowerSteps, tr("2. Power Steps (15% - 85%)"));
+                    ui.label(egui::RichText::new(tr("   Measures engraving depth for varying laser power at constant speed")).small().weak());
 
-                    ui.radio_value(&mut self.depth_test_type, DepthTestType::PassesVsSpeed, "3. Passit vs. Nopeus -matriisi");
-                    ui.label(egui::RichText::new("   2D-matriisi eri kierrosmäärien ja nopeuksien syvyyksistä").small().weak());
+                    ui.radio_value(&mut self.depth_test_type, DepthTestType::PassesVsSpeed, tr("3. Passes vs. Speed Matrix"));
+                    ui.label(egui::RichText::new(tr("   2D grid of depth across varying passes and speeds")).small().weak());
 
-                    ui.radio_value(&mut self.depth_test_type, DepthTestType::LineInterval, "4. Linjatiheystesti (0.05 - 0.15 mm)");
-                    ui.label(egui::RichText::new("   Testaa resoluutio ja löydä tasaisin taskun pohja ilman raitoja").small().weak());
+                    ui.radio_value(&mut self.depth_test_type, DepthTestType::LineInterval, tr("4. Line Interval Density (0.05 - 0.15 mm)"));
+                    ui.label(egui::RichText::new(tr("   Tests hatch resolution to find the smoothest pocket bottom without scan ridges")).small().weak());
                 });
 
                 ui.add_space(6.0);
@@ -4777,30 +4777,30 @@ impl LaserBurnApp {
                     .show(ui, |ui| {
                         match self.depth_test_type {
                             DepthTestType::MultiPass | DepthTestType::PowerSteps => {
-                                ui.label("Askelmien määrä:");
-                                ui.add(egui::DragValue::new(&mut self.depth_test_steps).range(2..=12).suffix(" kpl"));
-                                ui.label(egui::RichText::new("Taskujen määrä").small().weak());
+                                ui.label(tr("Number of Steps:"));
+                                ui.add(egui::DragValue::new(&mut self.depth_test_steps).range(2..=12).suffix(tr(" pcs")));
+                                ui.label(egui::RichText::new(tr("Number of pockets")).small().weak());
                                 ui.end_row();
                             }
                             _ => {}
                         }
 
-                        ui.label("Taskun koko (L × K):");
+                        ui.label(tr("Pocket Size (W × H):"));
                         ui.horizontal(|ui| {
                             ui.add(egui::DragValue::new(&mut self.depth_test_box_w).speed(0.5).range(6.0..=40.0).suffix(" mm"));
                             ui.label("×");
                             ui.add(egui::DragValue::new(&mut self.depth_test_box_h).speed(0.5).range(6.0..=40.0).suffix(" mm"));
                         });
-                        ui.label(egui::RichText::new("Mitoitettu työntömitalle").small().weak());
+                        ui.label(egui::RichText::new(tr("Sized for caliper depth probe")).small().weak());
                         ui.end_row();
 
-                        ui.label("Kaiverrusnopeus:");
+                        ui.label(tr("Engraving Speed:"));
                         ui.add(egui::DragValue::new(&mut self.depth_test_speed).speed(5.0).range(10.0..=500.0).suffix(" mm/s"));
                         ui.label(egui::RichText::new(format!("~{:.0} mm/min", self.depth_test_speed * 60.0)).small().weak());
                         ui.end_row();
 
                         if self.depth_test_type == DepthTestType::PowerSteps {
-                            ui.label("Tehoalue:");
+                            ui.label(tr("Power Range:"));
                             ui.horizontal(|ui| {
                                 ui.add(egui::DragValue::new(&mut self.depth_test_min_power).speed(1.0).range(5.0..=100.0).suffix("%"));
                                 ui.label("–");
@@ -4809,30 +4809,30 @@ impl LaserBurnApp {
                             ui.label("");
                             ui.end_row();
                         } else if self.depth_test_type != DepthTestType::PassesVsSpeed {
-                            ui.label("Laserteho:");
+                            ui.label(tr("Laser Power:"));
                             ui.add(egui::DragValue::new(&mut self.depth_test_power).speed(1.0).range(5.0..=100.0).suffix(" %"));
                             ui.label("");
                             ui.end_row();
                         }
 
                         if self.depth_test_type != DepthTestType::LineInterval {
-                            ui.label("Linjaväli (Scan Interval):");
+                            ui.label(tr("Line Interval:"));
                             ui.add(egui::DragValue::new(&mut self.depth_test_interval).speed(0.005).range(0.02..=0.30).suffix(" mm"));
                             let dpi = if self.depth_test_interval > 0.001 { 25.4 / self.depth_test_interval } else { 0.0 };
                             ui.label(egui::RichText::new(format!("~{:.0} DPI", dpi)).small().weak());
                             ui.end_row();
                         }
 
-                        ui.label("Ristikkäispoltto:");
-                        ui.checkbox(&mut self.depth_test_cross_hatch, "Cross-Hatch (0° / 90°)")
-                            .on_hover_text("Tasoittaa poltettavan taskun pohjan poistaen syyraidat");
-                        ui.label(egui::RichText::new("Tasaisempi pohja").small().weak());
+                        ui.label(tr("Cross-Hatch:"));
+                        ui.checkbox(&mut self.depth_test_cross_hatch, tr("Cross-Hatch (0° / 90°)"))
+                            .on_hover_text(tr("Flattens the pocket bottom by removing grain ridges"));
+                        ui.label(egui::RichText::new(tr("Smoother bottom")).small().weak());
                         ui.end_row();
 
-                        ui.label("Siisti ääriviiva:");
-                        ui.checkbox(&mut self.depth_test_cut_outline, "Ääriviivaviilto")
-                            .on_hover_text("Ajaa kevyen viivan taskun reunoille puhtaan reunan varmistamiseksi");
-                        ui.label(egui::RichText::new("Terävät reunat").small().weak());
+                        ui.label(tr("Clean Outline:"));
+                        ui.checkbox(&mut self.depth_test_cut_outline, tr("Perimeter Score"))
+                            .on_hover_text(tr("Scores a crisp outline around each pocket for clean caliper placement"));
+                        ui.label(egui::RichText::new(tr("Sharp edges")).small().weak());
                         ui.end_row();
                     });
 
@@ -4840,13 +4840,13 @@ impl LaserBurnApp {
                 ui.separator();
                 ui.horizontal(|ui| {
                     let gen_btn = egui::Button::new(
-                        egui::RichText::new(" Generoi syvyystesti työpöydälle ").strong().color(egui::Color32::WHITE),
+                        egui::RichText::new(format!(" {} ", tr("Generate Depth Test Grid"))).strong().color(egui::Color32::WHITE),
                     ).fill(egui::Color32::from_rgb(34, 139, 34));
                     if ui.add(gen_btn).clicked() {
                         do_gen = true;
                         do_close = true;
                     }
-                    if ui.button("Sulje").clicked() {
+                    if ui.button(tr("Close")).clicked() {
                         do_close = true;
                     }
                 });
