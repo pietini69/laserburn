@@ -4,6 +4,24 @@ All notable changes, new features, and bug fixes for **PhotonCAM** across every 
 
 ---
 
+## [v1.2.8] – 2026-10-31
+
+### 🌟 New Features & Major Vector Fill (Engrave & Hatch) Upgrades
+* **📱 Web-CAD & iPad Remote Shape Fill & Engrave Controls:**
+  * **Shape Burning Modes:** Direct selection in Properties panel between **Viiva (Line)** (cut/score outline), **Täyttö (Fill)** (raster engrave interior), and **Täyttö + Viiva (Fill + Line)** (engrave interior followed by a clean contour cut).
+  * **Hatch Scan Angle & Spacing Presets:** Choose raster direction (Vaaka 0°, Pysty 90°, 45° angle) or bi-directional **Ristiinpoltto (Cross-Hatch)** with configurable line interval (default 0.10 mm / ~254 DPI).
+  * **Real-time Canvas Hatch Rendering:** Rectangles, circles, and polygons dynamically render their hatch patterns and semi-transparent fill preview directly on the Web-CAD canvas.
+  * **Automatic QR Code Module Fill:** Built-in QR generator automatically assigns vector fill mode to all generated barcode data modules.
+* **🖥️ Desktop PhotonCAM Canvas & Layer Settings:**
+  * **Filled Shape Canvas Previews:** Shapes assigned to `CutMode::Fill` or `CutMode::OffsetFill` now render directly on the canvas as semi-transparent filled shapes instead of wireframe outlines.
+  * **Layer Scan Angle & Cross-Hatch Controls:** Added dedicated scan angle input (0°, 90°, 45° presets) and cross-hatch checkbox to the desktop layer settings panel.
+* **⚡ CAM Optimizer & SVG Engine Enhancements:**
+  * **Hatch Optimizer Fix:** Corrected scan angle and interval parameter order in `generate_hatch` ensuring precise zigzag toolpath computation.
+  * **Intelligent SVG Fill Parser:** SVG loader automatically identifies filled vectors (`fill` attributes, inline styles, and web remote metadata) and generates high-efficiency hatch toolpaths.
+  * **Toolpath SSE Stream:** Web remote preview displays real-time generated laser hatch toolpaths instead of raw geometric outlines.
+
+---
+
 ## [v1.2.7] – 2026-10-29
 
 ### 🌟 New Features & Major Web-CAD Upgrades
