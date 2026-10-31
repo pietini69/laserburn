@@ -6168,6 +6168,7 @@ impl eframe::App for LaserBurnApp {
                                                 DitherMode::OrderedBayer => "Ordered (Bayer 8x8)",
                                                 DitherMode::Threshold => "Threshold (B&W)",
                                                 DitherMode::GrayscalePower => "Grayscale Power (Analog / Ceramics)",
+                                                DitherMode::Sliced3D => "3D Sliced Relief (Korkokuva)",
                                             })
                                             .show_ui(ui, |ui| {
                                                 ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::Atkinson, "Atkinson (Best Detail for Wood/Slate)");
@@ -6178,9 +6179,65 @@ impl eframe::App for LaserBurnApp {
                                                 ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::OrderedBayer, "Ordered (Bayer 8x8 Matrix)");
                                                 ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::Threshold, "Threshold (Pure Black & White)");
                                                 ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::GrayscalePower, "Grayscale Power (Variable Laser Power / Ceramics)");
+                                                ui.selectable_value(&mut layer.cut_setting.dither_mode, DitherMode::Sliced3D, "3D Sliced Relief (Multi-Layer Depth / Wood Carving)");
                                             });
                                         ui.label(egui::RichText::new("Photo engraving algorithm").small().weak());
                                         ui.end_row();
+
+                                        if layer.cut_setting.dither_mode == DitherMode::Sliced3D {
+                                            ui.label(tr("Thickness:"));
+                                            ui.add(
+                                                egui::DragValue::new(&mut layer.cut_setting.relief_material_thickness)
+                                                    .speed(0.1)
+                                                    .range(0.5..=50.0)
+                                                    .suffix(" mm"),
+                                            ).on_hover_text("Materiaalin kokonaispaksuus (esim. 3.0 mm vaneri)");
+                                            ui.label(egui::RichText::new("Vaneri / Puun paksuus").small().weak());
+                                            ui.end_row();
+
+                                            ui.label(tr("Target Depth:"));
+                                            let max_allowed = (layer.cut_setting.relief_material_thickness * 0.85).max(0.2);
+                                            ui.add(
+                                                egui::DragValue::new(&mut layer.cut_setting.relief_depth_mm)
+                                                    .speed(0.05)
+                                                    .range(0.1..=max_allowed)
+                                                    .suffix(" mm"),
+                                            ).on_hover_text("Kaiverruksen maksimisyvyys (suositus: enintään 70-80% paksuudesta läpipalamisen estämiseksi)");
+                                            let safety_warning = if layer.cut_setting.relief_depth_mm > layer.cut_setting.relief_material_thickness * 0.75 {
+                                                egui::RichText::new("⚠️ Lähellä läpipalamista!").color(egui::Color32::from_rgb(255, 180, 0)).small()
+                                            } else {
+                                                egui::RichText::new("Turvallinen syvyys").small().weak()
+                                            };
+                                            ui.label(safety_warning);
+                                            ui.end_row();
+
+                                            ui.label(tr("Slices:"));
+                                            ui.add(
+                                                egui::DragValue::new(&mut layer.cut_setting.relief_slices)
+                                                    .speed(1.0)
+                                                    .range(2..=128)
+                                                    .suffix(" krs"),
+                                            ).on_hover_text("Monessako syvyysviipaleessa 3D-korkokuva kaiverretaan (esim. 16-32 kerrosta)");
+                                            let depth_per_slice = layer.cut_setting.relief_depth_mm / layer.cut_setting.relief_slices.max(1) as f64;
+                                            ui.label(egui::RichText::new(format!("~{:.3} mm/krs", depth_per_slice)).small().weak());
+                                            ui.end_row();
+
+                                            ui.label(tr("Cross-Pass:"));
+                                            ui.checkbox(&mut layer.cut_setting.relief_alternate_angle, "Alternate (0° / 90°)")
+                                                .on_hover_text("Kääntää polttosuuntaa 90 astetta jokaisella kerroksella raitojen ja uurteiden poistamiseksi");
+                                            ui.label(egui::RichText::new("Tasainen pinta ilman raitoja").small().weak());
+                                            ui.end_row();
+
+                                            ui.label(tr("Retract (Z):"));
+                                            ui.add(
+                                                egui::DragValue::new(&mut layer.cut_setting.relief_clearance_z)
+                                                    .speed(0.1)
+                                                    .range(0.5..=20.0)
+                                                    .suffix(" mm"),
+                                            ).on_hover_text("Turvakorkeus siirtymissä laserpään ja ilmasuuttimen törmäyksen estämiseksi");
+                                            ui.label(egui::RichText::new("Törmäyssuojakorkeus").small().weak());
+                                            ui.end_row();
+                                        }
 
                                         if layer.cut_setting.dither_mode == DitherMode::GrayscalePower {
                                             ui.label(tr("Invert:"));

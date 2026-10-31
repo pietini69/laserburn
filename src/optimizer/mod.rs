@@ -12,6 +12,7 @@ pub struct OptimizedPath {
     pub polyline: Polyline,
     pub is_inner_cut: bool,
     pub powers: Option<Vec<f64>>,
+    pub z_level: Option<f64>,
 }
 
 pub struct CutOptimizer {
@@ -70,14 +71,27 @@ impl CutOptimizer {
             let layer_cut_setting = doc.layers.get(&layer_idx).map(|l| &l.cut_setting);
             let paths: Vec<OptimizedPath> = if let Some(cs) = layer_cut_setting {
                 if cs.mode == crate::document::CutMode::Image {
-                    shape.to_raster_paths(cs).into_iter().map(|(poly, powers)| {
-                        OptimizedPath {
-                            layer_index: layer_idx,
-                            polyline: poly,
-                            is_inner_cut: false,
-                            powers,
-                        }
-                    }).collect()
+                    if cs.dither_mode == crate::document::DitherMode::Sliced3D {
+                        shape.to_3d_relief_paths(cs).into_iter().map(|(poly, powers, z)| {
+                            OptimizedPath {
+                                layer_index: layer_idx,
+                                polyline: poly,
+                                is_inner_cut: false,
+                                powers,
+                                z_level: z,
+                            }
+                        }).collect()
+                    } else {
+                        shape.to_raster_paths(cs).into_iter().map(|(poly, powers)| {
+                            OptimizedPath {
+                                layer_index: layer_idx,
+                                polyline: poly,
+                                is_inner_cut: false,
+                                powers,
+                                z_level: None,
+                            }
+                        }).collect()
+                    }
                 } else if cs.mode == crate::document::CutMode::Fill {
                     let interval = if cs.line_interval > 0.005 { cs.line_interval } else { 0.08 };
                     let polys = shape.to_polylines();
@@ -87,6 +101,7 @@ impl CutOptimizer {
                         polyline: p,
                         is_inner_cut: false,
                         powers: None,
+                        z_level: None,
                     }).collect()
                 } else {
                     shape.to_polylines().into_iter().map(|p| OptimizedPath {
@@ -94,6 +109,7 @@ impl CutOptimizer {
                         polyline: p,
                         is_inner_cut: false,
                         powers: None,
+                        z_level: None,
                     }).collect()
                 }
             } else {
@@ -102,6 +118,7 @@ impl CutOptimizer {
                     polyline: p,
                     is_inner_cut: false,
                     powers: None,
+                    z_level: None,
                 }).collect()
             };
             for p in paths {
@@ -170,6 +187,7 @@ impl CutOptimizer {
                     polyline: poly,
                     is_inner_cut: is_inner,
                     powers: items[i].powers.clone(),
+                    z_level: items[i].z_level,
                 });
             }
 
@@ -258,6 +276,7 @@ impl CutOptimizer {
                             polyline: seg,
                             is_inner_cut: path.is_inner_cut,
                             powers: None,
+                            z_level: path.z_level,
                         });
                     }
                 } else {
@@ -520,5 +539,59 @@ mod tests {
         for path in &job.paths {
             assert!(!path.polyline.is_closed, "Segments created by tabs should be open");
         }
+    }
+
+    #[test]
+    fn test_3d_sliced_relief_optimization_and_gcode() {
+        let mut doc = Document::new("relief_gcode_test", 100.0, 100.0);
+        let mut layer = crate::document::Layer::new(0, "3D Relief Layer", "#000000");
+        layer.cut_setting.mode = crate::document::CutMode::Image;
+        layer.cut_setting.dither_mode = crate::document::DitherMode::Sliced3D;
+        layer.cut_setting.relief_slices = 3;
+        layer.cut_setting.relief_material_thickness = 3.0;
+        layer.cut_setting.relief_depth_mm = 1.5;
+        layer.cut_setting.relief_z_step = 0.5;
+        layer.cut_setting.relief_clearance_z = 2.0;
+        layer.cut_setting.relief_alternate_angle = true;
+        layer.cut_setting.line_interval = 1.0;
+        doc.layers.insert(0, layer);
+
+        let w = 6;
+        let h = 6;
+        let mut pixels = Vec::new();
+        for y in 0..h {
+            for _x in 0..w {
+                let v = if y < 2 { 255 } else if y < 4 { 128 } else { 0 };
+                pixels.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+
+        doc.shapes.push(crate::document::Shape::Image {
+            layer_index: 0,
+            x: 10.0,
+            y: 10.0,
+            width: 10.0,
+            height: 10.0,
+            image_path: None,
+            raw_pixels: Some(pixels),
+            raw_width: w as u32,
+            raw_height: h as u32,
+            brightness: 0.0,
+            contrast: 0.0,
+            gamma: 1.0,
+            sharpen: 0.0,
+        });
+
+        let opt = CutOptimizer::new();
+        let job = opt.optimize(&doc);
+        assert!(!job.paths.is_empty(), "Should generate optimized 3D relief paths");
+
+        let gen = crate::formats::GCodeGenerator::new(crate::formats::GCodeConfig::default());
+        let gcode = gen.generate(&doc, &job);
+
+        // Verify Z-axis collision prevention and depth commands
+        assert!(gcode.contains("G0 Z2.000"), "G-code should retract to clearance Z to prevent collisions");
+        assert!(gcode.contains("(3D Relief Z"), "G-code should annotate 3D relief passes");
+        assert!(gcode.contains("G0 Z-"), "G-code should plunge to negative Z depths for slices");
     }
 }

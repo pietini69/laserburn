@@ -83,6 +83,7 @@ pub fn dither(
         DitherMode::OrderedBayer => dither_ordered_bayer_8x8(grayscale, width, height),
         DitherMode::Halftone => dither_halftone(grayscale, width, height, 4.0),
         DitherMode::GrayscalePower => dither_threshold(grayscale, width, height, 128.0),
+        DitherMode::Sliced3D => dither_threshold(grayscale, width, height, 128.0),
     }
 }
 
