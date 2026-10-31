@@ -6223,6 +6223,44 @@ impl eframe::App for LaserBurnApp {
                                         ui.label(egui::RichText::new(format!("~{} DPI", dpi)).small().weak());
                                         ui.end_row();
                                     }
+
+                                    // 7. Hatch Scan Angle & Cross-hatch (Visible for Fill modes)
+                                    if layer.cut_setting.mode == CutMode::Fill || layer.cut_setting.mode == CutMode::OffsetFill {
+                                        ui.label(tr("Scan Angle:"));
+                                        ui.horizontal(|ui| {
+                                            ui.add(
+                                                egui::DragValue::new(&mut layer.cut_setting.scan_angle)
+                                                    .speed(1.0)
+                                                    .range(-180.0..=180.0)
+                                                    .suffix("°"),
+                                            );
+                                            if ui.selectable_label((layer.cut_setting.scan_angle - 0.0).abs() < 0.1, "0°").clicked() {
+                                                layer.cut_setting.scan_angle = 0.0;
+                                            }
+                                            if ui.selectable_label((layer.cut_setting.scan_angle - 90.0).abs() < 0.1, "90°").clicked() {
+                                                layer.cut_setting.scan_angle = 90.0;
+                                            }
+                                            if ui.selectable_label((layer.cut_setting.scan_angle - 45.0).abs() < 0.1, "45°").clicked() {
+                                                layer.cut_setting.scan_angle = 45.0;
+                                            }
+                                        });
+                                        let angle_desc = if (layer.cut_setting.scan_angle - 0.0).abs() < 0.1 {
+                                            "Vaaka"
+                                        } else if (layer.cut_setting.scan_angle - 90.0).abs() < 0.1 {
+                                            "Pysty"
+                                        } else if (layer.cut_setting.scan_angle - 45.0).abs() < 0.1 {
+                                            "45°"
+                                        } else {
+                                            "Kulma"
+                                        };
+                                        ui.label(egui::RichText::new(angle_desc).small().weak());
+                                        ui.end_row();
+
+                                        ui.label("Ristiinpoltto:");
+                                        ui.checkbox(&mut layer.cut_setting.cross_hatch, "Cross-Hatch (+90°)");
+                                        ui.label(egui::RichText::new("2-suuntainen").small().weak());
+                                        ui.end_row();
+                                    }
                                 });
 
                                 // Ceramic Multi-Layer Paint Color Simulator & Mapper (Shown in GrayscalePower mode)
@@ -8037,6 +8075,35 @@ impl eframe::App for LaserBurnApp {
                     );
                 } else {
                     let stroke = egui::Stroke::new(stroke_width, color);
+                    let is_fill_mode = self.doc.layers.get(&shape.layer_index()).map_or(false, |l| {
+                        l.cut_setting.mode == CutMode::Fill || l.cut_setting.mode == CutMode::OffsetFill
+                    });
+
+                    // Render Filled Shape Preview for Fill / Engrave mode
+                    if is_fill_mode {
+                        let fill_color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 65);
+                        match shape {
+                            Shape::Rect { x, y, width, height, corner_radius, .. } => {
+                                let p0 = self.doc_to_screen(Point2D::new(*x, *y), canvas_origin);
+                                let p1 = self.doc_to_screen(Point2D::new(*x + *width, *y + *height), canvas_origin);
+                                let r = egui::Rect::from_two_pos(p0, p1);
+                                painter.rect_filled(r, (*corner_radius as f32 * self.zoom) as f32, fill_color);
+                            }
+                            Shape::Circle { center, radius, .. } => {
+                                let sc = self.doc_to_screen(*center, canvas_origin);
+                                painter.circle_filled(sc, (*radius as f32 * self.zoom) as f32, fill_color);
+                            }
+                            _ => {
+                                for poly in shape.to_polylines() {
+                                    if poly.is_closed && poly.points.len() >= 3 {
+                                        let pts: Vec<egui::Pos2> = poly.points.iter().map(|p| self.doc_to_screen(*p, canvas_origin)).collect();
+                                        painter.add(egui::Shape::convex_polygon(pts, fill_color, egui::Stroke::NONE));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     for poly in shape.to_polylines() {
                         if poly.points.len() >= 2 {
                             let n = poly.points.len();

@@ -584,12 +584,10 @@ fn handle_upload(
             let job = opt.optimize(&doc);
             let gen = GCodeGenerator::new(cfg.clone());
             generated_gcode = gen.generate(&doc, &job);
-            for shape in &doc.shapes {
-                for poly in shape.to_polylines() {
-                    let pts: Vec<(f64, f64)> = poly.points.iter().map(|p| (p.x, p.y)).collect();
-                    if !pts.is_empty() {
-                        extracted_polylines.push(pts);
-                    }
+            for p in &job.paths {
+                let pts: Vec<(f64, f64)> = p.polyline.points.iter().map(|pt| (pt.x, pt.y)).collect();
+                if !pts.is_empty() {
+                    extracted_polylines.push(pts);
                 }
             }
         }
@@ -599,12 +597,10 @@ fn handle_upload(
             let job = opt.optimize(&svg_doc);
             let gen = GCodeGenerator::new(cfg);
             generated_gcode = gen.generate(&svg_doc, &job);
-            for shape in &svg_doc.shapes {
-                for poly in shape.to_polylines() {
-                    let pts: Vec<(f64, f64)> = poly.points.iter().map(|p| (p.x, p.y)).collect();
-                    if !pts.is_empty() {
-                        extracted_polylines.push(pts);
-                    }
+            for p in &job.paths {
+                let pts: Vec<(f64, f64)> = p.polyline.points.iter().map(|pt| (pt.x, pt.y)).collect();
+                if !pts.is_empty() {
+                    extracted_polylines.push(pts);
                 }
             }
         }
