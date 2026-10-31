@@ -4,3 +4,25 @@ Cargo.lock
 **/*.rs.bk
 .DS_Store
 **/.DS_Store
+
+# Backups and private machine profiles
+/backups
+*.backup
+*.bak
+
+# AI & tooling local state
+entities.json
+mempalace.yaml
+
+# Local test outputs
+test_dither_*.png
+
+# Marketing & store release automation
+GUMROAD_LISTING_GUIDE.md
+REDDIT_POST.txt
+pinterest_*.csv
+/assets/pinterest/
+/assets/gumroad/
+scripts/publish_to_gumroad.py
+scripts/update_gumroad_*.py
+scripts/make_pinterest_pins.py

@@ -12,7 +12,8 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
 
 VERSION=$(grep '^version =' Cargo.toml | head -n1 | cut -d '"' -f 2)
-SIGNING_IDENTITY="${SIGNING_IDENTITY:-Apple Development: Niko Pietinen (DTG24Y4L3C)}"
+DEFAULT_SIGNING_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep "Apple Development" | head -n 1 | cut -d '"' -f 2 || true)
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-${DEFAULT_SIGNING_IDENTITY:-}}"
 DIST_DIR="$PROJECT_DIR/dist"
 mkdir -p "$DIST_DIR"
 
@@ -39,8 +40,13 @@ package_target() {
     cp "$PROJECT_DIR/assets/photoncam.icns" "$app_dir/Contents/Resources/photoncam.icns"
 
     echo "==> Code signing ${target_name} bundle..."
-    codesign --force --deep --sign "$SIGNING_IDENTITY" "$app_dir"
-    codesign --verify --deep --strict "$app_dir"
+    if [ -n "$SIGNING_IDENTITY" ]; then
+        codesign --force --deep --sign "$SIGNING_IDENTITY" "$app_dir"
+        codesign --verify --deep --strict "$app_dir"
+    else
+        echo "    (No Apple Development signing identity found; signing ad-hoc)"
+        codesign --force --deep --sign - "$app_dir"
+    fi
 
     echo "==> Packaging DMG: $dmg_path..."
     mkdir -p "$dmg_root"
