@@ -7,6 +7,7 @@
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)]()
 [![Free Download on Gumroad](https://img.shields.io/badge/Gumroad-Free%20Download-orange.svg)](https://shop.pietiniart.com/l/photoncam)
 [![Buy Me A Coffee](https://img.shields.io/badge/☕%20Buy%20Me%20A%20Coffee-Donate-yellow.svg)](https://buymeacoffee.com/pnp69)
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/pietini69/badge.svg)](https://hub.xerj.org/contributors/pietini69)
 
 **PhotonCAM** is an open-source, ultra-lightweight, and fully-featured laser CAM & controller application written from scratch in pure **Rust** (`eframe` / `egui`). 
 
