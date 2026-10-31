@@ -268,6 +268,14 @@ pub struct OneShotSnapshot {
     pub initial_frame_number: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum DepthTestType {
+    MultiPass,
+    PowerSteps,
+    PassesVsSpeed,
+    LineInterval,
+}
+
 #[cfg(feature = "gui")]
 pub struct LaserBurnApp {
     pub doc: Document,
@@ -428,6 +436,20 @@ pub struct LaserBurnApp {
     pub mat_test_max_power: f64,
     pub mat_test_box_size: f64,
     pub mat_test_is_engrave: bool,
+
+    // Engraving Depth Test Generator Window State
+    pub show_depth_test_window: bool,
+    pub depth_test_type: DepthTestType,
+    pub depth_test_steps: usize,
+    pub depth_test_box_w: f64,
+    pub depth_test_box_h: f64,
+    pub depth_test_speed: f64,
+    pub depth_test_power: f64,
+    pub depth_test_min_power: f64,
+    pub depth_test_max_power: f64,
+    pub depth_test_interval: f64,
+    pub depth_test_cross_hatch: bool,
+    pub depth_test_cut_outline: bool,
 
     // Serial Traffic Panel State
     pub show_traffic_panel: bool,
@@ -616,6 +638,19 @@ impl Default for LaserBurnApp {
             mat_test_max_power: 95.0,
             mat_test_box_size: 10.0,
             mat_test_is_engrave: true,
+
+            show_depth_test_window: false,
+            depth_test_type: DepthTestType::MultiPass,
+            depth_test_steps: 6,
+            depth_test_box_w: 16.0,
+            depth_test_box_h: 12.0,
+            depth_test_speed: 100.0,
+            depth_test_power: 70.0,
+            depth_test_min_power: 15.0,
+            depth_test_max_power: 85.0,
+            depth_test_interval: 0.08,
+            depth_test_cross_hatch: true,
+            depth_test_cut_outline: true,
             show_traffic_panel: true,
             hide_ok_in_traffic_log: false,
             explain_traffic_codes: true,
@@ -1197,6 +1232,479 @@ impl LaserBurnApp {
             "Generated {}x{} Material Test Matrix ({:.0}-{:.0}% Power, {:.0}-{:.0} mm/s Speed)",
             rows, cols, min_pwr, max_pwr, min_spd, max_spd
         );
+    }
+
+    /// Generates a calibrated Engraving Depth Test (Stepped Wedge, Multi-Pass, or Interval Matrix)
+    /// to measure physical material ablation depth with a caliper.
+    pub fn generate_depth_test_grid(&mut self) {
+        self.push_undo();
+
+        let steps = self.depth_test_steps.clamp(2, 12);
+        let box_w = self.depth_test_box_w.clamp(6.0, 50.0);
+        let box_h = self.depth_test_box_h.clamp(6.0, 50.0);
+        let gap_x = 4.0;
+        let gap_y = 6.0;
+
+        let start_x = 25.0;
+        let start_y = 35.0;
+
+        let label_layer = 0;
+        let l0 = self.doc.get_or_create_layer(label_layer);
+        l0.name = "Labels & Guides".to_string();
+        l0.cut_setting.mode = CutMode::Line;
+        l0.cut_setting.speed = 60.0;
+        l0.cut_setting.power_max = 30.0;
+        l0.output = true;
+
+        let palette = [
+            "#0080FF", "#00C040", "#FF8000", "#FF2020",
+            "#9933FF", "#00CCCC", "#FF0080", "#CCCC00",
+            "#808080", "#008080", "#800000", "#000080",
+        ];
+
+        let mut new_sel = Vec::new();
+
+        match self.depth_test_type {
+            DepthTestType::MultiPass => {
+                let title = format!(
+                    "MULTI-PASS DEPTH TEST — Power: {:.0}%, Speed: {:.0} mm/s, Interval: {:.2} mm{}",
+                    self.depth_test_power,
+                    self.depth_test_speed,
+                    self.depth_test_interval,
+                    if self.depth_test_cross_hatch { " (Cross-Hatch)" } else { "" }
+                );
+                if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                    text: title,
+                    font_type: crate::text::FontType::SingleLine,
+                    font_size_mm: 3.5,
+                    x: start_x,
+                    y: start_y - 12.0,
+                    align: crate::text::TextAlign::Left,
+                    letter_spacing: 1.0,
+                    line_spacing: 1.2,
+                }) {
+                    for p in polys {
+                        self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        new_sel.push(self.doc.shapes.len() - 1);
+                    }
+                }
+
+                if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                    text: "Measure pocket depth with caliper in mm & record below:".to_string(),
+                    font_type: crate::text::FontType::SingleLine,
+                    font_size_mm: 2.4,
+                    x: start_x,
+                    y: start_y - 5.5,
+                    align: crate::text::TextAlign::Left,
+                    letter_spacing: 1.0,
+                    line_spacing: 1.2,
+                }) {
+                    for p in polys {
+                        self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                    }
+                }
+
+                for i in 0..steps {
+                    let passes = i + 1;
+                    let layer_idx = passes;
+                    let l = self.doc.get_or_create_layer(layer_idx);
+                    l.name = format!("{} Pass{}", passes, if passes == 1 { "" } else { "es" });
+                    l.color_hex = palette[i % palette.len()].to_string();
+                    l.output = true;
+                    l.cut_setting.mode = CutMode::Fill;
+                    l.cut_setting.speed = self.depth_test_speed;
+                    l.cut_setting.power_max = self.depth_test_power;
+                    l.cut_setting.num_passes = passes as u32;
+                    l.cut_setting.line_interval = self.depth_test_interval;
+                    l.cut_setting.cross_hatch = self.depth_test_cross_hatch;
+                    l.cut_setting.scan_angle = 0.0;
+
+                    let cx = start_x + i as f64 * (box_w + gap_x);
+                    let cy = start_y;
+
+                    self.doc.add_shape(Shape::Rect {
+                        layer_index: layer_idx,
+                        x: cx,
+                        y: cy,
+                        width: box_w,
+                        height: box_h,
+                        corner_radius: 0.0,
+                    });
+                    new_sel.push(self.doc.shapes.len() - 1);
+
+                    if self.depth_test_cut_outline {
+                        self.doc.add_shape(Shape::Rect {
+                            layer_index: label_layer,
+                            x: cx,
+                            y: cy,
+                            width: box_w,
+                            height: box_h,
+                            corner_radius: 0.0,
+                        });
+                    }
+
+                    let pass_txt = format!("{}P", passes);
+                    if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                        text: pass_txt,
+                        font_type: crate::text::FontType::SingleLine,
+                        font_size_mm: 3.0,
+                        x: cx + box_w * 0.5,
+                        y: cy + box_h + 4.5,
+                        align: crate::text::TextAlign::Center,
+                        letter_spacing: 1.0,
+                        line_spacing: 1.2,
+                    }) {
+                        for p in polys {
+                            self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        }
+                    }
+
+                    if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                        text: ".__mm".to_string(),
+                        font_type: crate::text::FontType::SingleLine,
+                        font_size_mm: 2.2,
+                        x: cx + box_w * 0.5,
+                        y: cy + box_h + 8.5,
+                        align: crate::text::TextAlign::Center,
+                        letter_spacing: 1.0,
+                        line_spacing: 1.2,
+                    }) {
+                        for p in polys {
+                            self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        }
+                    }
+                }
+            }
+            DepthTestType::PowerSteps => {
+                let min_p = self.depth_test_min_power.min(self.depth_test_max_power).clamp(1.0, 100.0);
+                let max_p = self.depth_test_max_power.max(self.depth_test_min_power).clamp(1.0, 100.0);
+
+                let title = format!(
+                    "POWER ENGRAVING DEPTH WEDGE — Speed: {:.0} mm/s, Interval: {:.2} mm{}",
+                    self.depth_test_speed,
+                    self.depth_test_interval,
+                    if self.depth_test_cross_hatch { " (Cross-Hatch)" } else { "" }
+                );
+                if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                    text: title,
+                    font_type: crate::text::FontType::SingleLine,
+                    font_size_mm: 3.5,
+                    x: start_x,
+                    y: start_y - 12.0,
+                    align: crate::text::TextAlign::Left,
+                    letter_spacing: 1.0,
+                    line_spacing: 1.2,
+                }) {
+                    for p in polys {
+                        self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        new_sel.push(self.doc.shapes.len() - 1);
+                    }
+                }
+
+                if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                    text: "Measure pocket depth with caliper in mm & record below:".to_string(),
+                    font_type: crate::text::FontType::SingleLine,
+                    font_size_mm: 2.4,
+                    x: start_x,
+                    y: start_y - 5.5,
+                    align: crate::text::TextAlign::Left,
+                    letter_spacing: 1.0,
+                    line_spacing: 1.2,
+                }) {
+                    for p in polys {
+                        self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                    }
+                }
+
+                for i in 0..steps {
+                    let t = if steps > 1 { i as f64 / (steps - 1) as f64 } else { 0.0 };
+                    let pwr = min_p + t * (max_p - min_p);
+                    let layer_idx = i + 1;
+                    let l = self.doc.get_or_create_layer(layer_idx);
+                    l.name = format!("{:.0}% Power", pwr);
+                    l.color_hex = palette[i % palette.len()].to_string();
+                    l.output = true;
+                    l.cut_setting.mode = CutMode::Fill;
+                    l.cut_setting.speed = self.depth_test_speed;
+                    l.cut_setting.power_max = pwr;
+                    l.cut_setting.num_passes = 1;
+                    l.cut_setting.line_interval = self.depth_test_interval;
+                    l.cut_setting.cross_hatch = self.depth_test_cross_hatch;
+                    l.cut_setting.scan_angle = 0.0;
+
+                    let cx = start_x + i as f64 * (box_w + gap_x);
+                    let cy = start_y;
+
+                    self.doc.add_shape(Shape::Rect {
+                        layer_index: layer_idx,
+                        x: cx,
+                        y: cy,
+                        width: box_w,
+                        height: box_h,
+                        corner_radius: 0.0,
+                    });
+                    new_sel.push(self.doc.shapes.len() - 1);
+
+                    if self.depth_test_cut_outline {
+                        self.doc.add_shape(Shape::Rect {
+                            layer_index: label_layer,
+                            x: cx,
+                            y: cy,
+                            width: box_w,
+                            height: box_h,
+                            corner_radius: 0.0,
+                        });
+                    }
+
+                    let pwr_txt = format!("{:.0}%", pwr);
+                    if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                        text: pwr_txt,
+                        font_type: crate::text::FontType::SingleLine,
+                        font_size_mm: 3.0,
+                        x: cx + box_w * 0.5,
+                        y: cy + box_h + 4.5,
+                        align: crate::text::TextAlign::Center,
+                        letter_spacing: 1.0,
+                        line_spacing: 1.2,
+                    }) {
+                        for p in polys {
+                            self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        }
+                    }
+
+                    if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                        text: ".__mm".to_string(),
+                        font_type: crate::text::FontType::SingleLine,
+                        font_size_mm: 2.2,
+                        x: cx + box_w * 0.5,
+                        y: cy + box_h + 8.5,
+                        align: crate::text::TextAlign::Center,
+                        letter_spacing: 1.0,
+                        line_spacing: 1.2,
+                    }) {
+                        for p in polys {
+                            self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        }
+                    }
+                }
+            }
+            DepthTestType::PassesVsSpeed => {
+                let speeds = [60.0, 80.0, 100.0, 120.0];
+                let num_passes_cols = 5;
+
+                let title = format!(
+                    "PASSES vs. SPEED DEPTH MATRIX — Power: {:.0}%, Interval: {:.2} mm{}",
+                    self.depth_test_power,
+                    self.depth_test_interval,
+                    if self.depth_test_cross_hatch { " (Cross-Hatch)" } else { "" }
+                );
+                if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                    text: title,
+                    font_type: crate::text::FontType::SingleLine,
+                    font_size_mm: 3.5,
+                    x: start_x + 15.0,
+                    y: start_y - 12.0,
+                    align: crate::text::TextAlign::Left,
+                    letter_spacing: 1.0,
+                    line_spacing: 1.2,
+                }) {
+                    for p in polys {
+                        self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        new_sel.push(self.doc.shapes.len() - 1);
+                    }
+                }
+
+                for c in 0..num_passes_cols {
+                    let cx = start_x + 24.0 + c as f64 * (box_w + gap_x);
+                    if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                        text: format!("{} Pass{}", c + 1, if c == 0 { "" } else { "es" }),
+                        font_type: crate::text::FontType::SingleLine,
+                        font_size_mm: 2.8,
+                        x: cx + box_w * 0.5,
+                        y: start_y - 4.5,
+                        align: crate::text::TextAlign::Center,
+                        letter_spacing: 1.0,
+                        line_spacing: 1.2,
+                    }) {
+                        for p in polys {
+                            self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        }
+                    }
+                }
+
+                for (r, &spd) in speeds.iter().enumerate() {
+                    let ry = start_y + r as f64 * (box_h + gap_y + 4.0);
+
+                    if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                        text: format!("{:.0} mm/s", spd),
+                        font_type: crate::text::FontType::SingleLine,
+                        font_size_mm: 2.6,
+                        x: start_x + 20.0,
+                        y: ry + box_h * 0.6,
+                        align: crate::text::TextAlign::Right,
+                        letter_spacing: 1.0,
+                        line_spacing: 1.2,
+                    }) {
+                        for p in polys {
+                            self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        }
+                    }
+
+                    for c in 0..num_passes_cols {
+                        let passes = c + 1;
+                        let layer_idx = (r * num_passes_cols + c + 1).min(29);
+                        let l = self.doc.get_or_create_layer(layer_idx);
+                        l.name = format!("{:.0}mm/s - {}P", spd, passes);
+                        l.color_hex = palette[(r + c) % palette.len()].to_string();
+                        l.output = true;
+                        l.cut_setting.mode = CutMode::Fill;
+                        l.cut_setting.speed = spd;
+                        l.cut_setting.power_max = self.depth_test_power;
+                        l.cut_setting.num_passes = passes as u32;
+                        l.cut_setting.line_interval = self.depth_test_interval;
+                        l.cut_setting.cross_hatch = self.depth_test_cross_hatch;
+                        l.cut_setting.scan_angle = 0.0;
+
+                        let cx = start_x + 24.0 + c as f64 * (box_w + gap_x);
+
+                        self.doc.add_shape(Shape::Rect {
+                            layer_index: layer_idx,
+                            x: cx,
+                            y: ry,
+                            width: box_w,
+                            height: box_h,
+                            corner_radius: 0.0,
+                        });
+                        new_sel.push(self.doc.shapes.len() - 1);
+
+                        if self.depth_test_cut_outline {
+                            self.doc.add_shape(Shape::Rect {
+                                layer_index: label_layer,
+                                x: cx,
+                                y: ry,
+                                width: box_w,
+                                height: box_h,
+                                corner_radius: 0.0,
+                            });
+                        }
+                    }
+                }
+            }
+            DepthTestType::LineInterval => {
+                let intervals = [0.05, 0.075, 0.10, 0.125, 0.15];
+
+                let title = format!(
+                    "SCAN INTERVAL & SURFACE TEXTURE TEST — Power: {:.0}%, Speed: {:.0} mm/s",
+                    self.depth_test_power,
+                    self.depth_test_speed
+                );
+                if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                    text: title,
+                    font_type: crate::text::FontType::SingleLine,
+                    font_size_mm: 3.5,
+                    x: start_x,
+                    y: start_y - 12.0,
+                    align: crate::text::TextAlign::Left,
+                    letter_spacing: 1.0,
+                    line_spacing: 1.2,
+                }) {
+                    for p in polys {
+                        self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        new_sel.push(self.doc.shapes.len() - 1);
+                    }
+                }
+
+                if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                    text: "Find the smoothest pocket floor without ridges for this wood species:".to_string(),
+                    font_type: crate::text::FontType::SingleLine,
+                    font_size_mm: 2.4,
+                    x: start_x,
+                    y: start_y - 5.5,
+                    align: crate::text::TextAlign::Left,
+                    letter_spacing: 1.0,
+                    line_spacing: 1.2,
+                }) {
+                    for p in polys {
+                        self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                    }
+                }
+
+                for (i, &intv) in intervals.iter().enumerate() {
+                    let layer_idx = i + 1;
+                    let l = self.doc.get_or_create_layer(layer_idx);
+                    l.name = format!("{:.3}mm Interval", intv);
+                    l.color_hex = palette[i % palette.len()].to_string();
+                    l.output = true;
+                    l.cut_setting.mode = CutMode::Fill;
+                    l.cut_setting.speed = self.depth_test_speed;
+                    l.cut_setting.power_max = self.depth_test_power;
+                    l.cut_setting.num_passes = 1;
+                    l.cut_setting.line_interval = intv;
+                    l.cut_setting.cross_hatch = self.depth_test_cross_hatch;
+                    l.cut_setting.scan_angle = 0.0;
+
+                    let cx = start_x + i as f64 * (box_w + gap_x);
+                    let cy = start_y;
+
+                    self.doc.add_shape(Shape::Rect {
+                        layer_index: layer_idx,
+                        x: cx,
+                        y: cy,
+                        width: box_w,
+                        height: box_h,
+                        corner_radius: 0.0,
+                    });
+                    new_sel.push(self.doc.shapes.len() - 1);
+
+                    if self.depth_test_cut_outline {
+                        self.doc.add_shape(Shape::Rect {
+                            layer_index: label_layer,
+                            x: cx,
+                            y: cy,
+                            width: box_w,
+                            height: box_h,
+                            corner_radius: 0.0,
+                        });
+                    }
+
+                    let dpi = (25.4 / intv).round();
+                    if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                        text: format!("{:.2}mm", intv),
+                        font_type: crate::text::FontType::SingleLine,
+                        font_size_mm: 3.0,
+                        x: cx + box_w * 0.5,
+                        y: cy + box_h + 4.5,
+                        align: crate::text::TextAlign::Center,
+                        letter_spacing: 1.0,
+                        line_spacing: 1.2,
+                    }) {
+                        for p in polys {
+                            self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        }
+                    }
+
+                    if let Ok(polys) = crate::text::generate_text_polylines(&crate::text::TextOptions {
+                        text: format!("{:.0} DPI", dpi),
+                        font_type: crate::text::FontType::SingleLine,
+                        font_size_mm: 2.2,
+                        x: cx + box_w * 0.5,
+                        y: cy + box_h + 8.5,
+                        align: crate::text::TextAlign::Center,
+                        letter_spacing: 1.0,
+                        line_spacing: 1.2,
+                    }) {
+                        for p in polys {
+                            self.doc.add_shape(Shape::Path { layer_index: label_layer, polyline: p });
+                        }
+                    }
+                }
+            }
+        }
+
+        self.selected_shape_indices = new_sel;
+        self.image_textures.clear();
+        self.doc_version = self.doc_version.wrapping_add(1);
+        self.status_msg = "Generated Engraving Depth Test on canvas!".to_string();
     }
 
     /// Automatically detects the rectangular tile/workpiece on the bed from the camera feed
@@ -4259,6 +4767,137 @@ impl LaserBurnApp {
             }
         }
     }
+
+    /// Renders the Engraving Depth Test Generator modal dialog
+    pub fn show_depth_test_dialog_window(&mut self, ctx: &egui::Context) {
+        if !self.show_depth_test_window {
+            return;
+        }
+
+        let lang = self.device.settings.language;
+        let tr = |k| crate::i18n::t(k, lang);
+
+        let mut is_open = true;
+        let mut do_gen = false;
+        let mut do_close = false;
+
+        egui::Window::new(tr("Engraving Depth Test Generator"))
+            .open(&mut is_open)
+            .default_width(450.0)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.heading(tr("Engraving Depth Test (Caliper Calibration)"));
+                ui.label(
+                    egui::RichText::new("Generoi työtasolle mitattavat syvyystaskut, joiden pohjan syvyyden voit mitata digitaalisella työntömitalla (mm) eri kierrosmäärillä tai tehoilla.")
+                        .small()
+                        .weak(),
+                );
+                ui.add_space(6.0);
+
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("Testityyppi:").strong());
+                    ui.radio_value(&mut self.depth_test_type, DepthTestType::MultiPass, "1. Monipassi-syvyystesti (1 - 8 passia)");
+                    ui.label(egui::RichText::new("   Mittaa montako ajokertaa tarvitaan haluttuun syvyyteen (esim. 1.0 mm tai 1.5 mm)").small().weak());
+
+                    ui.radio_value(&mut self.depth_test_type, DepthTestType::PowerSteps, "2. Tehoportaikko (Power Steps 15% - 85%)");
+                    ui.label(egui::RichText::new("   Mittaa eri lasertehojen leikkaussyvyys samalla nopeudella").small().weak());
+
+                    ui.radio_value(&mut self.depth_test_type, DepthTestType::PassesVsSpeed, "3. Passit vs. Nopeus -matriisi");
+                    ui.label(egui::RichText::new("   2D-matriisi eri kierrosmäärien ja nopeuksien syvyyksistä").small().weak());
+
+                    ui.radio_value(&mut self.depth_test_type, DepthTestType::LineInterval, "4. Linjatiheystesti (0.05 - 0.15 mm)");
+                    ui.label(egui::RichText::new("   Testaa resoluutio ja löydä tasaisin taskun pohja ilman raitoja").small().weak());
+                });
+
+                ui.add_space(6.0);
+                egui::Grid::new("depth_test_params_grid")
+                    .num_columns(3)
+                    .spacing([8.0, 6.0])
+                    .show(ui, |ui| {
+                        match self.depth_test_type {
+                            DepthTestType::MultiPass | DepthTestType::PowerSteps => {
+                                ui.label("Askelmien määrä:");
+                                ui.add(egui::DragValue::new(&mut self.depth_test_steps).range(2..=12).suffix(" kpl"));
+                                ui.label(egui::RichText::new("Taskujen määrä").small().weak());
+                                ui.end_row();
+                            }
+                            _ => {}
+                        }
+
+                        ui.label("Taskun koko (L × K):");
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(&mut self.depth_test_box_w).speed(0.5).range(6.0..=40.0).suffix(" mm"));
+                            ui.label("×");
+                            ui.add(egui::DragValue::new(&mut self.depth_test_box_h).speed(0.5).range(6.0..=40.0).suffix(" mm"));
+                        });
+                        ui.label(egui::RichText::new("Mitoitettu työntömitalle").small().weak());
+                        ui.end_row();
+
+                        ui.label("Kaiverrusnopeus:");
+                        ui.add(egui::DragValue::new(&mut self.depth_test_speed).speed(5.0).range(10.0..=500.0).suffix(" mm/s"));
+                        ui.label(egui::RichText::new(format!("~{:.0} mm/min", self.depth_test_speed * 60.0)).small().weak());
+                        ui.end_row();
+
+                        if self.depth_test_type == DepthTestType::PowerSteps {
+                            ui.label("Tehoalue:");
+                            ui.horizontal(|ui| {
+                                ui.add(egui::DragValue::new(&mut self.depth_test_min_power).speed(1.0).range(5.0..=100.0).suffix("%"));
+                                ui.label("–");
+                                ui.add(egui::DragValue::new(&mut self.depth_test_max_power).speed(1.0).range(5.0..=100.0).suffix("%"));
+                            });
+                            ui.label("");
+                            ui.end_row();
+                        } else if self.depth_test_type != DepthTestType::PassesVsSpeed {
+                            ui.label("Laserteho:");
+                            ui.add(egui::DragValue::new(&mut self.depth_test_power).speed(1.0).range(5.0..=100.0).suffix(" %"));
+                            ui.label("");
+                            ui.end_row();
+                        }
+
+                        if self.depth_test_type != DepthTestType::LineInterval {
+                            ui.label("Linjaväli (Scan Interval):");
+                            ui.add(egui::DragValue::new(&mut self.depth_test_interval).speed(0.005).range(0.02..=0.30).suffix(" mm"));
+                            let dpi = if self.depth_test_interval > 0.001 { 25.4 / self.depth_test_interval } else { 0.0 };
+                            ui.label(egui::RichText::new(format!("~{:.0} DPI", dpi)).small().weak());
+                            ui.end_row();
+                        }
+
+                        ui.label("Ristikkäispoltto:");
+                        ui.checkbox(&mut self.depth_test_cross_hatch, "Cross-Hatch (0° / 90°)")
+                            .on_hover_text("Tasoittaa poltettavan taskun pohjan poistaen syyraidat");
+                        ui.label(egui::RichText::new("Tasaisempi pohja").small().weak());
+                        ui.end_row();
+
+                        ui.label("Siisti ääriviiva:");
+                        ui.checkbox(&mut self.depth_test_cut_outline, "Ääriviivaviilto")
+                            .on_hover_text("Ajaa kevyen viivan taskun reunoille puhtaan reunan varmistamiseksi");
+                        ui.label(egui::RichText::new("Terävät reunat").small().weak());
+                        ui.end_row();
+                    });
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    let gen_btn = egui::Button::new(
+                        egui::RichText::new(" Generoi syvyystesti työpöydälle ").strong().color(egui::Color32::WHITE),
+                    ).fill(egui::Color32::from_rgb(34, 139, 34));
+                    if ui.add(gen_btn).clicked() {
+                        do_gen = true;
+                        do_close = true;
+                    }
+                    if ui.button("Sulje").clicked() {
+                        do_close = true;
+                    }
+                });
+            });
+
+        if do_gen {
+            self.generate_depth_test_grid();
+        }
+        if do_close || !is_open {
+            self.show_depth_test_window = false;
+        }
+    }
 }
 
 #[cfg(feature = "gui")]
@@ -5038,6 +5677,10 @@ impl eframe::App for LaserBurnApp {
                         self.show_material_test_window = true;
                         ui.close_menu();
                     }
+                    if ui.button(self.tr("Engraving Depth Test Generator (Caliper)...")).clicked() {
+                        self.show_depth_test_window = true;
+                        ui.close_menu();
+                    }
                     if ui.button(self.tr("Preview Job Simulation (Alt+P)...")).clicked() {
                         self.show_preview_window = true;
                         ui.close_menu();
@@ -5115,6 +5758,10 @@ impl eframe::App for LaserBurnApp {
                     }
                     if ui.button("Materiaalitestigeneraattori...").clicked() {
                         self.show_material_test_window = true;
+                        ui.close_menu();
+                    }
+                    if ui.button("Kaiverruksen syvyystesti (Caliper)...").clicked() {
+                        self.show_depth_test_window = true;
                         ui.close_menu();
                     }
                 });
@@ -7223,6 +7870,7 @@ impl eframe::App for LaserBurnApp {
         self.show_preview_simulator_window(ctx);
         self.show_nesting_dialog_window(ctx);
         self.show_generators_dialog_windows(ctx);
+        self.show_depth_test_dialog_window(ctx);
 
         // -------------------------------------------------------------
         // 1. DEVICE CONNECTION & CONSOLE WINDOW
@@ -10103,5 +10751,62 @@ endsolid coin
         }
 
         let _ = std::fs::remove_file(file_path);
+    }
+
+    #[test]
+    fn test_engraving_depth_test_multipass() {
+        let mut app = LaserBurnApp::default();
+        app.depth_test_type = DepthTestType::MultiPass;
+        app.depth_test_steps = 6;
+        app.depth_test_speed = 120.0;
+        app.depth_test_power = 65.0;
+        app.depth_test_interval = 0.08;
+        app.depth_test_cross_hatch = true;
+        app.depth_test_cut_outline = true;
+
+        app.generate_depth_test_grid();
+
+        assert!(!app.doc.shapes.is_empty(), "Must generate shapes for depth test");
+        assert!(!app.selected_shape_indices.is_empty(), "Generated shapes must be selected for positioning");
+
+        // Verify layers 1..6 have passes 1..6
+        for p in 1..=6 {
+            let l = app.doc.layers.get(&p).expect("Layer for pass must exist");
+            assert_eq!(l.cut_setting.num_passes, p as u32);
+            assert_eq!(l.cut_setting.power_max, 65.0);
+            assert_eq!(l.cut_setting.speed, 120.0);
+            assert_eq!(l.cut_setting.mode, CutMode::Fill);
+            assert!(l.cut_setting.cross_hatch);
+        }
+    }
+
+    #[test]
+    fn test_engraving_depth_test_power_steps() {
+        let mut app = LaserBurnApp::default();
+        app.depth_test_type = DepthTestType::PowerSteps;
+        app.depth_test_steps = 5;
+        app.depth_test_min_power = 20.0;
+        app.depth_test_max_power = 80.0;
+
+        app.generate_depth_test_grid();
+
+        assert!(!app.doc.shapes.is_empty());
+        let l1 = app.doc.layers.get(&1).expect("Layer 1 must exist");
+        let l5 = app.doc.layers.get(&5).expect("Layer 5 must exist");
+        assert_eq!(l1.cut_setting.power_max, 20.0);
+        assert_eq!(l5.cut_setting.power_max, 80.0);
+        assert_eq!(l1.cut_setting.mode, CutMode::Fill);
+    }
+
+    #[test]
+    fn test_engraving_depth_test_line_interval() {
+        let mut app = LaserBurnApp::default();
+        app.depth_test_type = DepthTestType::LineInterval;
+        app.generate_depth_test_grid();
+
+        assert!(!app.doc.shapes.is_empty());
+        let l1 = app.doc.layers.get(&1).expect("Layer 1 must exist");
+        assert_eq!(l1.cut_setting.line_interval, 0.05);
+        assert_eq!(l1.cut_setting.mode, CutMode::Fill);
     }
 }

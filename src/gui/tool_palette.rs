@@ -892,6 +892,14 @@ impl LaserBurnApp {
             *close_requested = true;
         }
 
+        if ui.add_sized([ui.available_width(), 24.0], egui::Button::new("Kaiverruksen syvyystesti (Caliper)..."))
+            .on_hover_text("Luo syvyystestipolun mittauspisteineen digitaalimauserille / heittokellolle")
+            .clicked()
+        {
+            self.show_depth_test_window = true;
+            *close_requested = true;
+        }
+
         if ui.add_sized([ui.available_width(), 24.0], egui::Button::new("Materiaalikirjasto (Presets)..."))
             .on_hover_text("Avaa leikkaus- ja kaiverrusarvot eri materiaaleille")
             .clicked()
